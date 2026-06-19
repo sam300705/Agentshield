@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: unsafe-agent-worker
+  labels:
+    app: unsafe-agent-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: unsafe-agent-worker
+  template:
+    metadata:
+      labels:
+        app: unsafe-agent-worker
+    spec:
+      hostNetwork: true
+      containers:
+        - name: worker
+          image: example/unsafe-agent-worker:latest
+          imagePullPolicy: Always
+          env:
+            - name: ADMIN_TOKEN
+              value: "hardcoded-admin-token"
+          securityContext:
+            privileged: true
+            allowPrivilegeEscalation: true
+            runAsUser: 0
+          volumeMounts:
+            - name: host-root
+              mountPath: /host
+      volumes:
+        - name: host-root
+          hostPath:
+            path: /
+            type: Directory
+

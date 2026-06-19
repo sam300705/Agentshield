@@ -1,0 +1,193 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum FindingCategory {
+  SECRET
+  DOCKERFILE
+  KUBERNETES
+  DEPENDENCY
+  AGENT_WORKFLOW
+}
+
+enum Severity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum ScanStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum PolicyDecisionType {
+  ALLOW
+  WARN
+  REQUIRE_APPROVAL
+  BLOCK
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum PackageManager {
+  NPM
+  PNPM
+  YARN
+  UNKNOWN
+}
+
+enum DependencyScope {
+  PRODUCTION
+  DEVELOPMENT
+  OPTIONAL
+  PEER
+  UNKNOWN
+}
+
+enum AuditAction {
+  SCAN_CREATED
+  SCAN_COMPLETED
+  FINDING_CREATED
+  POLICY_DECIDED
+  REMEDIATION_CREATED
+  APPROVAL_REQUESTED
+  APPROVAL_UPDATED
+}
+
+model Scan {
+  id             String       @id @default(cuid())
+  repositoryName String
+  repositoryUrl  String?
+  branch         String
+  commitSha      String?
+  status         ScanStatus   @default(QUEUED)
+  metadata       Json         @default("{}")
+  startedAt      DateTime     @default(now())
+  completedAt    DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  findings       Finding[]
+  dependencies   Dependency[]
+  auditEvents    AuditEvent[]
+
+  @@index([status])
+  @@index([repositoryName])
+}
+
+model Finding {
+  id             String          @id @default(cuid())
+  scanId         String
+  scan           Scan            @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  category       FindingCategory
+  severity       Severity
+  title          String
+  description    String
+  filePath       String
+  lineStart      Int?
+  lineEnd        Int?
+  evidence       Json            @default("{}")
+  fingerprint    String          @unique
+  createdAt      DateTime        @default(now())
+  policyDecision PolicyDecision?
+  remediation    Remediation?
+  approval       Approval?
+
+  @@index([scanId])
+  @@index([category])
+  @@index([severity])
+}
+
+model PolicyDecision {
+  id           String             @id @default(cuid())
+  findingId    String             @unique
+  finding      Finding            @relation(fields: [findingId], references: [id], onDelete: Cascade)
+  decision     PolicyDecisionType
+  ruleId       String
+  ruleVersion  String
+  reason       String
+  ruleSnapshot Json
+  decidedAt    DateTime           @default(now())
+
+  @@index([decision])
+  @@index([ruleId])
+}
+
+model Remediation {
+  id                   String             @id @default(cuid())
+  findingId            String             @unique
+  finding              Finding            @relation(fields: [findingId], references: [id], onDelete: Cascade)
+  summary              String
+  detail               String?
+  steps                Json               @default("[]")
+  patch                Json?
+  generatedForDecision PolicyDecisionType
+  createdAt            DateTime           @default(now())
+
+  @@index([generatedForDecision])
+}
+
+model Approval {
+  id          String         @id @default(cuid())
+  findingId   String         @unique
+  finding     Finding        @relation(fields: [findingId], references: [id], onDelete: Cascade)
+  status      ApprovalStatus @default(PENDING)
+  actor       String
+  reason      String?
+  requestedAt DateTime       @default(now())
+  reviewedAt  DateTime?
+
+  @@index([status])
+  @@index([actor])
+}
+
+model Dependency {
+  id             String          @id @default(cuid())
+  scanId         String
+  scan           Scan            @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  packageName    String
+  version        String
+  packageManager PackageManager
+  scope          DependencyScope @default(UNKNOWN)
+  manifestPath   String
+  purl           String?
+  license        String?
+  supplier       String?
+  metadata       Json            @default("{}")
+  createdAt      DateTime        @default(now())
+
+  @@unique([scanId, packageName, version, manifestPath])
+  @@index([scanId])
+  @@index([packageManager])
+}
+
+model AuditEvent {
+  id         String      @id @default(cuid())
+  actor      String
+  action     AuditAction
+  entityType String
+  entityId   String
+  scanId     String?
+  scan       Scan?       @relation(fields: [scanId], references: [id], onDelete: SetNull)
+  metadata   Json        @default("{}")
+  createdAt  DateTime    @default(now())
+
+  @@index([actor])
+  @@index([action])
+  @@index([entityType, entityId])
+  @@index([scanId])
+}
+

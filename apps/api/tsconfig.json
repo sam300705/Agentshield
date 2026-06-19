@@ -1,0 +1,31 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@agentshield/schemas": ["../../packages/schemas/dist/index.d.ts"],
+      "@agentshield/scanner": ["../../packages/scanner/dist/index.d.ts"],
+      "@agentshield/policy-engine": ["../../packages/policy-engine/dist/index.d.ts"],
+      "@agentshield/remediation": ["../../packages/remediation/dist/index.d.ts"]
+    }
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["dist", "node_modules"],
+  "references": [
+    {
+      "path": "../../packages/schemas"
+    },
+    {
+      "path": "../../packages/scanner"
+    },
+    {
+      "path": "../../packages/policy-engine"
+    },
+    {
+      "path": "../../packages/remediation"
+    }
+  ]
+}

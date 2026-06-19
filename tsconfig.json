@@ -1,0 +1,28 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": ["prisma/**/*.ts", "prisma.config.ts"],
+  "references": [
+    {
+      "path": "./packages/schemas"
+    },
+    {
+      "path": "./packages/scanner"
+    },
+    {
+      "path": "./packages/policy-engine"
+    },
+    {
+      "path": "./packages/remediation"
+    },
+    {
+      "path": "./apps/api"
+    },
+    {
+      "path": "./apps/web-dashboard"
+    }
+  ]
+}
