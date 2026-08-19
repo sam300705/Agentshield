@@ -32,7 +32,8 @@ const TEXT_FILE_EXTENSIONS = new Set([
 ]);
 
 function isDockerfile(filePath: string): boolean {
-  return path.basename(filePath).toLowerCase().startsWith("dockerfile");
+  const basename = path.basename(filePath).toLowerCase();
+  return basename === "dockerfile" || basename.startsWith("dockerfile.");
 }
 
 function isYamlFile(filePath: string): boolean {

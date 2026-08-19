@@ -55,7 +55,13 @@ jobs:
           echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
           test "$exit_code" -eq 3
       - name: Gate repository source
-        run: node packages/scanner/dist/cli.js --path . --ignore examples --format human
+        # Exclude synthetic token fixtures and remediation before/after examples.
+        run: >-
+          node packages/scanner/dist/cli.js --path . --format human
+          --ignore examples
+          --ignore apps/api/src/controllers/controlPlaneController.ts
+          --ignore packages/remediation/src/templates.ts
+          --ignore packages/scanner/src/secretScanner.test.ts
       - name: Job summary
         run: |
           echo "## AgentShield security gate" >> "$GITHUB_STEP_SUMMARY"

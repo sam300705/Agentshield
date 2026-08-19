@@ -5,11 +5,13 @@ const DEFAULT_EXCLUDED_DIRECTORIES = new Set([
   ".git",
   ".next",
   ".turbo",
+  ".tmp",
   ".vite",
   "build",
   "coverage",
   "dist",
   "node_modules",
+  "node_modules.pnpm11",
 ]);
 
 export interface WalkRepositoryOptions {
