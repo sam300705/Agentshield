@@ -11,6 +11,7 @@ import helmet from "helmet";
 import { ZodError } from "zod";
 
 import { router } from "./routes/index.js";
+import { getCorrelationId, requestContext } from "./security/auth.js";
 
 const DEFAULT_PORT = 3001;
 
@@ -24,6 +25,7 @@ export function createServer(): Express {
     }),
   );
   app.use(express.json({ limit: "1mb" }));
+  app.use(requestContext);
 
   app.use("/", router);
 
@@ -39,17 +41,29 @@ export function createServer(): Express {
 
     if (error instanceof ZodError) {
       response.status(400).json({
-        error: "VALIDATION_ERROR",
-        message: "Request validation failed.",
-        issues: error.issues,
+        error: {
+          code: "VALIDATION_ERROR",
+          message: "Request validation failed.",
+          issues: error.issues,
+          correlationId: getCorrelationId(response),
+        },
       });
       return;
     }
 
-    console.error(error);
+    console.error(
+      JSON.stringify({
+        level: "error",
+        correlationId: getCorrelationId(response),
+        message: error instanceof Error ? error.message : "Unknown error",
+      }),
+    );
     response.status(500).json({
-      error: "INTERNAL_SERVER_ERROR",
-      message: "An unexpected error occurred.",
+      error: {
+        code: "INTERNAL_SERVER_ERROR",
+        message: "An unexpected error occurred.",
+        correlationId: getCorrelationId(response),
+      },
     });
   }) satisfies ErrorRequestHandler);
 

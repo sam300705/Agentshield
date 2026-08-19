@@ -13,6 +13,9 @@ import {
 } from "../controllers/approvalController.js";
 import { listAuditEventsController } from "../controllers/auditController.js";
 import { getDashboardSummaryController } from "../controllers/dashboardController.js";
+import { getDemoControlPlaneController } from "../controllers/controlPlaneController.js";
+import { metricsController, readinessController } from "../controllers/systemController.js";
+import { requirePermission } from "../security/auth.js";
 import {
   getScanController,
   getScanFindingsController,
@@ -25,11 +28,11 @@ type AsyncRouteHandler = (
   request: Request,
   response: Response,
   next: NextFunction,
-) => Promise<void>;
+) => Promise<void> | void;
 
 function asyncHandler(handler: AsyncRouteHandler) {
   return (request: Request, response: Response, next: NextFunction) => {
-    void handler(request, response, next).catch(next);
+    void Promise.resolve(handler(request, response, next)).catch(next);
   };
 }
 
@@ -41,14 +44,36 @@ router.get("/health", (_request, response) => {
     status: "ok",
   });
 });
+router.get("/health/live", (_request, response) =>
+  response.json({ service: "agentshield-api", status: "alive" }),
+);
+router.get("/health/ready", asyncHandler(readinessController));
+router.get("/metrics", requirePermission("organization:manage"), asyncHandler(metricsController));
 
-router.post("/api/scans/run-demo", asyncHandler(runDemoScanController));
+router.get(
+  "/api/v1/demo/control-plane",
+  requirePermission("scan:read"),
+  asyncHandler(getDemoControlPlaneController),
+);
+router.post(
+  "/api/scans/run-demo",
+  requirePermission("scan:run"),
+  asyncHandler(runDemoScanController),
+);
 router.get("/api/scans", asyncHandler(listScansController));
 router.get("/api/scans/:scanId", asyncHandler(getScanController));
 router.get("/api/scans/:scanId/findings", asyncHandler(getScanFindingsController));
 router.get("/api/scans/:scanId/sbom", asyncHandler(getScanSbomController));
 router.get("/api/approvals", asyncHandler(listPendingApprovalsController));
-router.post("/api/approvals/:approvalId/approve", asyncHandler(approveApprovalController));
-router.post("/api/approvals/:approvalId/reject", asyncHandler(rejectApprovalController));
+router.post(
+  "/api/approvals/:approvalId/approve",
+  requirePermission("approval:review"),
+  asyncHandler(approveApprovalController),
+);
+router.post(
+  "/api/approvals/:approvalId/reject",
+  requirePermission("approval:review"),
+  asyncHandler(rejectApprovalController),
+);
 router.get("/api/audit-events", asyncHandler(listAuditEventsController));
 router.get("/api/dashboard/summary", asyncHandler(getDashboardSummaryController));

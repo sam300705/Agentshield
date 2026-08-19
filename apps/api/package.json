@@ -6,10 +6,12 @@
   "scripts": {
     "predev": "corepack pnpm --filter @agentshield/scanner --filter @agentshield/policy-engine --filter @agentshield/remediation build",
     "dev": "tsx watch --tsconfig=tsconfig.runtime.json src/index.ts",
+    "dev:worker": "tsx watch --tsconfig=tsconfig.runtime.json src/worker.ts",
     "prebuild": "corepack pnpm --filter @agentshield/scanner --filter @agentshield/policy-engine --filter @agentshield/remediation build",
     "build": "tsc -p tsconfig.json",
+    "worker": "node dist/worker.js",
     "lint": "eslint .",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run",
     "pretypecheck": "corepack pnpm --filter @agentshield/scanner --filter @agentshield/policy-engine --filter @agentshield/remediation build",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

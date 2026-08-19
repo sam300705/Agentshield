@@ -1,8 +1,4 @@
-import {
-  type Finding,
-  type FindingSeverity,
-  findingSchema,
-} from "@agentshield/schemas";
+import { type Finding, type FindingSeverity, findingSchema } from "@agentshield/schemas";
 import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -56,7 +52,12 @@ function toRelativePath(targetRoot: string, filePath: string): string {
   return path.relative(targetRoot, filePath) || path.basename(filePath);
 }
 
-function createFingerprint(ruleId: string, relativePath: string, lineNumber: number, line: string): string {
+function createFingerprint(
+  ruleId: string,
+  relativePath: string,
+  lineNumber: number,
+  line: string,
+): string {
   const digest = createHash("sha256")
     .update(`${ruleId}:${relativePath}:${lineNumber}:${line}`)
     .digest("hex")
@@ -103,4 +104,3 @@ export async function scanAgentWorkflowLog(input: AgentWorkflowScannerInput): Pr
 
   return findings;
 }
-

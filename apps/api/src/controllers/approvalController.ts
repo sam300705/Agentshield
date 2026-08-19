@@ -3,8 +3,12 @@ import { type Request, type Response } from "express";
 import { z } from "zod";
 
 import { prisma } from "../db/prisma.js";
-
-const ADMIN_ACTOR = "Admin User";
+import {
+  canIndependentlyApprove,
+  getActor,
+  getCorrelationId,
+  type RequestActor,
+} from "../security/auth.js";
 
 const paginationQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(25),
@@ -71,6 +75,7 @@ async function updateApprovalStatus(
   approvalId: string,
   status: Extract<ApprovalStatus, "APPROVED" | "REJECTED">,
   reason: string | undefined,
+  actor: RequestActor,
 ) {
   const approval = await prisma.approval.findUnique({
     where: {
@@ -82,17 +87,20 @@ async function updateApprovalStatus(
   });
 
   if (approval == null) {
-    return null;
+    return { kind: "NOT_FOUND" as const };
   }
 
-  return prisma.$transaction(async (tx) => {
+  if (!canIndependentlyApprove(actor, approval.requestedBy)) return { kind: "FORBIDDEN" as const };
+
+  const data = await prisma.$transaction(async (tx) => {
     const updatedApproval = await tx.approval.update({
       where: {
         id: approvalId,
       },
       data: {
         status,
-        actor: ADMIN_ACTOR,
+        actor: actor.id,
+        reviewedBy: actor.id,
         reason: reason ?? approval.reason,
         reviewedAt: new Date(),
       },
@@ -108,7 +116,7 @@ async function updateApprovalStatus(
 
     await tx.auditEvent.create({
       data: {
-        actor: ADMIN_ACTOR,
+        actor: actor.id,
         action: AuditAction.APPROVAL_UPDATED,
         entityType: "Approval",
         entityId: approvalId,
@@ -123,6 +131,7 @@ async function updateApprovalStatus(
 
     return updatedApproval;
   });
+  return { kind: "UPDATED" as const, data };
 }
 
 export async function approveApprovalController(
@@ -131,9 +140,14 @@ export async function approveApprovalController(
 ): Promise<void> {
   const { approvalId } = approvalParamsSchema.parse(request.params);
   const body = approvalActionBodySchema.parse(request.body);
-  const approval = await updateApprovalStatus(approvalId, ApprovalStatus.APPROVED, body.reason);
+  const approval = await updateApprovalStatus(
+    approvalId,
+    ApprovalStatus.APPROVED,
+    body.reason,
+    getActor(response),
+  );
 
-  if (approval == null) {
+  if (approval.kind === "NOT_FOUND") {
     response.status(404).json({
       error: "APPROVAL_NOT_FOUND",
       message: `Approval ${approvalId} was not found.`,
@@ -141,8 +155,19 @@ export async function approveApprovalController(
     return;
   }
 
+  if (approval.kind === "FORBIDDEN") {
+    response.status(403).json({
+      error: {
+        code: "SEPARATION_OF_DUTIES",
+        message: "The requester cannot approve their own risky change.",
+        correlationId: getCorrelationId(response),
+      },
+    });
+    return;
+  }
+
   response.json({
-    data: approval,
+    data: approval.data,
   });
 }
 
@@ -152,9 +177,14 @@ export async function rejectApprovalController(
 ): Promise<void> {
   const { approvalId } = approvalParamsSchema.parse(request.params);
   const body = approvalActionBodySchema.parse(request.body);
-  const approval = await updateApprovalStatus(approvalId, ApprovalStatus.REJECTED, body.reason);
+  const approval = await updateApprovalStatus(
+    approvalId,
+    ApprovalStatus.REJECTED,
+    body.reason,
+    getActor(response),
+  );
 
-  if (approval == null) {
+  if (approval.kind === "NOT_FOUND") {
     response.status(404).json({
       error: "APPROVAL_NOT_FOUND",
       message: `Approval ${approvalId} was not found.`,
@@ -162,7 +192,18 @@ export async function rejectApprovalController(
     return;
   }
 
+  if (approval.kind === "FORBIDDEN") {
+    response.status(403).json({
+      error: {
+        code: "SEPARATION_OF_DUTIES",
+        message: "The requester cannot review their own risky change.",
+        correlationId: getCorrelationId(response),
+      },
+    });
+    return;
+  }
+
   response.json({
-    data: approval,
+    data: approval.data,
   });
 }

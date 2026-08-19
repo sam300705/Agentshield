@@ -10,7 +10,7 @@
     "build": "tsc -p tsconfig.json && vite build",
     "lint": "eslint .",
     "preview": "vite preview --host 0.0.0.0",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run",
     "pretypecheck": "corepack pnpm --filter @agentshield/schemas build",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

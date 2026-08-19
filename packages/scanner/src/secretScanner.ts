@@ -1,8 +1,4 @@
-import {
-  type Finding,
-  type FindingSeverity,
-  findingSchema,
-} from "@agentshield/schemas";
+import { type Finding, type FindingSeverity, findingSchema } from "@agentshield/schemas";
 import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -25,14 +21,16 @@ const SECRET_PATTERNS: SecretPattern[] = [
   {
     id: "secret.aws_access_key_id",
     title: "High-confidence AWS access key id detected",
-    description: "A value matching the AWS access key id format was found in source-controlled text.",
+    description:
+      "A value matching the AWS access key id format was found in source-controlled text.",
     severity: "CRITICAL",
     regex: /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/,
   },
   {
     id: "secret.aws_secret_access_key",
     title: "High-confidence AWS secret access key detected",
-    description: "An explicit AWS_SECRET_ACCESS_KEY assignment was found in source-controlled text.",
+    description:
+      "An explicit AWS_SECRET_ACCESS_KEY assignment was found in source-controlled text.",
     severity: "CRITICAL",
     regex: /\bAWS_SECRET_ACCESS_KEY\s*[:=]\s*["']?[A-Za-z0-9/+=]{40}["']?/i,
   },
@@ -46,7 +44,8 @@ const SECRET_PATTERNS: SecretPattern[] = [
   {
     id: "secret.stripe_live_key",
     title: "High-confidence Stripe live secret key detected",
-    description: "A value matching a Stripe live secret key prefix was found in source-controlled text.",
+    description:
+      "A value matching a Stripe live secret key prefix was found in source-controlled text.",
     severity: "CRITICAL",
     regex: /\bsk_live_[A-Za-z0-9]{20,255}\b/,
   },
@@ -60,7 +59,8 @@ const SECRET_PATTERNS: SecretPattern[] = [
   {
     id: "secret.explicit_generic_key",
     title: "Explicit hardcoded secret-like assignment detected",
-    description: "An explicit key, token, or secret assignment with a long literal value was found.",
+    description:
+      "An explicit key, token, or secret assignment with a long literal value was found.",
     severity: "HIGH",
     regex:
       /\b(?:API_KEY|ADMIN_TOKEN|JWT_SECRET|SECRET_KEY|GITHUB_TOKEN|TOKEN)\s*[:=]\s*["']?[A-Za-z0-9_./+=-]{12,}["']?/i,
@@ -79,7 +79,12 @@ function redact(value: string): string {
   return `${value.slice(0, 4)}...[REDACTED]...${value.slice(-4)}`;
 }
 
-function createFingerprint(ruleId: string, relativePath: string, lineNumber: number, match: string): string {
+function createFingerprint(
+  ruleId: string,
+  relativePath: string,
+  lineNumber: number,
+  match: string,
+): string {
   const digest = createHash("sha256")
     .update(`${ruleId}:${relativePath}:${lineNumber}:${match}`)
     .digest("hex")
@@ -130,4 +135,3 @@ export async function scanFileForSecrets(input: SecretScannerInput): Promise<Fin
 
   return findings;
 }
-

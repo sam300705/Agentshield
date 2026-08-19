@@ -205,6 +205,9 @@ importers:
 
   packages/scanner:
     dependencies:
+      '@agentshield/policy-engine':
+        specifier: workspace:*
+        version: link:../policy-engine
       '@agentshield/schemas':
         specifier: workspace:*
         version: link:../schemas
