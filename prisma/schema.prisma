@@ -66,26 +66,105 @@ enum AuditAction {
   REMEDIATION_CREATED
   APPROVAL_REQUESTED
   APPROVAL_UPDATED
+  AGENT_EVENT_INGESTED
+  POLICY_SIMULATED
+  RECEIPT_GENERATED
+}
+
+enum OrganizationRole {
+  VIEWER
+  DEVELOPER
+  SECURITY_REVIEWER
+  POLICY_ADMINISTRATOR
+  ORGANIZATION_ADMINISTRATOR
+}
+
+enum AgentSessionStatus {
+  ACTIVE
+  COMPLETED
+  BLOCKED
+  FAILED
+  CANCELLED
+}
+
+enum AgentEventType {
+  TOOL_INVOCATION
+  SHELL_COMMAND
+  FILE_READ
+  FILE_MODIFICATION
+  DEPENDENCY_INSTALLATION
+  NETWORK_REQUEST
+  SECRET_ACCESS_ATTEMPT
+  INFRASTRUCTURE_CHANGE
+  POLICY_EVALUATION
+  APPROVAL_REQUEST
+  HUMAN_DECISION
+}
+
+enum PolicyEnvironment {
+  DEVELOPMENT
+  STAGING
+  PRODUCTION
+}
+
+enum PolicyBundleStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum SimulationStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum RiskNodeKind {
+  TASK
+  EVENT
+  RESOURCE
+  RISK
+  POLICY
+  DECISION
+}
+
+enum EdgeConfidence {
+  CONFIRMED
+  INFERRED
 }
 
 model Scan {
-  id             String       @id @default(cuid())
+  id             String             @id @default(cuid())
   repositoryName String
   repositoryUrl  String?
   branch         String
   commitSha      String?
-  status         ScanStatus   @default(QUEUED)
-  metadata       Json         @default("{}")
-  startedAt      DateTime     @default(now())
+  status         ScanStatus         @default(QUEUED)
+  metadata       Json               @default("{}")
+  startedAt      DateTime           @default(now())
   completedAt    DateTime?
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
   findings       Finding[]
   dependencies   Dependency[]
   auditEvents    AuditEvent[]
+  organizationId String?
+  organization   Organization?      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  repositoryId   String?
+  repository     Repository?        @relation(fields: [repositoryId], references: [id], onDelete: SetNull)
+  sessionId      String?
+  session        AgentSession?      @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  job            ScanJob?
+  simulations    PolicySimulation[]
+  receipt        SecurityReceipt?
 
   @@index([status])
   @@index([repositoryName])
+  @@index([organizationId, createdAt])
+  @@index([repositoryId, createdAt])
+  @@index([sessionId])
 }
 
 model Finding {
@@ -149,6 +228,9 @@ model Approval {
   reason      String?
   requestedAt DateTime       @default(now())
   reviewedAt  DateTime?
+  requestedBy String         @default("system")
+  reviewedBy  String?
+  nonce       String?        @unique
 
   @@index([status])
   @@index([actor])
@@ -175,19 +257,316 @@ model Dependency {
 }
 
 model AuditEvent {
-  id         String      @id @default(cuid())
-  actor      String
-  action     AuditAction
-  entityType String
-  entityId   String
-  scanId     String?
-  scan       Scan?       @relation(fields: [scanId], references: [id], onDelete: SetNull)
-  metadata   Json        @default("{}")
-  createdAt  DateTime    @default(now())
+  id             String        @id @default(cuid())
+  actor          String
+  action         AuditAction
+  entityType     String
+  entityId       String
+  scanId         String?
+  scan           Scan?         @relation(fields: [scanId], references: [id], onDelete: SetNull)
+  metadata       Json          @default("{}")
+  createdAt      DateTime      @default(now())
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  correlationId  String?
 
   @@index([actor])
   @@index([action])
   @@index([entityType, entityId])
   @@index([scanId])
+  @@index([organizationId, createdAt])
+  @@index([correlationId])
 }
 
+model Organization {
+  id            String             @id @default(cuid())
+  slug          String             @unique
+  name          String
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  memberships   Membership[]
+  repositories  Repository[]
+  sessions      AgentSession[]
+  policyBundles PolicyBundle[]
+  simulations   PolicySimulation[]
+  integrations  Integration[]
+  baselines     AgentBaseline[]
+  scans         Scan[]
+  auditEvents   AuditEvent[]
+}
+
+model User {
+  id          String       @id @default(cuid())
+  externalId  String       @unique
+  displayName String
+  email       String?      @unique
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  memberships Membership[]
+}
+
+model Membership {
+  id             String           @id @default(cuid())
+  organizationId String
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role           OrganizationRole
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@unique([organizationId, userId])
+  @@index([organizationId, role])
+}
+
+model Repository {
+  id             String          @id @default(cuid())
+  organizationId String
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  provider       String
+  externalId     String
+  fullName       String
+  defaultBranch  String          @default("main")
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  sessions       AgentSession[]
+  scans          Scan[]
+  baselines      AgentBaseline[]
+
+  @@unique([organizationId, provider, externalId])
+  @@index([organizationId, fullName])
+}
+
+model AgentSession {
+  id             String             @id @default(cuid())
+  organizationId String
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  repositoryId   String
+  repository     Repository         @relation(fields: [repositoryId], references: [id], onDelete: Restrict)
+  actor          String
+  source         String
+  taskSummary    String
+  status         AgentSessionStatus @default(ACTIVE)
+  correlationId  String
+  startedAt      DateTime           @default(now())
+  completedAt    DateTime?
+  events         AgentEvent[]
+  riskNodes      RiskNode[]
+  riskEdges      RiskEdge[]
+  simulations    PolicySimulation[]
+  scans          Scan[]
+
+  @@unique([organizationId, correlationId])
+  @@index([organizationId, startedAt])
+  @@index([repositoryId, startedAt])
+  @@index([status])
+}
+
+model AgentEvent {
+  id             String         @id @default(cuid())
+  sessionId      String
+  session        AgentSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sequence       Int
+  idempotencyKey String
+  timestamp      DateTime
+  actor          String
+  source         String
+  type           AgentEventType
+  riskLevel      Severity
+  summary        String
+  resource       String?
+  evidence       Json           @default("{}")
+  correlationId  String
+  previousHash   String?
+  eventHash      String
+  createdAt      DateTime       @default(now())
+
+  @@unique([sessionId, sequence])
+  @@unique([sessionId, idempotencyKey])
+  @@index([sessionId, timestamp])
+  @@index([correlationId])
+  @@index([type, riskLevel])
+}
+
+model ScanJob {
+  id                String     @id @default(cuid())
+  scanId            String     @unique
+  scan              Scan       @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  idempotencyKey    String     @unique
+  status            ScanStatus @default(QUEUED)
+  progress          Int        @default(0)
+  attempts          Int        @default(0)
+  maxAttempts       Int        @default(3)
+  nextAttemptAt     DateTime?
+  lockedAt          DateTime?
+  lockedBy          String?
+  cancelRequestedAt DateTime?
+  failureCode       String?
+  failureMessage    String?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  @@index([status, nextAttemptAt])
+  @@index([lockedAt])
+}
+
+model PolicyBundle {
+  id             String                @id @default(cuid())
+  organizationId String
+  organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  environment    PolicyEnvironment
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  versions       PolicyBundleVersion[]
+
+  @@unique([organizationId, name, environment])
+  @@index([organizationId, environment])
+}
+
+model PolicyBundleVersion {
+  id              String             @id @default(cuid())
+  bundleId        String
+  bundle          PolicyBundle       @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  semanticVersion String
+  status          PolicyBundleStatus @default(DRAFT)
+  rules           Json
+  snapshotHash    String
+  createdBy       String
+  createdAt       DateTime           @default(now())
+  promotedBy      String?
+  promotedAt      DateTime?
+  simulations     PolicySimulation[]
+
+  @@unique([bundleId, semanticVersion])
+  @@index([bundleId, status])
+}
+
+model PolicySimulation {
+  id              String               @id @default(cuid())
+  organizationId  String
+  organization    Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sourceScanId    String?
+  sourceScan      Scan?                @relation(fields: [sourceScanId], references: [id], onDelete: Restrict)
+  sourceSessionId String?
+  sourceSession   AgentSession?        @relation(fields: [sourceSessionId], references: [id], onDelete: Restrict)
+  bundleVersionId String
+  bundleVersion   PolicyBundleVersion  @relation(fields: [bundleVersionId], references: [id], onDelete: Restrict)
+  status          SimulationStatus     @default(QUEUED)
+  createdBy       String
+  createdAt       DateTime             @default(now())
+  completedAt     DateTime?
+  summary         Json                 @default("{}")
+  decisions       SimulationDecision[]
+
+  @@index([organizationId, createdAt])
+  @@index([sourceScanId])
+  @@index([sourceSessionId])
+}
+
+model SimulationDecision {
+  id                String             @id @default(cuid())
+  simulationId      String
+  simulation        PolicySimulation   @relation(fields: [simulationId], references: [id], onDelete: Cascade)
+  findingId         String
+  originalDecision  PolicyDecisionType
+  simulatedDecision PolicyDecisionType
+  originalRuleId    String
+  simulatedRuleId   String
+  conditionTrace    Json
+
+  @@unique([simulationId, findingId])
+  @@index([simulationId, simulatedDecision])
+}
+
+model RiskNode {
+  id        String       @id @default(cuid())
+  sessionId String
+  session   AgentSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  kind      RiskNodeKind
+  label     String
+  riskLevel Severity
+  eventId   String?
+  resource  String?
+  metadata  Json         @default("{}")
+  outgoing  RiskEdge[]   @relation("RiskEdgeFrom")
+  incoming  RiskEdge[]   @relation("RiskEdgeTo")
+
+  @@index([sessionId, riskLevel])
+}
+
+model RiskEdge {
+  id          String         @id @default(cuid())
+  sessionId   String
+  session     AgentSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  fromNodeId  String
+  fromNode    RiskNode       @relation("RiskEdgeFrom", fields: [fromNodeId], references: [id], onDelete: Cascade)
+  toNodeId    String
+  toNode      RiskNode       @relation("RiskEdgeTo", fields: [toNodeId], references: [id], onDelete: Cascade)
+  relation    String
+  explanation String
+  confidence  EdgeConfidence
+
+  @@unique([sessionId, fromNodeId, toNodeId, relation])
+  @@index([sessionId])
+}
+
+model EvidenceArtifact {
+  id         String   @id @default(cuid())
+  findingId  String?
+  sessionId  String?
+  mediaType  String
+  digest     String
+  storageKey String
+  redacted   Boolean  @default(true)
+  sizeBytes  Int
+  createdAt  DateTime @default(now())
+
+  @@unique([digest, storageKey])
+  @@index([findingId])
+  @@index([sessionId])
+}
+
+model SecurityReceipt {
+  id                  String             @id @default(cuid())
+  scanId              String             @unique
+  scan                Scan               @relation(fields: [scanId], references: [id], onDelete: Restrict)
+  scannerVersion      String
+  policyBundleVersion String
+  findingCounts       Json
+  decisionCounts      Json
+  approvalState       String
+  evidenceDigest      String
+  gateResult          PolicyDecisionType
+  receiptHash         String             @unique
+  createdAt           DateTime           @default(now())
+}
+
+model Integration {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  provider       String
+  status         String
+  configuration  Json         @default("{}")
+  lastHealthAt   DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([organizationId, provider])
+}
+
+model AgentBaseline {
+  id              String       @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  repositoryId    String?
+  repository      Repository?  @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  agentIdentifier String
+  sampleSize      Int
+  metrics         Json
+  calculatedAt    DateTime     @default(now())
+
+  @@unique([organizationId, repositoryId, agentIdentifier])
+  @@index([organizationId, agentIdentifier])
+}

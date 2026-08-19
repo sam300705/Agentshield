@@ -2,7 +2,8 @@ import { z } from "zod";
 import { type Request, type Response } from "express";
 
 import { prisma } from "../db/prisma.js";
-import { runDemoScan } from "../services/scanService.js";
+import { getCorrelationId } from "../security/auth.js";
+import { enqueueDemoScan } from "../services/scanQueue.js";
 
 const paginationQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(25),
@@ -22,11 +23,19 @@ function getPagination(query: Request["query"]) {
   };
 }
 
-export async function runDemoScanController(_request: Request, response: Response): Promise<void> {
-  const scanId = await runDemoScan();
+export async function runDemoScanController(request: Request, response: Response): Promise<void> {
+  const suppliedKey = request.header("idempotency-key");
+  const idempotencyKey =
+    suppliedKey != null && /^[A-Za-z0-9._:-]{8,128}$/.test(suppliedKey)
+      ? suppliedKey
+      : `demo:${getCorrelationId(response)}`;
+  const job = await enqueueDemoScan(idempotencyKey);
 
-  response.status(201).json({
-    scanId,
+  response.status(202).json({
+    scanId: job.scanId,
+    jobId: job.id,
+    status: job.status,
+    correlationId: getCorrelationId(response),
   });
 }
 

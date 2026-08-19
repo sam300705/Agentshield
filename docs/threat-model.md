@@ -35,7 +35,7 @@ AgentShield protects pre-merge and review workflows where AI coding agents may i
 - Policy decisions that must block a merge or require human approval.
 - Auditability of scan, decision, remediation, and approval activity.
 
-## Security Controls In v1
+## Security Controls
 
 - Deterministic scanners with explicit finding categories and evidence.
 - High-confidence regex patterns for secrets to reduce noisy false positives.
@@ -44,6 +44,12 @@ AgentShield protects pre-merge and review workflows where AI coding agents may i
 - Deterministic remediation templates for blocked and approval-required findings.
 - PostgreSQL persistence for scans, findings, dependencies, policy decisions, remediation, approvals, and audit events.
 - Dashboard visibility into Platform Risk Score and pending approvals.
+- Redacted, hash-chained Agent Events with correlation and idempotency metadata.
+- Deterministic causal graph derivation with confirmed/inferred edge labels.
+- Server-side RBAC and approval separation of duties.
+- Bounded repository traversal with symlink and path-escape safety.
+- Durable, retry-bounded background scan jobs.
+- Immutable policy simulations and tamper-evident Security Receipts.
 
 ## Explicit v1 Limitations
 
@@ -53,8 +59,8 @@ AgentShield protects pre-merge and review workflows where AI coding agents may i
 - Dependency inspection is an SBOM generator, not a full CVE vulnerability scanner.
 - Dockerfile and Kubernetes scanning are static checks only; v1 does not execute builds or run workloads.
 - v1 does not provide runtime protection, admission control, sandboxing, or eBPF monitoring.
-- v1 does not include authentication, RBAC, multi-tenancy, SSO, or approval delegation.
-- v1 does not integrate with GitHub checks, SARIF upload, ticketing systems, or secret managers.
+- The demo identity adapter is not production authentication; OIDC/SSO remains required.
+- SARIF and a reusable workflow exist, but a GitHub App, ticketing, and secret-manager integrations require external authentication infrastructure.
 - v1 remediation is template-driven and does not modify files automatically.
 - v1 is designed as a local demo and architecture portfolio, not as a production SaaS deployment.
 
