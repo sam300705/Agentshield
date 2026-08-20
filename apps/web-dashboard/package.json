@@ -4,14 +4,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "predev": "corepack pnpm --filter @agentshield/schemas build",
+    "predev": "pnpm --filter @agentshield/schemas build",
     "dev": "vite --host 0.0.0.0",
-    "prebuild": "corepack pnpm --filter @agentshield/schemas build",
+    "prebuild": "pnpm --filter @agentshield/schemas build",
     "build": "tsc -p tsconfig.json && vite build",
     "lint": "eslint .",
     "preview": "vite preview --host 0.0.0.0",
     "test": "vitest run",
-    "pretypecheck": "corepack pnpm --filter @agentshield/schemas build",
+    "pretypecheck": "pnpm --filter @agentshield/schemas build",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

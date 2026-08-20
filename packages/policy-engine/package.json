@@ -13,10 +13,10 @@
     }
   },
   "scripts": {
-    "prebuild": "corepack pnpm --filter @agentshield/schemas build",
+    "prebuild": "pnpm --filter @agentshield/schemas build",
     "build": "tsc -p tsconfig.json",
     "lint": "eslint .",
-    "pretypecheck": "corepack pnpm --filter @agentshield/schemas build",
+    "pretypecheck": "pnpm --filter @agentshield/schemas build",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
