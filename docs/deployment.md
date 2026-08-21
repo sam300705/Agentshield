@@ -68,3 +68,29 @@ For the Git-linked `agentshield` Vercel project, use the following values when t
 | Output directory | `dist`               |
 
 The Git connection must point to `sam300705/Agentshield`; these settings cannot work against an uploaded source tree that omits the `apps/web-dashboard` directory. Redeploy after saving the settings so the deployment uses the current Project Settings rather than an older production override.
+
+## Render API and worker with Neon PostgreSQL
+
+The repository includes a credential-free `render.yaml` Blueprint for the API and durable scan worker. It intentionally does not provision a database or embed secrets. Create a Neon project, copy both connection strings from Neon’s **Connect** dialog, and enter them as the Render environment-group values described below. Neon recommends the pooled URL for application traffic and the direct, unpooled URL for Prisma CLI migrations.[1] [2]
+
+| Variable                | Render value                                                             | Used by                    |
+| ----------------------- | ------------------------------------------------------------------------ | -------------------------- |
+| `DATABASE_URL`          | Neon pooled URL, with `sslmode=require` and a suitable `connect_timeout` | API and worker runtime     |
+| `DATABASE_URL_UNPOOLED` | Neon direct URL, without the `-pooler` hostname suffix                   | `prisma migrate deploy`    |
+| `CORS_ORIGIN`           | The exact Vercel dashboard origin                                        | API                        |
+| `AUTH_MODE`             | `oidc`                                                                   | API and worker environment |
+| `DEMO_AUTH_ENABLED`     | `false`                                                                  | API and worker environment |
+| `OIDC_ISSUER`           | Approved identity-provider issuer                                        | API                        |
+| `OIDC_AUDIENCE`         | Approved API audience                                                    | API                        |
+| `OIDC_JWKS_URL`         | Approved JWKS endpoint                                                   | API                        |
+| `OIDC_ROLE_CLAIM`       | `roles` or the approved claim name                                       | API                        |
+
+Import the repository as a Render Blueprint from the `agent/production-hardening` branch. The web service runs `pnpm --filter @agentshield/api start`, probes `/health/ready`, and applies committed migrations with `pnpm db:deploy` before starting. The background worker runs `pnpm --filter @agentshield/api worker` and has no public endpoint. Render’s service model separates public web services from background workers, which are intended for continuously running queue processors.[3]
+
+Do not run `pnpm db:migrate`, `pnpm db:push`, or `pnpm db:seed` against the Neon production database. Review committed SQL migrations first, take the provider-managed backup required by your operating procedure, and run only `pnpm db:deploy` from the Render pre-deploy command. Keep the Vercel frontend’s `VITE_API_BASE_URL` unset until the API has a verified HTTPS URL and the API’s `CORS_ORIGIN` is set to the exact frontend origin.
+
+### Deployment references
+
+[1]: https://neon.com/docs/guides/prisma "Neon Prisma connection guide"
+[2]: https://neon.com/docs/guides/prisma-migrations "Neon Prisma migration guide"
+[3]: https://render.com/docs/service-types "Render service types"

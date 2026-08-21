@@ -70,7 +70,9 @@ export function createServer(): Express {
   return app;
 }
 
-export function startServer(port = Number(process.env.API_PORT ?? DEFAULT_PORT)) {
+export function startServer(
+  port = Number(process.env.PORT ?? process.env.API_PORT ?? DEFAULT_PORT),
+) {
   const app = createServer();
 
   return app.listen(port, () => {

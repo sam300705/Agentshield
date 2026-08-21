@@ -9,6 +9,7 @@
     "dev:worker": "tsx watch --tsconfig=tsconfig.runtime.json src/worker.ts",
     "prebuild": "pnpm --filter @agentshield/scanner --filter @agentshield/policy-engine --filter @agentshield/remediation build",
     "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
     "worker": "node dist/worker.js",
     "lint": "eslint .",
     "test": "vitest run",

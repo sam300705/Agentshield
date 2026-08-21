@@ -27,6 +27,7 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: postgresql://agentshield:agentshield_test_password@localhost:5432/agentshield?schema=public
+      DATABASE_URL_UNPOOLED: postgresql://agentshield:agentshield_test_password@localhost:5432/agentshield?schema=public
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
