@@ -9,7 +9,7 @@
 
 The AgentShield implementation was completed on a safe branch derived from the latest feature branch. The branch was pushed to GitHub, pull request [#2](https://github.com/sam300705/Agentshield/pull/2) was opened against `main`, and it remains **open, non-draft, unmerged, and conflict-free**. The latest GitHub Actions quality run for the code head passed all repository gates.
 
-The authenticated Git-linked Vercel project now has a ready dashboard deployment at [https://agentshield-gmezcqpyg-sam300705s-projects.vercel.app](https://agentshield-gmezcqpyg-sam300705s-projects.vercel.app), built from `agent/production-hardening` commit `94313d7`. The dashboard was opened in a browser and rendered successfully. This deployment verifies the static dashboard only; it does not claim that the API, PostgreSQL database, OIDC provider, or long-lived worker are remotely deployed.
+The authenticated Git-linked Vercel project now has a ready dashboard deployment at [https://agentshield-gov0eexcc-sam300705s-projects.vercel.app](https://agentshield-gov0eexcc-sam300705s-projects.vercel.app), built from `agent/production-hardening` commit `ba25ae9`. The dashboard was opened in a browser and rendered successfully. This deployment verifies the static dashboard only; it does not claim that the API, PostgreSQL database, OIDC provider, or long-lived worker are remotely deployed.
 
 > **Readiness conclusion:** The pushed code is locally verified and CI-green, and the authenticated Git-backed Vercel dashboard deployment is working. A complete production deployment still requires authorized external infrastructure for the API, PostgreSQL, OIDC, and worker process.
 
@@ -65,7 +65,7 @@ The deployed dashboard was opened in a browser and rendered the AgentShield risk
 
 ## Deployment details
 
-The latest authenticated Git-backed branch deployment is [https://agentshield-5ntcdk05g-sam300705s-projects.vercel.app](https://agentshield-5ntcdk05g-sam300705s-projects.vercel.app). Vercel reports it as `READY`, with deployment ID `dpl_96mmKd4hdFdaLgCG6ZJ1PAiurbzm`, source `git`, branch `agent/production-hardening`, framework `vite`, and commit `bfff261`. The stable branch alias remains [https://agentshield-git-agent-production-hardening-sam300705s-projects.vercel.app](https://agentshield-git-agent-production-hardening-sam300705s-projects.vercel.app). The earlier anonymous temporary preview remains non-authoritative and may expire.
+The latest authenticated Git-backed branch deployment is [https://agentshield-gov0eexcc-sam300705s-projects.vercel.app](https://agentshield-gov0eexcc-sam300705s-projects.vercel.app). Vercel reports it as `READY`, with deployment ID `dpl_9pvzpUiEKmHzx8fEjBnQ6FF8DbzJ`, source `git`, branch `agent/production-hardening`, framework `vite`, and commit `ba25ae9`. The stable branch alias remains [https://agentshield-git-agent-production-hardening-sam300705s-projects.vercel.app](https://agentshield-git-agent-production-hardening-sam300705s-projects.vercel.app). The earlier anonymous temporary preview remains non-authoritative and may expire.
 
 The production API requires `DATABASE_URL`, exact `CORS_ORIGIN`, `AUTH_MODE=oidc`, `OIDC_ISSUER`, `OIDC_AUDIENCE`, `OIDC_JWKS_URL`, and `OIDC_ROLE_CLAIM`. `DEMO_AUTH_ENABLED` must be disabled or unset in production. The worker must run as a long-lived process against the same PostgreSQL database. These services were intentionally not fabricated or connected to paid infrastructure.
 
@@ -87,7 +87,7 @@ No credentials were committed, no production resources were deleted, no security
 [2]: https://github.com/sam300705/Agentshield/pull/1 "Existing AgentShield pull request #1"
 [3]: https://github.com/sam300705/Agentshield/pull/2 "AgentShield production-hardening pull request #2"
 [4]: https://github.com/sam300705/Agentshield/actions/runs/32469365921 "AgentShield CI run 32469365921"
-[5]: https://agentshield-5ntcdk05g-sam300705s-projects.vercel.app "AgentShield latest authenticated Git-backed Vercel preview"
+[5]: https://agentshield-gov0eexcc-sam300705s-projects.vercel.app "AgentShield final authenticated Git-backed Vercel preview"
 
 ## Azure student-credit deployment path
 
