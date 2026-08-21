@@ -9,9 +9,9 @@
 
 The AgentShield implementation was completed on a safe branch derived from the latest feature branch. The branch was pushed to GitHub, pull request [#2](https://github.com/sam300705/Agentshield/pull/2) was opened against `main`, and it remains **open, non-draft, unmerged, and conflict-free**. The latest GitHub Actions quality run for the code head passed all repository gates.
 
-A static dashboard preview was deployed successfully at [https://temporary-quick-cedar-9mi3oqg.vercel.app](https://temporary-quick-cedar-9mi3oqg.vercel.app). This is an anonymous temporary Vercel deployment and expires after approximately 60 minutes unless claimed by an authorized Vercel account. It verifies the dashboard build and browser rendering only; it does not claim that the API, PostgreSQL database, OIDC provider, or long-lived worker are remotely deployed.
+The authenticated Git-linked Vercel project now has a ready dashboard deployment at [https://agentshield-gmezcqpyg-sam300705s-projects.vercel.app](https://agentshield-gmezcqpyg-sam300705s-projects.vercel.app), built from `agent/production-hardening` commit `94313d7`. The dashboard was opened in a browser and rendered successfully. This deployment verifies the static dashboard only; it does not claim that the API, PostgreSQL database, OIDC provider, or long-lived worker are remotely deployed.
 
-> **Readiness conclusion:** The pushed code is locally verified and CI-green, and the static dashboard preview is working. A complete production deployment still requires authorized external infrastructure for the API, PostgreSQL, OIDC, worker process, and a durable Vercel project.
+> **Readiness conclusion:** The pushed code is locally verified and CI-green, and the authenticated Git-backed Vercel dashboard deployment is working. A complete production deployment still requires authorized external infrastructure for the API, PostgreSQL, OIDC, and worker process.
 
 ## Git and pull-request state
 
@@ -22,7 +22,7 @@ A static dashboard preview was deployed successfully at [https://temporary-quick
 | Feature-base commit    | `736e088` (`fix(ci): exclude intentional security fixtures from self-scan`)                               |
 | Reproducibility commit | `dfd07aa` (`build: avoid nested Corepack in workspace scripts`)                                           |
 | Hardening commit       | `c11169b` (`feat: harden authenticated tenant-scoped control plane`)                                      |
-| Final pushed commit    | Updated after the verified Vercel-linked deployment fix                                                   |
+| Final pushed commit    | `94313d7` (`fix: align Vercel monorepo output configuration`)                                             |
 | Pull request           | [#2 — feat: production-harden AgentShield control plane](https://github.com/sam300705/Agentshield/pull/2) |
 | PR state               | Open, non-draft, unmerged, conflict-free                                                                  |
 | Existing PR #1         | Left unchanged; no force-push, merge, or resource deletion was performed                                  |
@@ -63,19 +63,19 @@ The deployed dashboard was opened in a browser and rendered the AgentShield risk
 
 ## Deployment details
 
-The preview URL is [https://temporary-quick-cedar-9mi3oqg.vercel.app](https://temporary-quick-cedar-9mi3oqg.vercel.app). It was created anonymously because no authenticated Vercel session was available. The deployment completed its local frozen install and dashboard production build, uploaded successfully, and returned a ready state. Because it is temporary, it is not a durable production URL.
+The authenticated Git-backed branch deployment is [https://agentshield-gmezcqpyg-sam300705s-projects.vercel.app](https://agentshield-gmezcqpyg-sam300705s-projects.vercel.app). Vercel reports it as `READY`, with deployment ID `dpl_4tFqfHufkehdHGhAPyFesqwPBJuK`, source `git`, branch `agent/production-hardening`, framework `vite`, and commit `94313d7`. The branch alias is [https://agentshield-git-agent-production-hardening-sam300705s-projects.vercel.app](https://agentshield-git-agent-production-hardening-sam300705s-projects.vercel.app). The earlier anonymous temporary preview remains non-authoritative and may expire.
 
 The production API requires `DATABASE_URL`, exact `CORS_ORIGIN`, `AUTH_MODE=oidc`, `OIDC_ISSUER`, `OIDC_AUDIENCE`, `OIDC_JWKS_URL`, and `OIDC_ROLE_CLAIM`. `DEMO_AUTH_ENABLED` must be disabled or unset in production. The worker must run as a long-lived process against the same PostgreSQL database. These services were intentionally not fabricated or connected to paid infrastructure.
 
 ## Remaining blockers and follow-up work
 
-| Blocker or limitation                                                 | Impact                                                                                                               | Required next action                                                                                            |
-| --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| Git-linked Vercel project required settings correction                | The first Git-backed deployment failed before publishing because its output directory did not match the build result | Redeploy after the corrected project settings and removal of the conflicting root configuration                 |
-| No authorized production API host or PostgreSQL service was available | The remote API, readiness, worker, and database flow cannot be claimed as deployed                                   | Provision the approved host and managed PostgreSQL service, then apply committed migrations                     |
-| OIDC provider values are placeholders                                 | Production login cannot be verified against a real identity provider                                                 | Supply issuer, audience, JWKS, role claim, and organization-claim configuration through secret management       |
-| GitHub App/webhook lifecycle remains intentionally unimplemented      | GitHub installation, webhook signature verification, and automatic PR orchestration are not production-connected     | Configure an approved GitHub App and implement its signed webhook lifecycle before enabling external automation |
-| GitHub CI reported deprecation annotations                            | Current checks pass, but workflow maintenance is needed                                                              | Schedule upgrades from CodeQL Action v3 to v4 and review the Node.js 20 action-runtime annotation               |
+| Blocker or limitation                                                 | Impact                                                                                                                  | Required next action                                                                                            |
+| --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Vercel monorepo configuration                                         | Resolved: the Git-linked project now uses Vite, root `apps/web-dashboard`, `pnpm install`, `pnpm run build`, and `dist` | Keep future changes on the Git-linked project and verify subsequent builds                                      |
+| No authorized production API host or PostgreSQL service was available | The remote API, readiness, worker, and database flow cannot be claimed as deployed                                      | Provision the approved host and managed PostgreSQL service, then apply committed migrations                     |
+| OIDC provider values are placeholders                                 | Production login cannot be verified against a real identity provider                                                    | Supply issuer, audience, JWKS, role claim, and organization-claim configuration through secret management       |
+| GitHub App/webhook lifecycle remains intentionally unimplemented      | GitHub installation, webhook signature verification, and automatic PR orchestration are not production-connected        | Configure an approved GitHub App and implement its signed webhook lifecycle before enabling external automation |
+| GitHub CI reported deprecation annotations                            | Current checks pass, but workflow maintenance is needed                                                                 | Schedule upgrades from CodeQL Action v3 to v4 and review the Node.js 20 action-runtime annotation               |
 
 No credentials were committed, no production resources were deleted, no security checks were weakened, no force-push was used, and `main` was not merged or modified.
 
@@ -85,4 +85,4 @@ No credentials were committed, no production resources were deleted, no security
 [2]: https://github.com/sam300705/Agentshield/pull/1 "Existing AgentShield pull request #1"
 [3]: https://github.com/sam300705/Agentshield/pull/2 "AgentShield production-hardening pull request #2"
 [4]: https://github.com/sam300705/Agentshield/actions/runs/32449811483 "AgentShield CI run 32449811483"
-[5]: https://temporary-quick-cedar-9mi3oqg.vercel.app "AgentShield temporary static preview"
+[5]: https://agentshield-gmezcqpyg-sam300705s-projects.vercel.app "AgentShield authenticated Git-backed Vercel preview"
