@@ -22,7 +22,7 @@ A static dashboard preview was deployed successfully at [https://temporary-quick
 | Feature-base commit    | `736e088` (`fix(ci): exclude intentional security fixtures from self-scan`)                               |
 | Reproducibility commit | `dfd07aa` (`build: avoid nested Corepack in workspace scripts`)                                           |
 | Hardening commit       | `c11169b` (`feat: harden authenticated tenant-scoped control plane`)                                      |
-| Final pushed commit    | `dc61979` (`chore: ignore local Vercel metadata`)                                                         |
+| Final pushed commit    | Updated after the verified Vercel-linked deployment fix                                                   |
 | Pull request           | [#2 — feat: production-harden AgentShield control plane](https://github.com/sam300705/Agentshield/pull/2) |
 | PR state               | Open, non-draft, unmerged, conflict-free                                                                  |
 | Existing PR #1         | Left unchanged; no force-push, merge, or resource deletion was performed                                  |
@@ -37,7 +37,7 @@ Tenant isolation was applied to scans, findings, SBOM dependencies, approvals, a
 
 The durable scan queue now records organization and correlation context, performs atomic job claims, bounds attempts, recovers stale worker locks, preserves cancellation behavior, and records bounded failure messages. Demo seed execution is restricted to non-production, local PostgreSQL targets and uses a stable demo organization identifier. The environment template contains placeholders rather than credentials and documents the production OIDC variables.
 
-Deployment documentation and a root `vercel.json` were added. The Vercel configuration builds and serves the static dashboard with frozen dependencies and client-side route rewrites. The deployment guide clearly separates the static preview from the API, PostgreSQL, and long-lived worker services.
+Deployment documentation and explicit Vercel project settings build and serve the static dashboard with frozen dependencies and client-side route rewrites. The deployment guide clearly separates the static preview from the API, PostgreSQL, and long-lived worker services.
 
 ## Verification results
 
@@ -69,13 +69,13 @@ The production API requires `DATABASE_URL`, exact `CORS_ORIGIN`, `AUTH_MODE=oidc
 
 ## Remaining blockers and follow-up work
 
-| Blocker or limitation                                                 | Impact                                                                                                           | Required next action                                                                                            |
-| --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| No authorized durable Vercel project was available                    | The preview expires and is not a stable production URL                                                           | An authorized owner should claim the preview or connect the repository to the intended Vercel project           |
-| No authorized production API host or PostgreSQL service was available | The remote API, readiness, worker, and database flow cannot be claimed as deployed                               | Provision the approved host and managed PostgreSQL service, then apply committed migrations                     |
-| OIDC provider values are placeholders                                 | Production login cannot be verified against a real identity provider                                             | Supply issuer, audience, JWKS, role claim, and organization-claim configuration through secret management       |
-| GitHub App/webhook lifecycle remains intentionally unimplemented      | GitHub installation, webhook signature verification, and automatic PR orchestration are not production-connected | Configure an approved GitHub App and implement its signed webhook lifecycle before enabling external automation |
-| GitHub CI reported deprecation annotations                            | Current checks pass, but workflow maintenance is needed                                                          | Schedule upgrades from CodeQL Action v3 to v4 and review the Node.js 20 action-runtime annotation               |
+| Blocker or limitation                                                 | Impact                                                                                                               | Required next action                                                                                            |
+| --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Git-linked Vercel project required settings correction                | The first Git-backed deployment failed before publishing because its output directory did not match the build result | Redeploy after the corrected project settings and removal of the conflicting root configuration                 |
+| No authorized production API host or PostgreSQL service was available | The remote API, readiness, worker, and database flow cannot be claimed as deployed                                   | Provision the approved host and managed PostgreSQL service, then apply committed migrations                     |
+| OIDC provider values are placeholders                                 | Production login cannot be verified against a real identity provider                                                 | Supply issuer, audience, JWKS, role claim, and organization-claim configuration through secret management       |
+| GitHub App/webhook lifecycle remains intentionally unimplemented      | GitHub installation, webhook signature verification, and automatic PR orchestration are not production-connected     | Configure an approved GitHub App and implement its signed webhook lifecycle before enabling external automation |
+| GitHub CI reported deprecation annotations                            | Current checks pass, but workflow maintenance is needed                                                              | Schedule upgrades from CodeQL Action v3 to v4 and review the Node.js 20 action-runtime annotation               |
 
 No credentials were committed, no production resources were deleted, no security checks were weakened, no force-push was used, and `main` was not merged or modified.
 

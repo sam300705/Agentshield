@@ -4,7 +4,7 @@ AgentShield has two deployment surfaces. The **Vercel preview** serves the React
 
 ## Static dashboard preview
 
-The repository includes `vercel.json` at the root. A Vercel project connected to this repository should use the repository root as its project directory, install with the frozen lockfile, build the dashboard workspace, and publish `apps/web-dashboard/dist`. Client-side routes are rewritten to `index.html` so refreshes work on nested dashboard paths.
+A Vercel project connected to this repository should use the Git-linked repository with `apps/web-dashboard` as its root directory, install with the frozen lockfile, build the dashboard workspace, and publish its `dist` directory. Client-side routes are rewritten to `index.html` so refreshes work on nested dashboard paths.
 
 The static dashboard can display its deterministic offline demo without a backend. It must not be presented as proof that the API, database, authentication, or worker are deployed.
 
