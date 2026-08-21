@@ -15,17 +15,18 @@ The authenticated Git-linked Vercel project now has a ready dashboard deployment
 
 ## Git and pull-request state
 
-| Item                   | Result                                                                                                    |
-| ---------------------- | --------------------------------------------------------------------------------------------------------- |
-| Base branch            | `main`                                                                                                    |
-| Working branch         | `agent/production-hardening`                                                                              |
-| Feature-base commit    | `736e088` (`fix(ci): exclude intentional security fixtures from self-scan`)                               |
-| Reproducibility commit | `dfd07aa` (`build: avoid nested Corepack in workspace scripts`)                                           |
-| Hardening commit       | `c11169b` (`feat: harden authenticated tenant-scoped control plane`)                                      |
-| Final pushed commit    | `94313d7` (`fix: align Vercel monorepo output configuration`)                                             |
-| Pull request           | [#2 — feat: production-harden AgentShield control plane](https://github.com/sam300705/Agentshield/pull/2) |
-| PR state               | Open, non-draft, unmerged, conflict-free                                                                  |
-| Existing PR #1         | Left unchanged; no force-push, merge, or resource deletion was performed                                  |
+| Item                     | Result                                                                                                    |
+| ------------------------ | --------------------------------------------------------------------------------------------------------- |
+| Base branch              | `main`                                                                                                    |
+| Working branch           | `agent/production-hardening`                                                                              |
+| Feature-base commit      | `736e088` (`fix(ci): exclude intentional security fixtures from self-scan`)                               |
+| Reproducibility commit   | `dfd07aa` (`build: avoid nested Corepack in workspace scripts`)                                           |
+| Hardening commit         | `c11169b` (`feat: harden authenticated tenant-scoped control plane`)                                      |
+| Final code/config commit | `94313d7` (`fix: align Vercel monorepo output configuration`)                                             |
+| Deployment report commit | `7c5b83b` (`docs: record authenticated Vercel deployment`)                                                |
+| Pull request             | [#2 — feat: production-harden AgentShield control plane](https://github.com/sam300705/Agentshield/pull/2) |
+| PR state                 | Open, non-draft, unmerged, conflict-free                                                                  |
+| Existing PR #1           | Left unchanged; no force-push, merge, or resource deletion was performed                                  |
 
 ## Implemented features
 
