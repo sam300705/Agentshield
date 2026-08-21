@@ -50,7 +50,7 @@ jobs:
         id: scan
         run: |
           set +e
-          node packages/scanner/dist/cli.js --path examples/vulnerable-repo --format sarif > agentshield.sarif
+          node packages/scanner/dist/cli.js --path examples/vulnerable-repo --format sarif > agentshield-fixture.sarif
           exit_code=$?
           set -e
           echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
@@ -58,11 +58,12 @@ jobs:
       - name: Gate repository source
         # Exclude synthetic token fixtures and remediation before/after examples.
         run: >-
-          node packages/scanner/dist/cli.js --path . --format human
+          node packages/scanner/dist/cli.js --path . --format sarif
           --ignore examples
           --ignore apps/api/src/controllers/controlPlaneController.ts
           --ignore packages/remediation/src/templates.ts
           --ignore packages/scanner/src/secretScanner.test.ts
+          > agentshield-source.sarif
       - name: Job summary
         run: |
           echo "## AgentShield security gate" >> "$GITHUB_STEP_SUMMARY"
@@ -71,8 +72,8 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: agentshield-sarif
-          path: agentshield.sarif
+          path: agentshield-fixture.sarif
       - uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
-          sarif_file: agentshield.sarif
+          sarif_file: agentshield-source.sarif
