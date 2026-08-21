@@ -24,6 +24,7 @@ The authenticated Git-linked Vercel project now has a ready dashboard deployment
 | Hardening commit         | `c11169b` (`feat: harden authenticated tenant-scoped control plane`)                                      |
 | Final code/config commit | `94313d7` (`fix: align Vercel monorepo output configuration`)                                             |
 | Azure deployment commit  | `bfff261` (`feat: add Azure VM deployment path`)                                                          |
+| Final report commit      | `681a078` (`docs: record final Vercel preview`)                                                           |
 | Deployment report commit | `7c5b83b` (`docs: record authenticated Vercel deployment`)                                                |
 | Pull request             | [#2 — feat: production-harden AgentShield control plane](https://github.com/sam300705/Agentshield/pull/2) |
 | PR state                 | Open, non-draft, unmerged, conflict-free                                                                  |
@@ -59,7 +60,7 @@ The following local gates passed after the final hardening changes:
 | Vulnerable fixture SARIF gate          | Passed with expected scanner exit code 3                                                                                       |
 | Repository source-security gate        | Passed with zero findings under the documented fixture exclusions                                                              |
 | API-to-PostgreSQL-to-worker smoke test | Passed: liveness, readiness, unauthenticated 401, explicit demo auth, tenant-scoped listing, enqueue, and completed worker job |
-| GitHub Actions `AgentShield CI`        | Passed on run [32469365921](https://github.com/sam300705/Agentshield/actions/runs/32469365921) for `bfff261`                   |
+| GitHub Actions `AgentShield CI`        | Passed on run [32469815277](https://github.com/sam300705/Agentshield/actions/runs/32469815277) for `681a078`                   |
 
 The deployed dashboard was opened in a browser and rendered the AgentShield risk overview, navigation, deterministic demo content, approvals indicator, flight recorder, and causal-risk panels successfully.
 
@@ -86,7 +87,7 @@ No credentials were committed, no production resources were deleted, no security
 [1]: https://github.com/sam300705/Agentshield "AgentShield repository"
 [2]: https://github.com/sam300705/Agentshield/pull/1 "Existing AgentShield pull request #1"
 [3]: https://github.com/sam300705/Agentshield/pull/2 "AgentShield production-hardening pull request #2"
-[4]: https://github.com/sam300705/Agentshield/actions/runs/32469365921 "AgentShield CI run 32469365921"
+[4]: https://github.com/sam300705/Agentshield/actions/runs/32469815277 "AgentShield CI run 32469815277"
 [5]: https://agentshield-gov0eexcc-sam300705s-projects.vercel.app "AgentShield final authenticated Git-backed Vercel preview"
 
 ## Azure student-credit deployment path
