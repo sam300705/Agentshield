@@ -23,6 +23,7 @@ The authenticated Git-linked Vercel project now has a ready dashboard deployment
 | Reproducibility commit   | `dfd07aa` (`build: avoid nested Corepack in workspace scripts`)                                           |
 | Hardening commit         | `c11169b` (`feat: harden authenticated tenant-scoped control plane`)                                      |
 | Final code/config commit | `94313d7` (`fix: align Vercel monorepo output configuration`)                                             |
+| Azure deployment commit  | `bfff261` (`feat: add Azure VM deployment path`)                                                          |
 | Deployment report commit | `7c5b83b` (`docs: record authenticated Vercel deployment`)                                                |
 | Pull request             | [#2 — feat: production-harden AgentShield control plane](https://github.com/sam300705/Agentshield/pull/2) |
 | PR state                 | Open, non-draft, unmerged, conflict-free                                                                  |
@@ -58,13 +59,13 @@ The following local gates passed after the final hardening changes:
 | Vulnerable fixture SARIF gate          | Passed with expected scanner exit code 3                                                                                       |
 | Repository source-security gate        | Passed with zero findings under the documented fixture exclusions                                                              |
 | API-to-PostgreSQL-to-worker smoke test | Passed: liveness, readiness, unauthenticated 401, explicit demo auth, tenant-scoped listing, enqueue, and completed worker job |
-| GitHub Actions `AgentShield CI`        | Passed on run [32449811483](https://github.com/sam300705/Agentshield/actions/runs/32449811483)                                 |
+| GitHub Actions `AgentShield CI`        | Passed on run [32469365921](https://github.com/sam300705/Agentshield/actions/runs/32469365921) for `bfff261`                   |
 
 The deployed dashboard was opened in a browser and rendered the AgentShield risk overview, navigation, deterministic demo content, approvals indicator, flight recorder, and causal-risk panels successfully.
 
 ## Deployment details
 
-The authenticated Git-backed branch deployment is [https://agentshield-gmezcqpyg-sam300705s-projects.vercel.app](https://agentshield-gmezcqpyg-sam300705s-projects.vercel.app). Vercel reports it as `READY`, with deployment ID `dpl_4tFqfHufkehdHGhAPyFesqwPBJuK`, source `git`, branch `agent/production-hardening`, framework `vite`, and commit `94313d7`. The branch alias is [https://agentshield-git-agent-production-hardening-sam300705s-projects.vercel.app](https://agentshield-git-agent-production-hardening-sam300705s-projects.vercel.app). The earlier anonymous temporary preview remains non-authoritative and may expire.
+The latest authenticated Git-backed branch deployment is [https://agentshield-5ntcdk05g-sam300705s-projects.vercel.app](https://agentshield-5ntcdk05g-sam300705s-projects.vercel.app). Vercel reports it as `READY`, with deployment ID `dpl_96mmKd4hdFdaLgCG6ZJ1PAiurbzm`, source `git`, branch `agent/production-hardening`, framework `vite`, and commit `bfff261`. The stable branch alias remains [https://agentshield-git-agent-production-hardening-sam300705s-projects.vercel.app](https://agentshield-git-agent-production-hardening-sam300705s-projects.vercel.app). The earlier anonymous temporary preview remains non-authoritative and may expire.
 
 The production API requires `DATABASE_URL`, exact `CORS_ORIGIN`, `AUTH_MODE=oidc`, `OIDC_ISSUER`, `OIDC_AUDIENCE`, `OIDC_JWKS_URL`, and `OIDC_ROLE_CLAIM`. `DEMO_AUTH_ENABLED` must be disabled or unset in production. The worker must run as a long-lived process against the same PostgreSQL database. These services were intentionally not fabricated or connected to paid infrastructure.
 
@@ -85,8 +86,8 @@ No credentials were committed, no production resources were deleted, no security
 [1]: https://github.com/sam300705/Agentshield "AgentShield repository"
 [2]: https://github.com/sam300705/Agentshield/pull/1 "Existing AgentShield pull request #1"
 [3]: https://github.com/sam300705/Agentshield/pull/2 "AgentShield production-hardening pull request #2"
-[4]: https://github.com/sam300705/Agentshield/actions/runs/32449811483 "AgentShield CI run 32449811483"
-[5]: https://agentshield-gmezcqpyg-sam300705s-projects.vercel.app "AgentShield authenticated Git-backed Vercel preview"
+[4]: https://github.com/sam300705/Agentshield/actions/runs/32469365921 "AgentShield CI run 32469365921"
+[5]: https://agentshield-5ntcdk05g-sam300705s-projects.vercel.app "AgentShield latest authenticated Git-backed Vercel preview"
 
 ## Azure student-credit deployment path
 
