@@ -94,3 +94,7 @@ Do not run `pnpm db:migrate`, `pnpm db:push`, or `pnpm db:seed` against the Neon
 [1]: https://neon.com/docs/guides/prisma "Neon Prisma connection guide"
 [2]: https://neon.com/docs/guides/prisma-migrations "Neon Prisma migration guide"
 [3]: https://render.com/docs/service-types "Render service types"
+
+## Azure student-credit deployment
+
+For a credit-funded always-on worker, see [`deploy/azure/README.md`](../deploy/azure/README.md). The Azure path runs the API and worker as separate containers on one Linux VM, puts Caddy in front for HTTPS, and uses Neon for PostgreSQL. The dashboard must be rebuilt with `VITE_API_BASE_URL` set to the public HTTPS API origin; the API must set `CORS_ORIGIN` to the exact Vercel origin. The Azure VM and Neon account are external resources, so this repository includes configuration and runbooks but does not create them automatically.

@@ -19,6 +19,7 @@ export default [
       "**/dist/**",
       "**/build/**",
       "**/coverage/**",
+      ".vercel/**",
       "**/*.cjs",
       "pnpm-lock.yaml",
     ],

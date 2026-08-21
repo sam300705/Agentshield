@@ -87,3 +87,13 @@ No credentials were committed, no production resources were deleted, no security
 [3]: https://github.com/sam300705/Agentshield/pull/2 "AgentShield production-hardening pull request #2"
 [4]: https://github.com/sam300705/Agentshield/actions/runs/32449811483 "AgentShield CI run 32449811483"
 [5]: https://agentshield-gmezcqpyg-sam300705s-projects.vercel.app "AgentShield authenticated Git-backed Vercel preview"
+
+## Azure student-credit deployment path
+
+The branch now includes an optional Azure VM deployment path in `deploy/azure/`. A root Dockerfile builds the monorepo API and scanner dependencies, while `deploy/azure/docker-compose.yml` runs the API, durable worker, and Caddy HTTPS proxy as separate restartable services. `deploy/azure/azure.env.example` contains placeholder-only Neon pooled/direct URLs, OIDC variables, CORS origin, domain, and an optional server-side OpenRouter key. The dashboard API client now reads `VITE_API_BASE_URL` and falls back to localhost only for local development.
+
+The Azure path is intentionally configuration-only. No Azure VM, Neon database, OpenRouter key, billing profile, or cloud credential was created or committed. The runbook requires the user to create or select an Azure VM using student credit, configure cost alerts and optional automatic shutdown, point a DNS name to the VM, set secrets on the VM, and run the Compose stack. The API applies committed migrations before starting; the worker has no public port; Caddy exposes only HTTPS.
+
+The repository-native Azure gates passed after these changes: `pnpm format:check`, `pnpm typecheck`, and `pnpm build`. A Docker image build could not be executed in the sandbox because the Docker CLI is not installed; it must be run on the target VM or another Docker-enabled environment before deployment.
+
+The Azure implementation is not a claim of production availability. It becomes operational only after the user supplies Azure student-account access, an appropriately sized VM, a Neon project and connection strings, a real OIDC provider, a DNS name, and the Vercel `VITE_API_BASE_URL` value.
