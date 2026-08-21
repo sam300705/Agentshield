@@ -1,8 +1,8 @@
-import { z } from "zod";
 import { type Request, type Response } from "express";
+import { z } from "zod";
 
 import { prisma } from "../db/prisma.js";
-import { getCorrelationId } from "../security/auth.js";
+import { getActor, getCorrelationId } from "../security/auth.js";
 import { enqueueDemoScan } from "../services/scanQueue.js";
 
 const paginationQuerySchema = z.object({
@@ -11,7 +11,7 @@ const paginationQuerySchema = z.object({
 });
 
 const scanParamsSchema = z.object({
-  scanId: z.string().min(1),
+  scanId: z.string().min(1).max(128),
 });
 
 function getPagination(query: Request["query"]) {
@@ -24,12 +24,17 @@ function getPagination(query: Request["query"]) {
 }
 
 export async function runDemoScanController(request: Request, response: Response): Promise<void> {
+  const actor = getActor(response);
   const suppliedKey = request.header("idempotency-key");
   const idempotencyKey =
     suppliedKey != null && /^[A-Za-z0-9._:-]{8,128}$/.test(suppliedKey)
       ? suppliedKey
       : `demo:${getCorrelationId(response)}`;
-  const job = await enqueueDemoScan(idempotencyKey);
+  const job = await enqueueDemoScan(
+    idempotencyKey,
+    actor.organizationId,
+    getCorrelationId(response),
+  );
 
   response.status(202).json({
     scanId: job.scanId,
@@ -40,13 +45,14 @@ export async function runDemoScanController(request: Request, response: Response
 }
 
 export async function listScansController(request: Request, response: Response): Promise<void> {
+  const actor = getActor(response);
   const { limit, page, skip } = getPagination(request.query);
+  const where = { organizationId: actor.organizationId };
   const [total, scans] = await Promise.all([
-    prisma.scan.count(),
+    prisma.scan.count({ where }),
     prisma.scan.findMany({
-      orderBy: {
-        createdAt: "desc",
-      },
+      where,
+      orderBy: { createdAt: "desc" },
       skip,
       take: limit,
       include: {
@@ -60,20 +66,14 @@ export async function listScansController(request: Request, response: Response):
     }),
   ]);
 
-  response.json({
-    page,
-    limit,
-    total,
-    data: scans,
-  });
+  response.json({ page, limit, total, data: scans });
 }
 
 export async function getScanController(request: Request, response: Response): Promise<void> {
+  const actor = getActor(response);
   const { scanId } = scanParamsSchema.parse(request.params);
-  const scan = await prisma.scan.findUnique({
-    where: {
-      id: scanId,
-    },
+  const scan = await prisma.scan.findFirst({
+    where: { id: scanId, organizationId: actor.organizationId },
     include: {
       _count: {
         select: {
@@ -87,41 +87,31 @@ export async function getScanController(request: Request, response: Response): P
 
   if (scan == null) {
     response.status(404).json({
-      error: "SCAN_NOT_FOUND",
-      message: `Scan ${scanId} was not found.`,
+      error: {
+        code: "SCAN_NOT_FOUND",
+        message: "Scan was not found.",
+        correlationId: getCorrelationId(response),
+      },
     });
     return;
   }
 
-  response.json({
-    data: scan,
-  });
+  response.json({ data: scan });
 }
 
 export async function getScanFindingsController(
   request: Request,
   response: Response,
 ): Promise<void> {
+  const actor = getActor(response);
   const { scanId } = scanParamsSchema.parse(request.params);
   const { limit, page, skip } = getPagination(request.query);
+  const where = { scanId, scan: { organizationId: actor.organizationId } };
   const [total, findings] = await Promise.all([
-    prisma.finding.count({
-      where: {
-        scanId,
-      },
-    }),
+    prisma.finding.count({ where }),
     prisma.finding.findMany({
-      where: {
-        scanId,
-      },
-      orderBy: [
-        {
-          severity: "desc",
-        },
-        {
-          createdAt: "desc",
-        },
-      ],
+      where,
+      orderBy: [{ severity: "desc" }, { createdAt: "desc" }],
       skip,
       take: limit,
       include: {
@@ -132,44 +122,23 @@ export async function getScanFindingsController(
     }),
   ]);
 
-  response.json({
-    page,
-    limit,
-    total,
-    data: findings,
-  });
+  response.json({ page, limit, total, data: findings });
 }
 
 export async function getScanSbomController(request: Request, response: Response): Promise<void> {
+  const actor = getActor(response);
   const { scanId } = scanParamsSchema.parse(request.params);
   const { limit, page, skip } = getPagination(request.query);
+  const where = { scanId, scan: { organizationId: actor.organizationId } };
   const [total, dependencies] = await Promise.all([
-    prisma.dependency.count({
-      where: {
-        scanId,
-      },
-    }),
+    prisma.dependency.count({ where }),
     prisma.dependency.findMany({
-      where: {
-        scanId,
-      },
-      orderBy: [
-        {
-          packageName: "asc",
-        },
-        {
-          version: "asc",
-        },
-      ],
+      where,
+      orderBy: [{ packageName: "asc" }, { version: "asc" }],
       skip,
       take: limit,
     }),
   ]);
 
-  response.json({
-    page,
-    limit,
-    total,
-    data: dependencies,
-  });
+  response.json({ page, limit, total, data: dependencies });
 }

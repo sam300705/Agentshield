@@ -60,10 +60,10 @@ See [90-second and 5-minute scripts](./docs/demo-script.md).
 
 ## Quick start
 
-Requirements: Node.js 20+, pnpm 9.15.4 through Corepack, and Docker Compose.
+Requirements: Node.js 20+, pnpm 9.15.4, and Docker Compose (or a local PostgreSQL service).
 
 ```bash
-corepack pnpm install --frozen-lockfile
+pnpm install --frozen-lockfile
 cp .env.example .env
 ./scripts/run-local.sh
 ```
@@ -89,7 +89,7 @@ Reset and reseed:
 Build packages, then scan without executing repository code:
 
 ```bash
-corepack pnpm build
+pnpm build
 node packages/scanner/dist/cli.js --path examples/vulnerable-repo --format human
 node packages/scanner/dist/cli.js --path examples/vulnerable-repo --format sarif > agentshield.sarif
 ```
@@ -127,11 +127,11 @@ An architecture boundary for a future GitHub App is documented; webhook authenti
 ## Quality gates
 
 ```bash
-corepack pnpm format:check
-corepack pnpm lint
-corepack pnpm typecheck
-corepack pnpm test
-corepack pnpm build
+pnpm format:check
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm build
 ```
 
 Focused tests cover redaction, event-chain tampering, graph relationships, blast-radius calculation, receipt determinism, policy simulation traces, drift thresholds, scanner false-positive boundaries, remediation selection, RBAC, separation of duties, and dashboard simulation logic.
@@ -152,7 +152,7 @@ docs                 Architecture, threat model, demo and tradeoffs
 
 ## Honest limitations
 
-- Demo identity headers are not a production identity provider. Replace them with verified OIDC/session middleware before deployment.
+- Demo identity headers are isolated to non-production development. Production routes fail closed unless verified OIDC configuration is active.
 - The local queue uses PostgreSQL polling. This is deliberately simpler than Redis/BullMQ for the current scale; high-throughput installations should benchmark and revisit that choice.
 - Secret scanning uses high-confidence patterns and does not yet use entropy analysis.
 - Attack-graph inferred edges describe evidence proximity, not human or agent intent.
@@ -161,4 +161,4 @@ docs                 Architecture, threat model, demo and tradeoffs
 
 ## Engineering story
 
-See [resume bullets](./docs/resume-bullets.md), [interview demo](./docs/demo-script.md), [threat model](./docs/threat-model.md), and [engineering tradeoffs](./docs/control-plane.md).
+See [deployment guidance](./docs/deployment.md), [resume bullets](./docs/resume-bullets.md), [interview demo](./docs/demo-script.md), [threat model](./docs/threat-model.md), and [engineering tradeoffs](./docs/control-plane.md).

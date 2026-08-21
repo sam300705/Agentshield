@@ -60,11 +60,23 @@ router.post(
   requirePermission("scan:run"),
   asyncHandler(runDemoScanController),
 );
-router.get("/api/scans", asyncHandler(listScansController));
-router.get("/api/scans/:scanId", asyncHandler(getScanController));
-router.get("/api/scans/:scanId/findings", asyncHandler(getScanFindingsController));
-router.get("/api/scans/:scanId/sbom", asyncHandler(getScanSbomController));
-router.get("/api/approvals", asyncHandler(listPendingApprovalsController));
+router.get("/api/scans", requirePermission("scan:read"), asyncHandler(listScansController));
+router.get("/api/scans/:scanId", requirePermission("scan:read"), asyncHandler(getScanController));
+router.get(
+  "/api/scans/:scanId/findings",
+  requirePermission("scan:read"),
+  asyncHandler(getScanFindingsController),
+);
+router.get(
+  "/api/scans/:scanId/sbom",
+  requirePermission("scan:read"),
+  asyncHandler(getScanSbomController),
+);
+router.get(
+  "/api/approvals",
+  requirePermission("approval:review"),
+  asyncHandler(listPendingApprovalsController),
+);
 router.post(
   "/api/approvals/:approvalId/approve",
   requirePermission("approval:review"),
@@ -75,5 +87,13 @@ router.post(
   requirePermission("approval:review"),
   asyncHandler(rejectApprovalController),
 );
-router.get("/api/audit-events", asyncHandler(listAuditEventsController));
-router.get("/api/dashboard/summary", asyncHandler(getDashboardSummaryController));
+router.get(
+  "/api/audit-events",
+  requirePermission("scan:read"),
+  asyncHandler(listAuditEventsController),
+);
+router.get(
+  "/api/dashboard/summary",
+  requirePermission("scan:read"),
+  asyncHandler(getDashboardSummaryController),
+);

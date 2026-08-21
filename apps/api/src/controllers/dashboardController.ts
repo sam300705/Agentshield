@@ -2,23 +2,14 @@ import { ApprovalStatus, PolicyDecisionType } from "@prisma/client";
 import { type Request, type Response } from "express";
 
 import { prisma } from "../db/prisma.js";
+import { getActor } from "../security/auth.js";
 
 function createEmptySeverityCounts() {
-  return {
-    critical: 0,
-    high: 0,
-    medium: 0,
-    low: 0,
-  };
+  return { critical: 0, high: 0, medium: 0, low: 0 };
 }
 
 function createEmptyDecisionCounts() {
-  return {
-    allow: 0,
-    warn: 0,
-    requireApproval: 0,
-    block: 0,
-  };
+  return { allow: 0, warn: 0, requireApproval: 0, block: 0 };
 }
 
 function calculatePlatformRiskScore(input: {
@@ -27,14 +18,8 @@ function calculatePlatformRiskScore(input: {
   block: number;
   requireApproval: number;
 }): "A" | "B" | "C" | "F" {
-  if (input.critical > 0 || input.block > 0) {
-    return "F";
-  }
-
-  if (input.high > 0 || input.requireApproval > 0) {
-    return "C";
-  }
-
+  if (input.critical > 0 || input.block > 0) return "F";
+  if (input.high > 0 || input.requireApproval > 0) return "C";
   return "A";
 }
 
@@ -42,59 +27,38 @@ export async function getDashboardSummaryController(
   _request: Request,
   response: Response,
 ): Promise<void> {
+  const { organizationId } = getActor(response);
+  const scanWhere = { organizationId };
   const [totalScans, totalFindings, pendingApprovalsCount, latestScan] = await Promise.all([
-    prisma.scan.count(),
-    prisma.finding.count(),
+    prisma.scan.count({ where: scanWhere }),
+    prisma.finding.count({ where: { scan: scanWhere } }),
     prisma.approval.count({
-      where: {
-        status: ApprovalStatus.PENDING,
-      },
+      where: { status: ApprovalStatus.PENDING, finding: { scan: scanWhere } },
     }),
     prisma.scan.findFirst({
-      orderBy: {
-        createdAt: "desc",
-      },
+      where: scanWhere,
+      orderBy: { createdAt: "desc" },
       include: {
-        _count: {
-          select: {
-            findings: true,
-            dependencies: true,
-          },
-        },
+        _count: { select: { findings: true, dependencies: true } },
       },
     }),
   ]);
 
   if (latestScan == null) {
-    response.json({
-      totalScans,
-      totalFindings,
-      pendingApprovalsCount,
-      latestScan: null,
-    });
+    response.json({ totalScans, totalFindings, pendingApprovalsCount, latestScan: null });
     return;
   }
 
   const [severityRows, decisionRows] = await Promise.all([
     prisma.finding.groupBy({
       by: ["severity"],
-      where: {
-        scanId: latestScan.id,
-      },
-      _count: {
-        _all: true,
-      },
+      where: { scanId: latestScan.id, scan: scanWhere },
+      _count: { _all: true },
     }),
     prisma.policyDecision.groupBy({
       by: ["decision"],
-      where: {
-        finding: {
-          scanId: latestScan.id,
-        },
-      },
-      _count: {
-        _all: true,
-      },
+      where: { finding: { scanId: latestScan.id, scan: scanWhere } },
+      _count: { _all: true },
     }),
   ]);
   const severityCounts = createEmptySeverityCounts();

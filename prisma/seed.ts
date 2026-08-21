@@ -12,6 +12,17 @@ import {
 
 const prisma = new PrismaClient();
 
+function assertSafeSeedTarget(): void {
+  const nodeEnv = process.env.NODE_ENV ?? "development";
+  const databaseUrl = process.env.DATABASE_URL ?? "";
+  if (nodeEnv === "production") {
+    throw new Error("Refusing to seed when NODE_ENV=production.");
+  }
+  if (!databaseUrl.includes("localhost") && !databaseUrl.includes("127.0.0.1")) {
+    throw new Error("Refusing to seed a non-local database. Use an isolated local database.");
+  }
+}
+
 async function clearDatabase() {
   await prisma.auditEvent.deleteMany();
   await prisma.policyDecision.deleteMany();
@@ -23,13 +34,25 @@ async function clearDatabase() {
 }
 
 async function main() {
+  assertSafeSeedTarget();
   await clearDatabase();
+
+  const organization = await prisma.organization.upsert({
+    where: { slug: "demo-organization" },
+    update: { name: "AgentShield Demo Organization" },
+    create: {
+      id: "demo-organization",
+      slug: "demo-organization",
+      name: "AgentShield Demo Organization",
+    },
+  });
 
   const scan = await prisma.scan.create({
     data: {
       repositoryName: "agentshield-vulnerable-demo-target",
       repositoryUrl: "https://github.com/example/agentshield-vulnerable-demo-target",
       branch: "main",
+      organizationId: organization.id,
       commitSha: "3f2a9c7d4b1e8f0a6c5d2e9b7a4c1f0e8d6b5a3c",
       status: ScanStatus.COMPLETED,
       metadata: {
@@ -328,6 +351,7 @@ async function main() {
       {
         actor: "System",
         action: AuditAction.SCAN_CREATED,
+        organizationId: organization.id,
         entityType: "Scan",
         entityId: scan.id,
         scanId: scan.id,
@@ -338,6 +362,7 @@ async function main() {
       {
         actor: "System",
         action: AuditAction.SCAN_COMPLETED,
+        organizationId: organization.id,
         entityType: "Scan",
         entityId: scan.id,
         scanId: scan.id,
@@ -348,6 +373,7 @@ async function main() {
       {
         actor: "System",
         action: AuditAction.FINDING_CREATED,
+        organizationId: organization.id,
         entityType: "Finding",
         entityId: secretFinding.id,
         scanId: scan.id,
@@ -359,6 +385,7 @@ async function main() {
       {
         actor: "System",
         action: AuditAction.FINDING_CREATED,
+        organizationId: organization.id,
         entityType: "Finding",
         entityId: dockerfileFinding.id,
         scanId: scan.id,
@@ -370,6 +397,7 @@ async function main() {
       {
         actor: "System",
         action: AuditAction.FINDING_CREATED,
+        organizationId: organization.id,
         entityType: "Finding",
         entityId: dependencyFinding.id,
         scanId: scan.id,
