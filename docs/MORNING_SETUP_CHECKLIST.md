@@ -66,22 +66,38 @@ This checklist contains only actions that require the account owner or a deploym
 
 **Rollback:** Restore the previous Vercel environment variable or redeploy the previous ready deployment. Keep the API running until traffic has drained.
 
-## 5. GitHub App and repository onboarding (not yet implemented)
+## 5. Activate the GitHub App integration (owner configuration required)
 
-**Why:** Real repository scanning requires installation ownership, short-lived GitHub App tokens, and signed webhook handling.
+**Why:** Real repository scanning requires a genuine GitHub App installation, tenant-to-installation mapping, short-lived installation tokens, and public webhook delivery.
 
-**Where:** GitHub Developer Settings and the AgentShield deployment configuration.
+**Where:** GitHub Developer Settings and the AgentShield deployment secret manager.
 
-**Action:** This remains a future P0/P1 implementation task. Do not create or install a GitHub App until the adapter, installation verification, webhook signature tests, and least-permission manifest are implemented.
+**Permission required:** GitHub App administrator access for registration and installation, plus deployment-operator access to inject secrets. Do not use a personal access token in the application.
 
-**Values needed:** App ID, client ID, client secret, webhook secret, private key, callback URLs, and installation ID. Supply them only through a secret manager after implementation is verified.
+**Action:** Register an App with the smallest approved read-only repository permissions, configure the webhook URL and secret, and supply `GITHUB_APP_ID`, `GITHUB_CLIENT_ID`, `GITHUB_WEBHOOK_SECRET`, and `GITHUB_PRIVATE_KEY` through secret management. Install it only for an authorized test organization.
 
-**Least privilege:** Request repository metadata and read-only contents/pull-request access only until a reviewed write workflow is required. Never request a personal access token.
+**Effort:** Approximately 20–40 minutes, depending on GitHub organization approval.
 
-**Verify:** Installation ownership, signed webhook timestamp/replay checks, repository allowlisting, and short-lived installation token exchange all pass against fake fixtures before live installation.
+**Verify:** Confirm a real installation is mapped to the intended organization, repository discovery is read-only and tenant-scoped, installation tokens are short-lived and never logged, and a signed test webhook is accepted while an invalid or replayed delivery is rejected.
 
-**Rollback:** Uninstall the GitHub App and revoke its credentials. Preserve scan evidence and audit history.
+**Rollback:** Uninstall the App and revoke its credentials. Preserve scan evidence and audit history. Do not delete tenant data during rollback.
 
-## 6. Final review before calling the system production-ready
+## 6. Activate OSV enrichment and signed receipts (owner configuration required)
+
+**Why:** The tested OSV adapter and Ed25519 receipt primitives need explicit scan-lifecycle, persistence, and key-management decisions before they can affect customer workflows.
+
+**Where:** AgentShield deployment configuration and the approved secret manager.
+
+**Permission required:** Application owner approval for provider activation and signing-key custody. No OSV credential is required by the adapter; production signing requires a protected private key.
+
+**Action:** Decide the outage policy for `OSV_API_ENABLED`, add advisory persistence and report/export integration, and configure `RECEIPT_SIGNING_KEY_ID`, `RECEIPT_SIGNING_PRIVATE_KEY`, and `RECEIPT_SIGNING_PUBLIC_KEYS_JSON` only after key generation, rotation, and backup procedures are approved.
+
+**Effort:** Approximately 30–60 minutes for configuration decisions, plus engineering work for persistence and scan-lifecycle wiring.
+
+**Verify:** Run deterministic advisory fixtures, verify a signed receipt using `pnpm receipt:verify`, confirm modified receipts fail verification, and confirm private key material is absent from logs, Git, and browser code.
+
+**Rollback:** Disable enrichment and signed export, rotate or revoke the signing key if exposure is suspected, and keep the existing SHA-256 receipt records available for audit continuity.
+
+## 7. Final review before calling the system production-ready
 
 Do not merge pull request #2 or describe the service as production-ready until authentication, Neon, API ingress, scheduled worker execution, Vercel API-base wiring, backups, and an end-to-end authenticated scan have all been verified. The current honest readiness level remains **portfolio prototype / controlled internal alpha**, not a production certification.

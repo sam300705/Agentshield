@@ -39,8 +39,28 @@
       "evidence": "authenticated Git-backed Vercel deployment"
     },
     "github_app_repository_onboarding": {
-      "status": "not_implemented",
-      "reason": "signed installation and webhook lifecycle are not implemented"
+      "status": "implemented_requires_configuration",
+      "evidence": "apps/api/src/integrations/githubApp.ts and synthetic webhook tests",
+      "requires": [
+        "GitHub App registration",
+        "webhook secret",
+        "App private key",
+        "tenant installation mapping"
+      ]
+    },
+    "osv_vulnerability_enrichment": {
+      "status": "implemented_requires_configuration",
+      "evidence": "packages/scanner/src/vulnerabilityEnricher.ts and mocked provider tests",
+      "requires": [
+        "advisory-result persistence",
+        "scan-lifecycle activation",
+        "provider-outage policy"
+      ]
+    },
+    "signed_security_receipts": {
+      "status": "implemented_requires_configuration",
+      "evidence": "Ed25519 signing and verification primitives, key-ring tests, and receipt verification CLI",
+      "requires": ["production signing key management", "receipt export integration"]
     },
     "distributed_rate_limiting": {
       "status": "not_implemented",
@@ -53,6 +73,7 @@
   },
   "limitations": [
     "The static dashboard contains a deterministic demo console and is not proof of a live authenticated API deployment.",
+    "GitHub App, OSV enrichment, and signed-receipt primitives are not live-connected to the deployed demo.",
     "No production OIDC provider has been configured in the current environment.",
     "No Neon connection strings have been injected into the deployment.",
     "No Azure Container Apps API or scheduled worker resource has been created.",
