@@ -99,3 +99,11 @@ The Azure path is intentionally configuration-only. No Azure VM, Neon database, 
 The repository-native Azure gates passed after these changes: `pnpm format:check`, `pnpm typecheck`, and `pnpm build`. A Docker image build could not be executed in the sandbox because the Docker CLI is not installed; it must be run on the target VM or another Docker-enabled environment before deployment.
 
 The Azure implementation is not a claim of production availability. It becomes operational only after the user supplies Azure student-account access, an appropriately sized VM, a Neon project and connection strings, a real OIDC provider, a DNS name, and the Vercel `VITE_API_BASE_URL` value.
+
+## Latest verification and Azure provisioning attempt
+
+The clean repository security-report correction is now pushed as commit `2767792` on `agent/production-hardening`. GitHub Actions run [32496232971](https://github.com/sam300705/Agentshield/actions/runs/32496232971) completed successfully, including the revised source-security SARIF gate; the intentionally vulnerable scanner fixtures remain tested separately and are not uploaded as repository findings.
+
+The Azure for Students subscription was successfully activated and authenticated in Azure Portal. No VM or other Azure resource was created. During the VM creation attempt, Azure East US selected `Standard_D2s_v3`, reported it as `NotAvailableForSubscription`, and displayed an estimated price of approximately $70/month. The portal’s region/size metadata was intermittently empty, so the D-series option was rejected rather than created. Current Microsoft guidance identifies B1s, B2pts v2, and B2ats v2 as the relevant free-tier burstable VM families, with B2ats v2 as the preferred Linux x64 fallback where available. A future retry must use only a portal-confirmed eligible B-series v2 size and must verify the final pricing/eligibility summary before creation.
+
+The Azure deployment remains blocked at infrastructure provisioning, not in the repository: the target VM, Neon database, OIDC provider, DNS name, and Vercel API-base environment variable are still absent. No paid resource, billing profile, password, token, or private key was created or committed.
