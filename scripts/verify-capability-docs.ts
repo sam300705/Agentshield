@@ -37,6 +37,7 @@ async function main(): Promise<void> {
     github_app_repository_onboarding: "implemented_requires_configuration",
     osv_vulnerability_enrichment: "implemented_requires_configuration",
     signed_security_receipts: "implemented_requires_configuration",
+    distributed_rate_limiting: "implemented_requires_configuration",
   };
 
   for (const [name, status] of Object.entries(requiredStatuses)) {
@@ -55,6 +56,7 @@ async function main(): Promise<void> {
   requireText(report, "not described as production-ready", "docs/implementation-report.md");
   requireText(checklist, "owner configuration required", "docs/MORNING_SETUP_CHECKLIST.md");
   requireText(readme, "Ed25519 signing primitives exist", "README.md");
+  requireText(readme, "Redis-compatible store contract", "README.md");
 
   for (const [source, document] of [
     ["README.md", readme],

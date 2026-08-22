@@ -26,7 +26,7 @@ The repository contains a security-control-plane implementation and a determinis
 | GitHub App webhook boundary                                         | Implemented with safe mocks; live connection requires configuration           | HMAC verification, replay guard, event parsing, and tenant ownership checks are tested; App registration and persistence remain owner-configured |
 | OSV vulnerability enrichment                                        | Implemented with safe mocks; scan activation requires configuration           | Exact-version batch adapter and normalization are tested; advisory persistence and scan-lifecycle wiring remain to be connected                  |
 | Signed security receipts                                            | Implemented with safe tests; production key management requires configuration | Ed25519 signing, verification, and key rotation are tested; export integration and private-key management remain to be connected                 |
-| Distributed rate limiting                                           | Not implemented                                                               | Current limiter is bounded in-memory and per API instance                                                                                        |
+| Distributed rate limiting                                           | Adapter implemented with safe tests; shared store requires configuration      | Redis-compatible store contract, outage policy, custom key strategy, and headers are tested; no vendor or credentials are connected              |
 
 The honest readiness level is **portfolio prototype / controlled internal alpha**. It is not a clinical product, security certification, or public production service.
 
@@ -175,6 +175,7 @@ docs                 Architecture, threat model, demo and tradeoffs
 - Demo identity headers are isolated to non-production development. Production routes fail closed unless verified OIDC configuration is active.
 - The primary dashboard shell is a deterministic offline demo; API-backed page components and client request helpers are not a complete production login/session workflow.
 - The local queue uses PostgreSQL polling. This is deliberately simpler than Redis/BullMQ for the current scale; high-throughput installations should benchmark and revisit that choice.
+- The default API limiter is per instance. A Redis-compatible distributed adapter is tested but not selected or connected.
 - Secret scanning uses high-confidence patterns and does not yet use entropy analysis.
 - Attack-graph inferred edges describe evidence proximity, not human or agent intent.
 - Existing persisted Security Receipts are SHA-256 integrity records. Ed25519 signing primitives exist, but signed export and production key management are not connected to the scan lifecycle.
@@ -182,4 +183,4 @@ docs                 Architecture, threat model, demo and tradeoffs
 
 ## Engineering story
 
-See [deployment guidance](./docs/deployment.md), [security operations](./docs/SECURITY_OPERATIONS.md), [GitHub App integration](./docs/github-app.md), [vulnerability intelligence](./docs/vulnerability-intelligence.md), [resume bullets](./docs/resume-bullets.md), [interview demo](./docs/demo-script.md), [threat model](./docs/threat-model.md), and [engineering tradeoffs](./docs/control-plane.md).
+See [deployment guidance](./docs/deployment.md), [security operations](./docs/SECURITY_OPERATIONS.md), [GitHub App integration](./docs/github-app.md), [vulnerability intelligence](./docs/vulnerability-intelligence.md), [rate limiting](./docs/rate-limiting.md), [resume bullets](./docs/resume-bullets.md), [interview demo](./docs/demo-script.md), [threat model](./docs/threat-model.md), and [engineering tradeoffs](./docs/control-plane.md).
