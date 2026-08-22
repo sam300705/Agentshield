@@ -1,5 +1,6 @@
 import "dotenv/config";
 
+import { getRuntimeConfig } from "./config.js";
 import { prisma } from "./db/prisma.js";
 import { processNextScanJob } from "./services/scanQueue.js";
 
@@ -8,6 +9,7 @@ const runOnce = process.env.WORKER_MODE === "once";
 let stopping = false;
 
 async function run(): Promise<void> {
+  getRuntimeConfig();
   console.warn(
     JSON.stringify({
       level: "info",

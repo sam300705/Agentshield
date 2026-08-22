@@ -142,9 +142,18 @@ az containerapp job create \
     WORKER_MODE=once \
     DATABASE_URL=secretref:database-url \
     DATABASE_URL_UNPOOLED=secretref:database-url-unpooled \
+    AUTH_MODE=oidc \
+    DEMO_AUTH_ENABLED=false \
+    OIDC_ISSUER=secretref:oidc-issuer \
+    OIDC_AUDIENCE=secretref:oidc-audience \
+    OIDC_JWKS_URL=secretref:oidc-jwks-url \
+    OIDC_ROLE_CLAIM=roles \
   --secrets \
     database-url="$DATABASE_URL" \
-    database-url-unpooled="$DATABASE_URL_UNPOOLED"
+    database-url-unpooled="$DATABASE_URL_UNPOOLED" \
+    oidc-issuer="$OIDC_ISSUER" \
+    oidc-audience="$OIDC_AUDIENCE" \
+    oidc-jwks-url="$OIDC_JWKS_URL"
 ```
 
 If the CLI does not accept `secretref:` during job creation, create the job first with non-secret variable names omitted, then use `az containerapp job update --help` and configure the job secrets and secret references through its YAML template. Never put the actual connection strings in a committed YAML file.
@@ -155,7 +164,7 @@ Set `VITE_API_BASE_URL` in the Vercel project to the generated Container Apps HT
 
 ## Cost and shutdown controls
 
-Use Azure Cost Management to monitor the student credit balance and configure a budget alert. Keep the API minimum replicas at zero, the maximum at one, and the worker schedule at five minutes if one-minute scan latency is not needed. Delete the resource group when the deployment is no longer required; do not upgrade the subscription to Pay-As-You-Go.
+Use Azure Cost Management to monitor the student credit balance and configure a budget alert. Keep the API minimum replicas at zero, the maximum at one, and the worker schedule at five minutes if one-minute scan latency is not needed. Stop or disable the API and worker when the deployment is no longer required; delete the resource group only after explicit operator approval and a retention decision. Do not upgrade the subscription to Pay-As-You-Go.
 
 The Container Apps free grant is not a contractual guarantee of zero usage for every workload. It is safe from surprise card charges only while the subscription remains Azure for Students and is not upgraded; usage can still consume the student credit balance.
 
