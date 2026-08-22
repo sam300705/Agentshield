@@ -10,9 +10,9 @@ afterEach(() => {
 
 describe("dashboard API client", () => {
   it("adds a memory-only bearer token and omits cookies", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ totalScans: 0 }), { status: 200 }),
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ totalScans: 0 }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     configureApiAuth({ getAccessToken: () => "test-token" });
 
@@ -49,10 +49,7 @@ describe("dashboard API client", () => {
 
   it("invokes the forbidden callback without exposing response internals", async () => {
     const onForbidden = vi.fn();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(new Response("not-json", { status: 403 })),
-    );
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("not-json", { status: 403 })));
     configureApiAuth({ getAccessToken: () => null, onForbidden });
 
     const error = await api.getDashboardSummary().catch((value: unknown) => value);
