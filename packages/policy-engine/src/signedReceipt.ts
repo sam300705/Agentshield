@@ -77,9 +77,17 @@ export function signSecurityReceipt(
   };
 }
 
+type PublicKeyRing = ReadonlyMap<string, KeyObject | string> | Record<string, KeyObject | string>;
+
+function isPublicKeyMap(value: PublicKeyRing): value is ReadonlyMap<string, KeyObject | string> {
+  return (
+    typeof value === "object" && value !== null && "get" in value && typeof value.get === "function"
+  );
+}
+
 export function verifySignedSecurityReceipt(
   signedReceipt: SignedSecurityReceipt,
-  publicKeys: ReadonlyMap<string, KeyObject | string> | Record<string, KeyObject | string>,
+  publicKeys: PublicKeyRing,
 ): boolean {
   if (
     signedReceipt.format !== SIGNED_RECEIPT_FORMAT ||
@@ -90,10 +98,10 @@ export function verifySignedSecurityReceipt(
     return false;
   }
   let publicKey: KeyObject | string | undefined;
-  if (publicKeys instanceof Map) {
+  if (isPublicKeyMap(publicKeys)) {
     publicKey = publicKeys.get(signedReceipt.keyId);
   } else {
-    publicKey = (publicKeys as Record<string, KeyObject | string>)[signedReceipt.keyId];
+    publicKey = publicKeys[signedReceipt.keyId];
   }
   if (publicKey == null) return false;
   try {
