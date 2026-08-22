@@ -8,6 +8,8 @@ import type {
   Scan,
 } from "@agentshield/schemas";
 
+import { getApiAccessToken, notifyApiAuthFailure } from "./auth";
+
 const API_BASE_URL =
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ||
   "http://localhost:3001";
@@ -44,6 +46,18 @@ export interface ApprovalWithFinding extends Approval {
   finding: FindingWithRelations;
 }
 
+export class ApiError extends Error {
+  readonly status: number;
+  readonly code: string | null;
+
+  constructor(status: number, code: string | null, message: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
 export interface DashboardSummary {
   totalScans: number;
   totalFindings: number;
@@ -74,16 +88,31 @@ export interface DashboardSummary {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers);
+  headers.set("Content-Type", "application/json");
+  const accessToken = await getApiAccessToken();
+  if (accessToken != null) headers.set("Authorization", `Bearer ${accessToken}`);
+
   const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: {
-      "Content-Type": "application/json",
-      ...init?.headers,
-    },
     ...init,
+    headers,
+    credentials: "omit",
   });
 
   if (!response.ok) {
-    throw new Error(`API request failed with ${response.status}`);
+    notifyApiAuthFailure(response.status);
+    let code: string | null = null;
+    let message = `API request failed with status ${response.status}.`;
+    try {
+      const body = (await response.json()) as {
+        error?: { code?: unknown; message?: unknown };
+      };
+      if (typeof body.error?.code === "string") code = body.error.code;
+      if (typeof body.error?.message === "string") message = body.error.message;
+    } catch {
+      // Keep a stable sanitized error when the server did not return JSON.
+    }
+    throw new ApiError(response.status, code, message);
   }
 
   return (await response.json()) as T;
