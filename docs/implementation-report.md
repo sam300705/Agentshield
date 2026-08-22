@@ -11,24 +11,27 @@ The AgentShield implementation was completed on a safe branch derived from the l
 
 The authenticated Git-linked Vercel project continues to provide a ready dashboard deployment at [https://agentshield-gov0eexcc-sam300705s-projects.vercel.app](https://agentshield-gov0eexcc-sam300705s-projects.vercel.app). The branch push received a successful Vercel deployment check. This verifies the static dashboard only; it does not claim that the API, PostgreSQL database, OIDC provider, or scheduled worker are remotely deployed.
 
-> **Readiness conclusion:** The pushed code is locally verified and CI-green, and the authenticated Git-backed Vercel dashboard deployment is working. A complete production deployment still requires authorized external infrastructure for the API, PostgreSQL, OIDC, and worker process.
+> **Readiness conclusion:** The pushed code is locally verified and CI-green, and the authenticated Git-backed Vercel dashboard deployment is working. Governance controls, capability status, and a provider-neutral memory-only frontend API authentication boundary are now documented and tested. A complete production deployment still requires authorized external infrastructure for the API, PostgreSQL, OIDC, and worker process.
 
 ## Git and pull-request state
 
-| Item                     | Result                                                                                                    |
-| ------------------------ | --------------------------------------------------------------------------------------------------------- |
-| Base branch              | `main`                                                                                                    |
-| Working branch           | `agent/production-hardening`                                                                              |
-| Feature-base commit      | `736e088` (`fix(ci): exclude intentional security fixtures from self-scan`)                               |
-| Reproducibility commit   | `dfd07aa` (`build: avoid nested Corepack in workspace scripts`)                                           |
-| Hardening commit         | `c11169b` (`feat: harden authenticated tenant-scoped control plane`)                                      |
-| Final code/config commit | `94313d7` (`fix: align Vercel monorepo output configuration`)                                             |
-| Azure deployment commit  | `bfff261` (`feat: add Azure VM deployment path`)                                                          |
-| Final report commit      | `c86ee14` (`docs: record Azure student provisioning blocker`)                                             |
-| Deployment report commit | `7c5b83b` (`docs: record authenticated Vercel deployment`)                                                |
-| Pull request             | [#2 — feat: production-harden AgentShield control plane](https://github.com/sam300705/Agentshield/pull/2) |
-| PR state                 | Open, non-draft, unmerged, conflict-free                                                                  |
-| Existing PR #1           | Left unchanged; no force-push, merge, or resource deletion was performed                                  |
+| Item                          | Result                                                                                                    |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Base branch                   | `main`                                                                                                    |
+| Working branch                | `agent/production-hardening`                                                                              |
+| Feature-base commit           | `736e088` (`fix(ci): exclude intentional security fixtures from self-scan`)                               |
+| Reproducibility commit        | `dfd07aa` (`build: avoid nested Corepack in workspace scripts`)                                           |
+| Hardening commit              | `c11169b` (`feat: harden authenticated tenant-scoped control plane`)                                      |
+| Final code/config commit      | `94313d7` (`fix: align Vercel monorepo output configuration`)                                             |
+| Azure deployment commit       | `bfff261` (`feat: add Azure VM deployment path`)                                                          |
+| Final report commit           | `c86ee14` (`docs: record Azure student provisioning blocker`)                                             |
+| Deployment report commit      | `7c5b83b` (`docs: record authenticated Vercel deployment`)                                                |
+| Governance commit             | `f181a90` (`docs: add governance and capability status controls`)                                         |
+| Frontend auth-boundary commit | `52a8364` (`feat: harden frontend API authentication boundary`)                                           |
+| CI formatting-fix commit      | `83cf0c6` (`fix: format frontend API client test`)                                                        |
+| Pull request                  | [#2 — feat: production-harden AgentShield control plane](https://github.com/sam300705/Agentshield/pull/2) |
+| PR state                      | Open, non-draft, unmerged, conflict-free                                                                  |
+| Existing PR #1                | Left unchanged; no force-push, merge, or resource deletion was performed                                  |
 
 ## Implemented features
 
@@ -39,6 +42,10 @@ Production authentication now has a verified OIDC boundary. JWTs are checked aga
 Tenant isolation was applied to scans, findings, SBOM dependencies, approvals, audit events, and dashboard aggregates. Scan idempotency keys are namespaced by organization. Unknown organization contexts are rejected rather than auto-provisioned. Approval transitions are limited to pending records, use an atomic conditional update, enforce server-side separation of duties, and write correlated organization-scoped audit events.
 
 The durable scan queue now records organization and correlation context, performs atomic job claims, bounds attempts, recovers stale worker locks, preserves cancellation behavior, and records bounded failure messages. Demo seed execution is restricted to non-production, local PostgreSQL targets and uses a stable demo organization identifier. The environment template contains placeholders rather than credentials and documents the production OIDC variables.
+
+Repository governance now includes a security policy, contribution guidance, code of conduct, pull-request and issue templates, Dependabot configuration, and a non-guessing CODEOWNERS example. `docs/capabilities.json` records actual runtime status, and `pnpm test:docs` checks required status language and rejects unsupported production-readiness claims. `docs/SECURITY_OPERATIONS.md` documents data classification, retention, backups, observability, incident response, rollback, and branch-protection recommendations.
+
+The dashboard API client now supports an application-provided memory-only access-token provider, sends bearer tokens only when explicitly configured, omits cookies, exposes typed sanitized `ApiError` values, and invokes explicit 401/403 callbacks. This is a safe integration boundary, not a provider-specific login, refresh, or session-restoration implementation; the primary dashboard remains a deterministic demo shell until an OIDC provider and real session flow are configured.
 
 Deployment documentation and explicit Vercel project settings build and serve the static dashboard with frozen dependencies and client-side route rewrites. The deployment guide clearly separates the static preview from the API, PostgreSQL, and worker services. Startup configuration is now validated with Zod: production requires a database URL, exact CORS origin, OIDC configuration, and no demo bypass; explicit non-production demo mode remains usable with blank OIDC values. A bounded in-memory rate limiter is enabled by default in production and is documented as per-instance rather than a distributed control.
 
@@ -53,14 +60,16 @@ The following local gates passed on the current branch after the runtime-configu
 | `pnpm format:check`                    | Passed                                                                                                                         |
 | `pnpm lint`                            | Passed                                                                                                                         |
 | `pnpm typecheck`                       | Passed                                                                                                                         |
-| `pnpm test`                            | Passed: 9 workspace test suites, 23 tests                                                                                      |
+| `pnpm test`                            | Passed in the prior hardening gate: 9 workspace test suites, 23 tests                                                          |
+| `pnpm test:docs`                       | Passed: capability manifest and documentation contradiction checks                                                             |
+| Dashboard API tests                    | Passed: 4 tests covering bearer injection, cookie omission, sanitized 401, and sanitized 403 handling                          |
 | `pnpm build`                           | Passed: API and dashboard production builds                                                                                    |
 | `pnpm db:deploy`                       | Passed: no pending migration failure                                                                                           |
 | `pnpm test:integration`                | Passed: 15 findings, 6 dependencies, blocked secret fixture                                                                    |
 | Vulnerable fixture SARIF gate          | Passed with expected scanner exit code 3                                                                                       |
 | Repository source-security gate        | Passed with zero findings under the documented fixture exclusions                                                              |
 | API-to-PostgreSQL-to-worker smoke test | Passed: liveness, readiness, unauthenticated 401, explicit demo auth, tenant-scoped listing, enqueue, and completed worker job |
-| GitHub Actions `AgentShield CI`        | Passed on PR check [quality](https://github.com/sam300705/Agentshield/actions/runs/32595421840/job/97085433015) for `ea87dc6`  |
+| GitHub Actions `AgentShield CI`        | Passed on PR check [quality](https://github.com/sam300705/Agentshield/actions/runs/32597152446/job/97089824770) for `83cf0c6`  |
 
 The deployed dashboard was opened in a browser and rendered the AgentShield risk overview, navigation, deterministic demo content, approvals indicator, flight recorder, and causal-risk panels successfully.
 
@@ -72,13 +81,14 @@ The production API requires `DATABASE_URL`, exact `CORS_ORIGIN`, `AUTH_MODE=oidc
 
 ## Remaining blockers and follow-up work
 
-| Blocker or limitation                                            | Impact                                                                                                                                   | Required next action                                                                                            |
-| ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| Vercel monorepo configuration                                    | Resolved: the Git-linked project now uses Vite, root `apps/web-dashboard`, `pnpm install`, `pnpm run build`, and `dist`                  | Keep future changes on the Git-linked project and verify subsequent builds                                      |
-| Neon Free project exists but is not connected                    | The remote API, readiness, worker, and database flow cannot be claimed as deployed; migrations and smoke tests have not run against Neon | Inject pooled/direct URLs securely, apply committed migrations, and verify the remote flow                      |
-| OIDC provider values are placeholders                            | Production login cannot be verified against a real identity provider                                                                     | Supply issuer, audience, JWKS, role claim, and organization-claim configuration through secret management       |
-| GitHub App/webhook lifecycle remains intentionally unimplemented | GitHub installation, webhook signature verification, and automatic PR orchestration are not production-connected                         | Configure an approved GitHub App and implement its signed webhook lifecycle before enabling external automation |
-| GitHub CI reported deprecation annotations                       | Current checks pass, but workflow maintenance is needed                                                                                  | Schedule upgrades from CodeQL Action v3 to v4 and review the Node.js 20 action-runtime annotation               |
+| Blocker or limitation                                            | Impact                                                                                                                                                | Required next action                                                                                            |
+| ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Vercel monorepo configuration                                    | Resolved: the Git-linked project now uses Vite, root `apps/web-dashboard`, `pnpm install`, `pnpm run build`, and `dist`                               | Keep future changes on the Git-linked project and verify subsequent builds                                      |
+| Neon Free project exists but is not connected                    | The remote API, readiness, worker, and database flow cannot be claimed as deployed; migrations and smoke tests have not run against Neon              | Inject pooled/direct URLs securely, apply committed migrations, and verify the remote flow                      |
+| OIDC provider values are placeholders                            | Production login cannot be verified against a real identity provider                                                                                  | Supply issuer, audience, JWKS, role claim, and organization-claim configuration through secret management       |
+| Production frontend login/session flow remains incomplete        | The safe client boundary exists, but no provider-specific login, refresh, session restoration, role navigation, or organization selector is activated | Choose an OIDC provider and implement/verify the owner-authorized browser flow                                  |
+| GitHub App/webhook lifecycle remains intentionally unimplemented | GitHub installation, webhook signature verification, and automatic PR orchestration are not production-connected                                      | Configure an approved GitHub App and implement its signed webhook lifecycle before enabling external automation |
+| GitHub CI reported deprecation annotations                       | Current checks pass, but workflow maintenance is needed                                                                                               | Schedule upgrades from CodeQL Action v3 to v4 and review the Node.js 20 action-runtime annotation               |
 
 No credentials were committed, no production resources were deleted, no security checks were weakened, no force-push was used, and `main` was not merged or modified.
 
