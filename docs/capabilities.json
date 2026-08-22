@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "product": "AgentShield",
+  "status": "portfolio-prototype-controlled-internal-alpha",
+  "capabilities": {
+    "deterministic_scanner": {
+      "status": "implemented_and_verified",
+      "evidence": "packages/scanner and pnpm test:integration"
+    },
+    "tenant_scoped_api": {
+      "status": "implemented_and_verified",
+      "evidence": "apps/api controllers, RBAC tests, and PostgreSQL integration smoke test"
+    },
+    "oidc_production_authentication": {
+      "status": "implemented_requires_configuration",
+      "evidence": "apps/api/src/security/auth.ts and startup configuration validation",
+      "requires": ["OIDC_ISSUER", "OIDC_AUDIENCE", "OIDC_JWKS_URL", "CORS_ORIGIN"]
+    },
+    "local_demo_authentication": {
+      "status": "implemented_and_verified",
+      "scope": "non-production only",
+      "evidence": "explicit DEMO_AUTH_ENABLED=true and demo authentication tests"
+    },
+    "durable_postgresql_scan_queue": {
+      "status": "implemented_and_verified",
+      "evidence": "atomic claims, bounded retries, stale-lock recovery, and integration smoke test"
+    },
+    "azure_container_apps_deployment": {
+      "status": "prepared_not_deployed",
+      "evidence": "deploy/azure-container-apps/README.md",
+      "requires": [
+        "Azure account authorization",
+        "Neon connection strings",
+        "production OIDC values"
+      ]
+    },
+    "vercel_dashboard": {
+      "status": "deployed_static_dashboard",
+      "evidence": "authenticated Git-backed Vercel deployment"
+    },
+    "github_app_repository_onboarding": {
+      "status": "not_implemented",
+      "reason": "signed installation and webhook lifecycle are not implemented"
+    },
+    "distributed_rate_limiting": {
+      "status": "not_implemented",
+      "reason": "the current limiter is bounded in-memory and per API instance"
+    },
+    "dependency_vulnerability_intelligence": {
+      "status": "not_implemented",
+      "reason": "SBOM output is inventory only; no CVE provider is configured"
+    }
+  },
+  "limitations": [
+    "The static dashboard contains a deterministic demo console and is not proof of a live authenticated API deployment.",
+    "No production OIDC provider has been configured in the current environment.",
+    "No Neon connection strings have been injected into the deployment.",
+    "No Azure Container Apps API or scheduled worker resource has been created.",
+    "Security receipts are SHA-256 integrity hashes, not digital signatures or non-repudiation.",
+    "Secret scanning uses high-confidence patterns and does not provide entropy analysis.",
+    "The PostgreSQL polling queue is not a benchmarked high-throughput distributed queue."
+  ]
+}

@@ -10,6 +10,24 @@ AgentShield is a production-minded AI-agent security control plane. It captures 
 
 The core demo is deterministic and works without an LLM or external security API.
 
+## Capability status
+
+The repository contains a security-control-plane implementation and a deterministic dashboard demo. **The static dashboard is not proof of a deployed API, database, OIDC provider, or worker.** Production authentication requires OIDC configuration and the API intentionally fails closed when that configuration is absent.
+
+| Area                                                                | Current status                       | Evidence or required action                                                                                                    |
+| ------------------------------------------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| Deterministic scanner and SARIF output                              | Implemented and locally/CI verified  | `packages/scanner`, fixture gate, and integration test                                                                         |
+| Tenant-scoped API, RBAC, approvals, audit events, and durable queue | Implemented and locally/CI verified  | Express controllers, Prisma schema, worker tests, and PostgreSQL integration smoke test                                        |
+| Production OIDC authentication                                      | Implemented; requires configuration  | Set `OIDC_ISSUER`, `OIDC_AUDIENCE`, `OIDC_JWKS_URL`, `OIDC_ROLE_CLAIM`, and exact `CORS_ORIGIN`; keep demo auth disabled       |
+| Local demo authentication                                           | Implemented for non-production only  | Explicit `DEMO_AUTH_ENABLED=true` and recognized demo header; never use in production                                          |
+| Vercel dashboard                                                    | Static dashboard deployment verified | [Open the dashboard](https://agentshield-gov0eexcc-sam300705s-projects.vercel.app); it uses deterministic fixture content      |
+| Production frontend OIDC/session flow                               | Not complete                         | The primary shell is a deterministic demo; no provider-neutral login, token refresh, or authenticated API session is activated |
+| Neon PostgreSQL and Azure Container Apps                            | Prepared, not deployed               | Neon Free project and Azure runbook exist, but credentials/resources are not connected or created                              |
+| GitHub App onboarding and webhook lifecycle                         | Not implemented                      | Requires a reviewed adapter, installation verification, replay protection, and owner credentials                               |
+| Distributed rate limiting and CVE intelligence                      | Not implemented                      | Current limiter is per API instance; dependency output is inventory only                                                       |
+
+The honest readiness level is **portfolio prototype / controlled internal alpha**. It is not a clinical product, security certification, or public production service.
+
 ## Why it is different
 
 | Capability               | What is technically real                                                                                                        |
@@ -153,6 +171,7 @@ docs                 Architecture, threat model, demo and tradeoffs
 ## Honest limitations
 
 - Demo identity headers are isolated to non-production development. Production routes fail closed unless verified OIDC configuration is active.
+- The primary dashboard shell is a deterministic offline demo; API-backed page components and client request helpers are not a complete production login/session workflow.
 - The local queue uses PostgreSQL polling. This is deliberately simpler than Redis/BullMQ for the current scale; high-throughput installations should benchmark and revisit that choice.
 - Secret scanning uses high-confidence patterns and does not yet use entropy analysis.
 - Attack-graph inferred edges describe evidence proximity, not human or agent intent.
@@ -161,4 +180,4 @@ docs                 Architecture, threat model, demo and tradeoffs
 
 ## Engineering story
 
-See [deployment guidance](./docs/deployment.md), [resume bullets](./docs/resume-bullets.md), [interview demo](./docs/demo-script.md), [threat model](./docs/threat-model.md), and [engineering tradeoffs](./docs/control-plane.md).
+See [deployment guidance](./docs/deployment.md), [security operations](./docs/SECURITY_OPERATIONS.md), [resume bullets](./docs/resume-bullets.md), [interview demo](./docs/demo-script.md), [threat model](./docs/threat-model.md), and [engineering tradeoffs](./docs/control-plane.md).

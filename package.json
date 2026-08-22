@@ -17,6 +17,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "pnpm -r test",
+    "test:docs": "node --import tsx scripts/verify-capability-docs.ts",
     "test:integration": "node --import tsx scripts/verify-integration.ts",
     "typecheck": "tsc -b",
     "db:up": "docker compose up -d postgres",

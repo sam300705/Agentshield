@@ -44,6 +44,7 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
+      - run: pnpm test:docs
       - run: pnpm build
       - run: pnpm test:integration
       - name: Scan deterministic fixture
