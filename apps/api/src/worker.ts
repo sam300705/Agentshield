@@ -4,6 +4,7 @@ import { prisma } from "./db/prisma.js";
 import { processNextScanJob } from "./services/scanQueue.js";
 
 const workerId = `scan-worker-${process.pid}`;
+const runOnce = process.env.WORKER_MODE === "once";
 let stopping = false;
 
 async function run(): Promise<void> {
@@ -17,7 +18,20 @@ async function run(): Promise<void> {
   );
   while (!stopping) {
     const processed = await processNextScanJob(workerId);
+    if (!processed && runOnce) break;
     if (!processed) await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+
+  if (runOnce) {
+    console.warn(
+      JSON.stringify({
+        level: "info",
+        service: "agentshield-worker",
+        workerId,
+        message: "worker batch complete",
+      }),
+    );
+    await prisma.$disconnect();
   }
 }
 

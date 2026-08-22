@@ -98,3 +98,11 @@ Do not run `pnpm db:migrate`, `pnpm db:push`, or `pnpm db:seed` against the Neon
 ## Azure student-credit deployment
 
 For a credit-funded always-on worker, see [`deploy/azure/README.md`](../deploy/azure/README.md). The Azure path runs the API and worker as separate containers on one Linux VM, puts Caddy in front for HTTPS, and uses Neon for PostgreSQL. The dashboard must be rebuilt with `VITE_API_BASE_URL` set to the public HTTPS API origin; the API must set `CORS_ORIGIN` to the exact Vercel origin. The Azure VM and Neon account are external resources, so this repository includes configuration and runbooks but does not create them automatically.
+
+## Azure Container Apps without a VM
+
+When Azure for Students does not expose an eligible VM size, use [`deploy/azure-container-apps/README.md`](../deploy/azure-container-apps/README.md). This no-card path runs the API as an Azure Container Apps Consumption service and runs `apps/api/dist/worker.js` as a scheduled Container Apps Job with `WORKER_MODE=once`. The worker drains eligible PostgreSQL-backed jobs and exits, preserving the existing atomic claims, retries, cancellation, and stale-lock recovery without requiring a continuously running VM process.
+
+Azure Container Apps provides managed HTTPS ingress and a generated FQDN for the API. The job has no public ingress. Neon Free supplies PostgreSQL, and the API and job receive database credentials through platform-managed secrets. The repository does not contain those values.
+
+The scheduled-job approach is a deployment adaptation, not a replacement for the long-running worker. It is appropriate when scan latency of one to five minutes is acceptable. If continuous processing is required, use a long-lived host such as Oracle Always Free (subject to card verification and capacity) or an eligible Azure VM. Keep Container Apps at zero minimum replicas and small CPU/memory limits, and monitor the Azure for Students credit balance before calling it production-ready.

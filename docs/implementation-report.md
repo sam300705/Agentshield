@@ -107,3 +107,13 @@ The clean repository security-report correction is pushed as commit `2767792`, a
 The Azure for Students subscription was successfully activated and authenticated in Azure Portal. No VM or other Azure resource was created. During the VM creation attempt, Azure East US selected `Standard_D2s_v3`, reported it as `NotAvailableForSubscription`, and displayed an estimated price of approximately $70/month. The portal’s region/size metadata was intermittently empty, so the D-series option was rejected rather than created. Current Microsoft guidance identifies B1s, B2pts v2, and B2ats v2 as the relevant free-tier burstable VM families, with B2ats v2 as the preferred Linux x64 fallback where available. A future retry must use only a portal-confirmed eligible B-series v2 size and must verify the final pricing/eligibility summary before creation.
 
 The Azure deployment remains blocked at infrastructure provisioning, not in the repository: the target VM, Neon database, OIDC provider, DNS name, and Vercel API-base environment variable are still absent. No paid resource, billing profile, password, token, or private key was created or committed.
+
+## No-card Azure Container Apps alternative
+
+Because Azure for Students did not expose an eligible VM size and the user does not have a credit card for Oracle verification, the branch now includes a no-card Azure Container Apps path in `deploy/azure-container-apps/README.md`. The API runs as a Consumption Container App with managed HTTPS ingress, and the worker can run as a scheduled Container Apps Job using `WORKER_MODE=once`. This mode drains eligible PostgreSQL-backed jobs and exits, while the existing long-running worker behavior remains unchanged when `WORKER_MODE` is unset.
+
+The Container Apps runbook uses Neon Free for PostgreSQL, platform-managed secrets, and Azure’s generated HTTPS hostname. It does not require a VM, public IP, Caddy, custom DNS, or a payment card. Azure Consumption grants and student credits still need to be monitored; the deployment is not described as production-ready until the API, Neon database, OIDC provider, scheduled worker, and dashboard connection have all been smoke-tested.
+
+The production Dockerfile now installs the pinned pnpm version directly with npm instead of invoking Corepack, avoiding the known Corepack signature problem. After the pivot, `pnpm format:check`, `pnpm typecheck`, `pnpm build`, and `pnpm test` passed locally. Docker image construction remains unverified in the sandbox because the Docker CLI is unavailable.
+
+The no-card path remains subject to Azure Container Apps regional availability and requires the user to create the Neon and OIDC accounts. No payment method, cloud secret, or resource was created by this change.
