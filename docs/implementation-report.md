@@ -2,7 +2,7 @@
 
 **Author:** Manus AI  
 **Repository:** [sam300705/Agentshield](https://github.com/sam300705/Agentshield)  
-**Report date:** 2026-08-21  
+**Report date:** 2026-08-22  
 **Working branch:** `agent/production-hardening`
 
 ## Executive status
@@ -24,7 +24,7 @@ The authenticated Git-linked Vercel project now has a ready dashboard deployment
 | Hardening commit         | `c11169b` (`feat: harden authenticated tenant-scoped control plane`)                                      |
 | Final code/config commit | `94313d7` (`fix: align Vercel monorepo output configuration`)                                             |
 | Azure deployment commit  | `bfff261` (`feat: add Azure VM deployment path`)                                                          |
-| Final report commit      | `681a078` (`docs: record final Vercel preview`)                                                           |
+| Final report commit      | `c86ee14` (`docs: record Azure student provisioning blocker`)                                             |
 | Deployment report commit | `7c5b83b` (`docs: record authenticated Vercel deployment`)                                                |
 | Pull request             | [#2 — feat: production-harden AgentShield control plane](https://github.com/sam300705/Agentshield/pull/2) |
 | PR state                 | Open, non-draft, unmerged, conflict-free                                                                  |
@@ -60,7 +60,7 @@ The following local gates passed after the final hardening changes:
 | Vulnerable fixture SARIF gate          | Passed with expected scanner exit code 3                                                                                       |
 | Repository source-security gate        | Passed with zero findings under the documented fixture exclusions                                                              |
 | API-to-PostgreSQL-to-worker smoke test | Passed: liveness, readiness, unauthenticated 401, explicit demo auth, tenant-scoped listing, enqueue, and completed worker job |
-| GitHub Actions `AgentShield CI`        | Passed on run [32469815277](https://github.com/sam300705/Agentshield/actions/runs/32469815277) for `681a078`                   |
+| GitHub Actions `AgentShield CI`        | Passed on run [32562242545](https://github.com/sam300705/Agentshield/actions/runs/32562242545) for `c86ee14`                   |
 
 The deployed dashboard was opened in a browser and rendered the AgentShield risk overview, navigation, deterministic demo content, approvals indicator, flight recorder, and causal-risk panels successfully.
 
@@ -102,7 +102,7 @@ The Azure implementation is not a claim of production availability. It becomes o
 
 ## Latest verification and Azure provisioning attempt
 
-The clean repository security-report correction is now pushed as commit `2767792` on `agent/production-hardening`. GitHub Actions run [32496232971](https://github.com/sam300705/Agentshield/actions/runs/32496232971) completed successfully, including the revised source-security SARIF gate; the intentionally vulnerable scanner fixtures remain tested separately and are not uploaded as repository findings.
+The clean repository security-report correction is pushed as commit `2767792`, and the latest report update is pushed as commit `c86ee14` on `agent/production-hardening`. GitHub Actions run [32562242545](https://github.com/sam300705/Agentshield/actions/runs/32562242545) completed successfully, including the revised source-security SARIF gate; the intentionally vulnerable scanner fixtures remain tested separately and are not uploaded as repository findings.
 
 The Azure for Students subscription was successfully activated and authenticated in Azure Portal. No VM or other Azure resource was created. During the VM creation attempt, Azure East US selected `Standard_D2s_v3`, reported it as `NotAvailableForSubscription`, and displayed an estimated price of approximately $70/month. The portal’s region/size metadata was intermittently empty, so the D-series option was rejected rather than created. Current Microsoft guidance identifies B1s, B2pts v2, and B2ats v2 as the relevant free-tier burstable VM families, with B2ats v2 as the preferred Linux x64 fallback where available. A future retry must use only a portal-confirmed eligible B-series v2 size and must verify the final pricing/eligibility summary before creation.
 
