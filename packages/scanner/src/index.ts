@@ -5,3 +5,12 @@ export { scanKubernetesManifest, type KubernetesScannerInput } from "./kubernete
 export { walkRepository, type WalkRepositoryOptions } from "./repoWalker.js";
 export { runScan, type ScanRunnerResult } from "./scanRunner.js";
 export { scanFileForSecrets, type SecretScannerInput } from "./secretScanner.js";
+export {
+  enrichDependencies,
+  type AdvisoryDependency,
+  type AdvisoryMatch,
+  type AdvisorySeverity,
+  type DependencyAdvisoryResult,
+  type OsvEnricherOptions,
+  type VulnerabilityAdvisory,
+} from "./vulnerabilityEnricher.js";
