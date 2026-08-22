@@ -51,7 +51,7 @@ Deployment documentation and explicit Vercel project settings build and serve th
 
 ## Verification results
 
-The following local gates passed on the current branch after the runtime-configuration and rate-limit hardening commit `ea87dc6`. Prisma commands used the existing local PostgreSQL instance through process-only environment variables; no Neon credentials were used or persisted.
+The following complete local gates passed on the final branch head `3353843`. Prisma commands used the existing local PostgreSQL instance through process-only environment variables; no Neon credentials were used or persisted.
 
 | Gate                                   | Result                                                                                                                         |
 | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
@@ -60,7 +60,7 @@ The following local gates passed on the current branch after the runtime-configu
 | `pnpm format:check`                    | Passed                                                                                                                         |
 | `pnpm lint`                            | Passed                                                                                                                         |
 | `pnpm typecheck`                       | Passed                                                                                                                         |
-| `pnpm test`                            | Passed in the prior hardening gate: 9 workspace test suites, 23 tests                                                          |
+| `pnpm test`                            | Passed: 10 workspace test files, 27 tests                                                                                      |
 | `pnpm test:docs`                       | Passed: capability manifest and documentation contradiction checks                                                             |
 | Dashboard API tests                    | Passed: 4 tests covering bearer injection, cookie omission, sanitized 401, and sanitized 403 handling                          |
 | `pnpm build`                           | Passed: API and dashboard production builds                                                                                    |
