@@ -34,6 +34,7 @@ The authenticated Git-linked Vercel project continues to provide a ready dashboa
 | Live dashboard auth commit    | `451199d` (`feat: add provider-neutral live dashboard auth`)                                              |
 | Distributed limiter commit    | `570c385` (`feat: add distributed rate-limit abstraction`)                                                |
 | Capability status commit      | `7e0afdf` (`docs: record live authentication capability status`)                                          |
+| Final pushed head             | `decc7f7` (`docs: record resumed hardening verification`)                                                 |
 | Pull request                  | [#2 — feat: production-harden AgentShield control plane](https://github.com/sam300705/Agentshield/pull/2) |
 | PR state                      | Open, non-draft, unmerged, conflict-free                                                                  |
 | Existing PR #1                | Left unchanged; no force-push, merge, or resource deletion was performed                                  |
@@ -56,27 +57,27 @@ Deployment documentation and explicit Vercel project settings build and serve th
 
 ## Verification results
 
-The following complete local gates passed on the resumed branch head `7e0afdf`. Prisma commands used the existing local PostgreSQL instance through process-only environment variables; no Neon credentials were used or persisted.
+The following complete local gates passed on the resumed code head `7e0afdf`; the final pushed report head is `decc7f7`. Prisma commands used the existing local PostgreSQL instance through process-only environment variables; no Neon credentials were used or persisted.
 
-| Gate                                   | Result                                                                                                                         |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `pnpm install --frozen-lockfile`       | Passed                                                                                                                         |
-| `pnpm db:generate`                     | Passed                                                                                                                         |
-| `pnpm format:check`                    | Passed                                                                                                                         |
-| `pnpm lint`                            | Passed                                                                                                                         |
-| `pnpm typecheck`                       | Passed                                                                                                                         |
-| `pnpm test`                            | Passed: 16 workspace test files, 48 tests                                                                                      |
-| `pnpm test:docs`                       | Passed: capability manifest and documentation contradiction checks                                                             |
-| Dashboard/frontend tests               | Passed: 3 dashboard suites, 8 tests; includes PKCE, callback validation, refresh, logout, and live-mode configuration tests    |
-| `pnpm build`                           | Passed: API and dashboard production builds                                                                                    |
-| `pnpm db:deploy`                       | Passed: no pending migration failure                                                                                           |
-| `pnpm test:integration`                | Passed: 15 findings, 6 dependencies, blocked secret fixture                                                                    |
-| Vulnerable fixture SARIF gate          | Passed with expected scanner exit code 3                                                                                       |
-| Repository source-security gate        | Passed with zero findings under the documented fixture exclusions                                                              |
-| API-to-PostgreSQL-to-worker smoke test | Passed: liveness, readiness, unauthenticated 401, explicit demo auth, tenant-scoped listing, enqueue, and completed worker job |
-| GitHub Actions `AgentShield CI`        | Passed on the previous pushed head `570c385`; the new report-only head `7e0afdf` is pending push and CI verification           |
+| Gate                                   | Result                                                                                                                                  |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm install --frozen-lockfile`       | Passed                                                                                                                                  |
+| `pnpm db:generate`                     | Passed                                                                                                                                  |
+| `pnpm format:check`                    | Passed                                                                                                                                  |
+| `pnpm lint`                            | Passed                                                                                                                                  |
+| `pnpm typecheck`                       | Passed                                                                                                                                  |
+| `pnpm test`                            | Passed: 16 workspace test files, 48 tests                                                                                               |
+| `pnpm test:docs`                       | Passed: capability manifest and documentation contradiction checks                                                                      |
+| Dashboard/frontend tests               | Passed: 3 dashboard suites, 8 tests; includes PKCE, callback validation, refresh, logout, and live-mode configuration tests             |
+| `pnpm build`                           | Passed: API and dashboard production builds                                                                                             |
+| `pnpm db:deploy`                       | Passed: no pending migration failure                                                                                                    |
+| `pnpm test:integration`                | Passed: 15 findings, 6 dependencies, blocked secret fixture                                                                             |
+| Vulnerable fixture SARIF gate          | Passed with expected scanner exit code 3                                                                                                |
+| Repository source-security gate        | Passed with zero findings under the documented fixture exclusions                                                                       |
+| API-to-PostgreSQL-to-worker smoke test | Passed: liveness, readiness, unauthenticated 401, explicit demo auth, tenant-scoped listing, enqueue, and completed worker job          |
+| GitHub Actions `AgentShield CI`        | Passed on final pushed head `decc7f7`: [quality job](https://github.com/sam300705/Agentshield/actions/runs/32608424235/job/97117246837) |
 
-The deployed dashboard was opened in a browser and rendered the AgentShield risk overview, navigation, deterministic demo content, approvals indicator, flight recorder, and causal-risk panels successfully.
+The deployed dashboard was previously opened in a browser and rendered the AgentShield risk overview, navigation, deterministic demo content, approvals indicator, flight recorder, and causal-risk panels successfully. The latest Vercel check also passed for the final pushed branch head: [deployment](https://vercel.com/sam300705s-projects/agentshield/FKcmkAsHq3cRoxgwdo5SxRydeMx8).
 
 ## Deployment details
 
