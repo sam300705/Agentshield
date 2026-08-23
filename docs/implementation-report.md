@@ -35,7 +35,7 @@ The authenticated Git-linked Vercel project continues to provide a ready dashboa
 | Distributed limiter commit    | `570c385` (`feat: add distributed rate-limit abstraction`)                                                |
 | Capability status commit      | `7e0afdf` (`docs: record live authentication capability status`)                                          |
 | Automated CLI commit          | `988fa98` (`feat: add safe offline integration CLIs`)                                                     |
-| Final pushed head             | `decc7f7` (`docs: record resumed hardening verification`)                                                 |
+| Final pushed head             | `75a942b` (`docs: record automated integration work`)                                                     |
 | Pull request                  | [#2 — feat: production-harden AgentShield control plane](https://github.com/sam300705/Agentshield/pull/2) |
 | PR state                      | Open, non-draft, unmerged, conflict-free                                                                  |
 | Existing PR #1                | Left unchanged; no force-push, merge, or resource deletion was performed                                  |
@@ -58,7 +58,7 @@ Deployment documentation and explicit Vercel project settings build and serve th
 
 ## Verification results
 
-The following complete local gates passed on the automated-work code head `988fa98`. Prisma commands used the existing local PostgreSQL instance through process-only environment variables; no Neon credentials were used or persisted.
+The following complete local gates passed on the automated-work code head `988fa98`; the final pushed report head is `75a942b`. Prisma commands used the existing local PostgreSQL instance through process-only environment variables; no Neon credentials were used or persisted.
 
 | Gate                                   | Result                                                                                                                                  |
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
@@ -77,9 +77,9 @@ The following complete local gates passed on the automated-work code head `988fa
 | Vulnerable fixture SARIF gate          | Passed with expected scanner exit code 3                                                                                                |
 | Repository source-security gate        | Passed with zero findings under the documented fixture exclusions                                                                       |
 | API-to-PostgreSQL-to-worker smoke test | Passed: liveness, readiness, unauthenticated 401, explicit demo auth, tenant-scoped listing, enqueue, and completed worker job          |
-| GitHub Actions `AgentShield CI`        | Passed on final pushed head `decc7f7`: [quality job](https://github.com/sam300705/Agentshield/actions/runs/32608424235/job/97117246837) |
+| GitHub Actions `AgentShield CI`        | Passed on final pushed head `75a942b`: [quality job](https://github.com/sam300705/Agentshield/actions/runs/32618212458/job/97142237862) |
 
-The deployed dashboard was previously opened in a browser and rendered the AgentShield risk overview, navigation, deterministic demo content, approvals indicator, flight recorder, and causal-risk panels successfully. The latest Vercel check also passed for the final pushed branch head: [deployment](https://vercel.com/sam300705s-projects/agentshield/FKcmkAsHq3cRoxgwdo5SxRydeMx8).
+The deployed dashboard was previously opened in a browser and rendered the AgentShield risk overview, navigation, deterministic demo content, approvals indicator, flight recorder, and causal-risk panels successfully. The latest Vercel check also passed for the final pushed branch head: [deployment](https://vercel.com/sam300705s-projects/agentshield/GCZABfST8yqqirGoEJHF7Wim77BA).
 
 ## Deployment details
 
