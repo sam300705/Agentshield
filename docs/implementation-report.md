@@ -15,30 +15,30 @@ The authenticated Git-linked Vercel project continues to provide a ready dashboa
 
 ## Git and pull-request state
 
-| Item                          | Result                                                                                                                       |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| Base branch                   | `main`                                                                                                                       |
-| Working branch                | `agent/production-hardening`                                                                                                 |
-| Feature-base commit           | `736e088` (`fix(ci): exclude intentional security fixtures from self-scan`)                                                  |
-| Reproducibility commit        | `dfd07aa` (`build: avoid nested Corepack in workspace scripts`)                                                              |
-| Hardening commit              | `c11169b` (`feat: harden authenticated tenant-scoped control plane`)                                                         |
-| Final code/config commit      | `94313d7` (`fix: align Vercel monorepo output configuration`)                                                                |
-| Azure deployment commit       | `bfff261` (`feat: add Azure VM deployment path`)                                                                             |
-| Final report commit           | `c86ee14` (`docs: record Azure student provisioning blocker`)                                                                |
-| Deployment report commit      | `7c5b83b` (`docs: record authenticated Vercel deployment`)                                                                   |
-| Governance commit             | `f181a90` (`docs: add governance and capability status controls`)                                                            |
-| Frontend auth-boundary commit | `52a8364` (`feat: harden frontend API authentication boundary`)                                                              |
-| CI formatting-fix commit      | `83cf0c6` (`fix: format frontend API client test`)                                                                           |
-| Signed-receipt commit         | `c4f944b` (`feat: add signed security receipt primitives`)                                                                   |
-| GitHub/OSV integration commit | `10a9e70` (`feat: add tested github and osv integration boundaries`)                                                         |
-| Live dashboard auth commit    | `451199d` (`feat: add provider-neutral live dashboard auth`)                                                                 |
-| Distributed limiter commit    | `570c385` (`feat: add distributed rate-limit abstraction`)                                                                   |
-| Capability status commit      | `7e0afdf` (`docs: record live authentication capability status`)                                                             |
-| Automated CLI commit          | Pending: opt-in OSV scanner enrichment and offline receipt signing are validated locally and will be pushed with this report |
-| Final pushed head             | `decc7f7` (`docs: record resumed hardening verification`)                                                                    |
-| Pull request                  | [#2 — feat: production-harden AgentShield control plane](https://github.com/sam300705/Agentshield/pull/2)                    |
-| PR state                      | Open, non-draft, unmerged, conflict-free                                                                                     |
-| Existing PR #1                | Left unchanged; no force-push, merge, or resource deletion was performed                                                     |
+| Item                          | Result                                                                                                    |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Base branch                   | `main`                                                                                                    |
+| Working branch                | `agent/production-hardening`                                                                              |
+| Feature-base commit           | `736e088` (`fix(ci): exclude intentional security fixtures from self-scan`)                               |
+| Reproducibility commit        | `dfd07aa` (`build: avoid nested Corepack in workspace scripts`)                                           |
+| Hardening commit              | `c11169b` (`feat: harden authenticated tenant-scoped control plane`)                                      |
+| Final code/config commit      | `94313d7` (`fix: align Vercel monorepo output configuration`)                                             |
+| Azure deployment commit       | `bfff261` (`feat: add Azure VM deployment path`)                                                          |
+| Final report commit           | `c86ee14` (`docs: record Azure student provisioning blocker`)                                             |
+| Deployment report commit      | `7c5b83b` (`docs: record authenticated Vercel deployment`)                                                |
+| Governance commit             | `f181a90` (`docs: add governance and capability status controls`)                                         |
+| Frontend auth-boundary commit | `52a8364` (`feat: harden frontend API authentication boundary`)                                           |
+| CI formatting-fix commit      | `83cf0c6` (`fix: format frontend API client test`)                                                        |
+| Signed-receipt commit         | `c4f944b` (`feat: add signed security receipt primitives`)                                                |
+| GitHub/OSV integration commit | `10a9e70` (`feat: add tested github and osv integration boundaries`)                                      |
+| Live dashboard auth commit    | `451199d` (`feat: add provider-neutral live dashboard auth`)                                              |
+| Distributed limiter commit    | `570c385` (`feat: add distributed rate-limit abstraction`)                                                |
+| Capability status commit      | `7e0afdf` (`docs: record live authentication capability status`)                                          |
+| Automated CLI commit          | `988fa98` (`feat: add safe offline integration CLIs`)                                                     |
+| Final pushed head             | `decc7f7` (`docs: record resumed hardening verification`)                                                 |
+| Pull request                  | [#2 — feat: production-harden AgentShield control plane](https://github.com/sam300705/Agentshield/pull/2) |
+| PR state                      | Open, non-draft, unmerged, conflict-free                                                                  |
+| Existing PR #1                | Left unchanged; no force-push, merge, or resource deletion was performed                                  |
 
 ## Implemented features
 
@@ -58,7 +58,7 @@ Deployment documentation and explicit Vercel project settings build and serve th
 
 ## Verification results
 
-The following complete local gates passed on the resumed code head `7e0afdf`; the final pushed report head is `decc7f7`. Prisma commands used the existing local PostgreSQL instance through process-only environment variables; no Neon credentials were used or persisted.
+The following complete local gates passed on the automated-work code head `988fa98`. Prisma commands used the existing local PostgreSQL instance through process-only environment variables; no Neon credentials were used or persisted.
 
 | Gate                                   | Result                                                                                                                                  |
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
