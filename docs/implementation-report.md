@@ -11,33 +11,34 @@ The AgentShield implementation was completed on a safe branch derived from the l
 
 The authenticated Git-linked Vercel project continues to provide a ready dashboard deployment at [https://agentshield-gov0eexcc-sam300705s-projects.vercel.app](https://agentshield-gov0eexcc-sam300705s-projects.vercel.app). The branch push received a successful Vercel deployment check. This verifies the static dashboard only; it does not claim that the API, PostgreSQL database, OIDC provider, or scheduled worker are remotely deployed.
 
-> **Readiness conclusion:** The pushed code is locally verified and CI-green, and the authenticated Git-backed Vercel dashboard deployment is working. The provider-neutral frontend OIDC session flow, authenticated live summary/scan-history view, OSV enrichment adapter, GitHub webhook security boundary, Ed25519 signed-receipt primitives, and Redis-compatible rate-limit abstraction are implemented and tested with safe mocks. A complete production deployment still requires authorized external infrastructure and owner configuration for the API, PostgreSQL, OIDC, GitHub App, shared rate-limit store, signed-key custody, and worker process.
+> **Readiness conclusion:** The pushed code is locally verified and CI-green, and the authenticated Git-backed Vercel dashboard deployment is working. The provider-neutral frontend OIDC session flow, authenticated live summary/scan-history view, OSV enrichment adapter and opt-in scanner CLI, GitHub webhook security boundary, Ed25519 signed-receipt primitives plus offline signing/verification CLIs, and Redis-compatible rate-limit abstraction are implemented and tested with safe mocks or synthetic fixtures. A complete production deployment still requires authorized external infrastructure and owner configuration for the API, PostgreSQL, OIDC, GitHub App, shared rate-limit store, signed-key custody, and worker process.
 
 ## Git and pull-request state
 
-| Item                          | Result                                                                                                    |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------- |
-| Base branch                   | `main`                                                                                                    |
-| Working branch                | `agent/production-hardening`                                                                              |
-| Feature-base commit           | `736e088` (`fix(ci): exclude intentional security fixtures from self-scan`)                               |
-| Reproducibility commit        | `dfd07aa` (`build: avoid nested Corepack in workspace scripts`)                                           |
-| Hardening commit              | `c11169b` (`feat: harden authenticated tenant-scoped control plane`)                                      |
-| Final code/config commit      | `94313d7` (`fix: align Vercel monorepo output configuration`)                                             |
-| Azure deployment commit       | `bfff261` (`feat: add Azure VM deployment path`)                                                          |
-| Final report commit           | `c86ee14` (`docs: record Azure student provisioning blocker`)                                             |
-| Deployment report commit      | `7c5b83b` (`docs: record authenticated Vercel deployment`)                                                |
-| Governance commit             | `f181a90` (`docs: add governance and capability status controls`)                                         |
-| Frontend auth-boundary commit | `52a8364` (`feat: harden frontend API authentication boundary`)                                           |
-| CI formatting-fix commit      | `83cf0c6` (`fix: format frontend API client test`)                                                        |
-| Signed-receipt commit         | `c4f944b` (`feat: add signed security receipt primitives`)                                                |
-| GitHub/OSV integration commit | `10a9e70` (`feat: add tested github and osv integration boundaries`)                                      |
-| Live dashboard auth commit    | `451199d` (`feat: add provider-neutral live dashboard auth`)                                              |
-| Distributed limiter commit    | `570c385` (`feat: add distributed rate-limit abstraction`)                                                |
-| Capability status commit      | `7e0afdf` (`docs: record live authentication capability status`)                                          |
-| Final pushed head             | `decc7f7` (`docs: record resumed hardening verification`)                                                 |
-| Pull request                  | [#2 — feat: production-harden AgentShield control plane](https://github.com/sam300705/Agentshield/pull/2) |
-| PR state                      | Open, non-draft, unmerged, conflict-free                                                                  |
-| Existing PR #1                | Left unchanged; no force-push, merge, or resource deletion was performed                                  |
+| Item                          | Result                                                                                                                       |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Base branch                   | `main`                                                                                                                       |
+| Working branch                | `agent/production-hardening`                                                                                                 |
+| Feature-base commit           | `736e088` (`fix(ci): exclude intentional security fixtures from self-scan`)                                                  |
+| Reproducibility commit        | `dfd07aa` (`build: avoid nested Corepack in workspace scripts`)                                                              |
+| Hardening commit              | `c11169b` (`feat: harden authenticated tenant-scoped control plane`)                                                         |
+| Final code/config commit      | `94313d7` (`fix: align Vercel monorepo output configuration`)                                                                |
+| Azure deployment commit       | `bfff261` (`feat: add Azure VM deployment path`)                                                                             |
+| Final report commit           | `c86ee14` (`docs: record Azure student provisioning blocker`)                                                                |
+| Deployment report commit      | `7c5b83b` (`docs: record authenticated Vercel deployment`)                                                                   |
+| Governance commit             | `f181a90` (`docs: add governance and capability status controls`)                                                            |
+| Frontend auth-boundary commit | `52a8364` (`feat: harden frontend API authentication boundary`)                                                              |
+| CI formatting-fix commit      | `83cf0c6` (`fix: format frontend API client test`)                                                                           |
+| Signed-receipt commit         | `c4f944b` (`feat: add signed security receipt primitives`)                                                                   |
+| GitHub/OSV integration commit | `10a9e70` (`feat: add tested github and osv integration boundaries`)                                                         |
+| Live dashboard auth commit    | `451199d` (`feat: add provider-neutral live dashboard auth`)                                                                 |
+| Distributed limiter commit    | `570c385` (`feat: add distributed rate-limit abstraction`)                                                                   |
+| Capability status commit      | `7e0afdf` (`docs: record live authentication capability status`)                                                             |
+| Automated CLI commit          | Pending: opt-in OSV scanner enrichment and offline receipt signing are validated locally and will be pushed with this report |
+| Final pushed head             | `decc7f7` (`docs: record resumed hardening verification`)                                                                    |
+| Pull request                  | [#2 — feat: production-harden AgentShield control plane](https://github.com/sam300705/Agentshield/pull/2)                    |
+| PR state                      | Open, non-draft, unmerged, conflict-free                                                                                     |
+| Existing PR #1                | Left unchanged; no force-push, merge, or resource deletion was performed                                                     |
 
 ## Implemented features
 
@@ -51,7 +52,7 @@ The durable scan queue now records organization and correlation context, perform
 
 Repository governance now includes a security policy, contribution guidance, code of conduct, pull-request and issue templates, Dependabot configuration, and a non-guessing CODEOWNERS example. `docs/capabilities.json` records actual runtime status, and `pnpm test:docs` checks required status language and rejects unsupported production-readiness claims. `docs/SECURITY_OPERATIONS.md` documents data classification, retention, backups, observability, incident response, rollback, and branch-protection recommendations.
 
-The dashboard API client now supports an application-provided memory-only access-token provider, sends bearer tokens only when explicitly configured, omits cookies, exposes typed sanitized `ApiError` values, and invokes explicit 401/403 callbacks. The provider-neutral frontend session controller implements authorization-code PKCE, state and nonce validation, in-memory access/refresh tokens, expiration refresh, logout, explicit missing-configuration failure, and session-expiry/forbidden states. In live mode, the dashboard loads real authenticated summary and scan-history data with loading, retry, empty, and permission states; outside live mode it remains an explicitly labeled deterministic demo.
+The scanner CLI now keeps its default deterministic behavior and supports opt-in `--osv` enrichment, placing normalized advisory results in JSON/JSONL output and reporting counts in human output. Receipt operators have offline `receipt:sign` and `receipt:verify` commands; private keys are read only from local file paths and are never printed. The dashboard API client now supports an application-provided memory-only access-token provider, sends bearer tokens only when explicitly configured, omits cookies, exposes typed sanitized `ApiError` values, and invokes explicit 401/403 callbacks. The provider-neutral frontend session controller implements authorization-code PKCE, state and nonce validation, in-memory access/refresh tokens, expiration refresh, logout, explicit missing-configuration failure, and session-expiry/forbidden states. In live mode, the dashboard loads real authenticated summary and scan-history data with loading, retry, empty, and permission states; outside live mode it remains an explicitly labeled deterministic demo.
 
 Deployment documentation and explicit Vercel project settings build and serve the dashboard with frozen dependencies and client-side route rewrites. The deployment guide clearly separates the static preview from the API, PostgreSQL, and worker services. Startup configuration is validated with Zod: production requires a database URL, exact CORS origin, OIDC configuration, and no demo bypass; explicit non-production demo mode remains usable with blank OIDC values. A bounded in-memory rate limiter remains the default per-instance control, while a Redis-compatible distributed adapter with standard headers, custom keying, and explicit fail-closed/fail-open outage policy is implemented and tested but not connected to a vendor.
 
@@ -68,6 +69,7 @@ The following complete local gates passed on the resumed code head `7e0afdf`; th
 | `pnpm typecheck`                       | Passed                                                                                                                                  |
 | `pnpm test`                            | Passed: 16 workspace test files, 48 tests                                                                                               |
 | `pnpm test:docs`                       | Passed: capability manifest and documentation contradiction checks                                                                      |
+| Opt-in OSV CLI smoke test              | Passed against the synthetic fixture: 6 dependencies, 12 advisory matches, exit code 3 from the expected blocking findings              |
 | Dashboard/frontend tests               | Passed: 3 dashboard suites, 8 tests; includes PKCE, callback validation, refresh, logout, and live-mode configuration tests             |
 | `pnpm build`                           | Passed: API and dashboard production builds                                                                                             |
 | `pnpm db:deploy`                       | Passed: no pending migration failure                                                                                                    |
@@ -94,7 +96,7 @@ The production API requires `DATABASE_URL`, exact `CORS_ORIGIN`, `AUTH_MODE=oidc
 | OIDC provider values are placeholders                               | Production login cannot be verified against a real identity provider                                                                                        | Supply issuer, audience, JWKS, role claim, and organization-claim configuration through secret management |
 | Production frontend login/session flow requires owner configuration | PKCE session flow and live summary/scan-history view are implemented and locally tested, but no provider or API origin is activated in the deployed preview | Register an OIDC application, inject `VITE_OIDC_*` values and API origin, then verify the browser flow    |
 | GitHub App live lifecycle requires owner configuration              | HMAC verification, replay protection, event parsing, and tenant ownership checks are tested, but no App installation or persistence is connected            | Register the App, inject secrets through deployment management, and verify a genuine installation         |
-| OSV/signed receipts require lifecycle wiring                        | Adapters and cryptographic primitives are tested, but advisory persistence, receipt export, and production key custody are not connected                    | Approve schema/export/key-management decisions before activation                                          |
+| OSV/signed receipts require lifecycle wiring                        | Opt-in OSV CLI and offline signing/verification now work, but API advisory persistence, receipt export, and production key custody are not connected        | Approve schema/export/key-management decisions before activation                                          |
 | Distributed limiter requires shared-store configuration             | Redis-compatible adapter and outage behavior are tested, but the API still uses the per-instance default                                                    | Select an approved Redis-compatible store and wire route-specific keys/policy                             |
 | GitHub CI reported deprecation annotations                          | Current checks pass, but workflow maintenance is needed                                                                                                     | Schedule upgrades from CodeQL Action v3 to v4 and review the Node.js 20 action-runtime annotation         |
 

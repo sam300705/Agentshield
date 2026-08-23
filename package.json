@@ -19,6 +19,7 @@
     "test": "pnpm -r test",
     "test:docs": "node --import tsx scripts/verify-capability-docs.ts",
     "receipt:verify": "node --import tsx scripts/verify-receipt.ts",
+    "receipt:sign": "node --import tsx scripts/sign-receipt.ts",
     "test:integration": "node --import tsx scripts/verify-integration.ts",
     "typecheck": "tsc -b",
     "db:up": "docker compose up -d postgres",

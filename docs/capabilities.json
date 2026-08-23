@@ -84,10 +84,10 @@
     },
     "dependency_vulnerability_intelligence": {
       "status": "implemented_requires_configuration",
-      "evidence": "OSV batch adapter and deterministic provider-mock tests",
+      "evidence": "OSV batch adapter, deterministic provider-mock tests, and opt-in scanner --osv output",
       "requires": [
         "advisory-result persistence",
-        "scan-lifecycle activation",
+        "API scan-lifecycle activation",
         "provider-outage policy"
       ]
     }

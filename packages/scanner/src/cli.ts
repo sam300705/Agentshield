@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import { parseArgs } from "node:util";
 
+import { enrichDependencies } from "./vulnerabilityEnricher.js";
 import { runScan } from "./scanRunner.js";
 import { gateResult } from "./cliGate.js";
 
@@ -78,6 +79,7 @@ function printHuman(
   decisions: PolicyDecision[],
   gate: PolicyDecisionType,
   receiptHash: string,
+  advisoryCount = 0,
 ): void {
   console.log(
     `AgentShield ${CLI_VERSION}\nTarget: ${target}\nGate: ${gate}\nFindings: ${findings.length}`,
@@ -88,6 +90,7 @@ function printHuman(
       `${finding.severity.padEnd(8)} ${decisionByFinding.get(finding.id)?.decision.padEnd(16) ?? "UNKNOWN"} ${finding.filePath}:${finding.lineStart ?? 1} ${finding.title}`,
     );
   console.log(`Receipt: ${receiptHash}`);
+  if (advisoryCount > 0) console.log(`OSV advisories: ${advisoryCount}`);
 }
 
 async function main(): Promise<void> {
@@ -100,13 +103,14 @@ async function main(): Promise<void> {
       "max-files": { type: "string", default: "10000" },
       "max-bytes": { type: "string", default: String(100 * 1024 * 1024) },
       timeout: { type: "string", default: "30000" },
+      osv: { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
     strict: true,
   });
   if (values.help) {
     console.log(
-      "AgentShield scanner\n\nUsage: agentshield --path <repo> [--format human|json|jsonl|sarif]\n\nOptions:\n  -p, --path       Repository path\n  -f, --format     Output format\n      --policy     Policy bundle version\n      --ignore     Relative path prefix (repeatable)\n      --max-files  Maximum traversed files\n      --max-bytes  Maximum total bytes\n      --timeout    Timeout in milliseconds\n\nExit codes: 0 ALLOW, 1 WARN, 2 REQUIRE_APPROVAL, 3 BLOCK, 4 internal failure",
+      "AgentShield scanner\n\nUsage: agentshield --path <repo> [--format human|json|jsonl|sarif]\n\nOptions:\n  -p, --path       Repository path\n  -f, --format     Output format\n      --policy     Policy bundle version\n      --ignore     Relative path prefix (repeatable)\n      --max-files  Maximum traversed files\n      --max-bytes  Maximum total bytes\n      --timeout    Timeout in milliseconds\n      --osv        Enrich exact dependency versions with OSV advisories\n\nExit codes: 0 ALLOW, 1 WARN, 2 REQUIRE_APPROVAL, 3 BLOCK, 4 internal failure",
     );
     return;
   }
@@ -127,6 +131,25 @@ async function main(): Promise<void> {
     });
     const decisions = evaluateFindings(result.findings, scanId);
     const gate = gateResult(decisions);
+    const advisories = values.osv
+      ? await enrichDependencies(
+          result.dependencies.map(({ packageName, version, packageManager, purl }) => ({
+            packageName,
+            version,
+            packageManager,
+            ...(purl === undefined ? {} : { purl }),
+          })),
+          {
+            ...(process.env.OSV_API_BASE_URL == null
+              ? {}
+              : { baseUrl: process.env.OSV_API_BASE_URL }),
+            timeoutMs: Number(process.env.OSV_REQUEST_TIMEOUT_MS ?? 5_000),
+            maxRetries: Number(process.env.OSV_MAX_RETRIES ?? 2),
+          },
+        )
+      : undefined;
+    const advisoryCount =
+      advisories?.reduce((count, item) => count + item.advisories.length, 0) ?? 0;
     const completedAt = new Date();
     const findingCounts = Object.fromEntries(
       ["LOW", "MEDIUM", "HIGH", "CRITICAL"].map((severity) => [
@@ -157,7 +180,7 @@ async function main(): Promise<void> {
       gateResult: gate,
     });
     if (format === "human")
-      printHuman(target, result.findings, decisions, gate, receipt.receiptHash);
+      printHuman(target, result.findings, decisions, gate, receipt.receiptHash, advisoryCount);
     else if (format === "sarif")
       console.log(JSON.stringify(sarif(result.findings, decisions), null, 2));
     else if (format === "jsonl") {
@@ -169,7 +192,14 @@ async function main(): Promise<void> {
             decision: decisions.find((item) => item.findingId === finding.id),
           }),
         );
-      console.log(JSON.stringify({ type: "summary", gate, receipt }));
+      console.log(
+        JSON.stringify({
+          type: "summary",
+          gate,
+          receipt,
+          ...(advisories === undefined ? {} : { advisories }),
+        }),
+      );
     } else
       console.log(
         JSON.stringify(
@@ -179,6 +209,7 @@ async function main(): Promise<void> {
             findings: result.findings,
             decisions,
             dependencies: result.dependencies,
+            ...(advisories === undefined ? {} : { advisories }),
             gate,
             receipt,
           },

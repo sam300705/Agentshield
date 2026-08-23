@@ -37,6 +37,10 @@ At minimum, monitor API liveness and readiness, request error rates, authenticat
 
 The repository does not send telemetry to an external service by default. Add error tracking or metrics exporters only through explicit configuration, privacy review, and documented consent. The current in-memory rate limiter is per API instance and is not a substitute for an edge or distributed control in a multi-replica deployment.
 
+## Receipt operations
+
+Use `pnpm --silent receipt:sign -- --receipt <receipt.json> --private-key <private-key.pem> --key-id <key-id>` when piping signed JSON to another command; the silent flag prevents package-manager status text from entering the JSON stream. `pnpm receipt:verify -- --receipt <signed.json> --public-key <public-key.pem>` verifies the result without requiring a private key. The signing command reads the private key from a local file and emits only the signed receipt; do not pass private keys on the command line or commit generated key material.
+
 ## Incident response
 
 When a credential or restricted artifact is exposed, stop further publication, revoke or rotate the credential, preserve sanitized evidence, identify affected tenants and time windows, and document the incident. When a scan worker behaves incorrectly, pause new work if necessary, inspect bounded failure records and queue locks, redeploy a known-good image, and verify that no raw input was written to logs. When data isolation is suspected, restrict access and begin an authorized investigation before deleting evidence.
