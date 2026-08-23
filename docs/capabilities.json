@@ -13,8 +13,19 @@
     },
     "oidc_production_authentication": {
       "status": "implemented_requires_configuration",
-      "evidence": "apps/api/src/security/auth.ts and startup configuration validation",
-      "requires": ["OIDC_ISSUER", "OIDC_AUDIENCE", "OIDC_JWKS_URL", "CORS_ORIGIN"]
+      "evidence": "API JWT boundary, frontend PKCE session controller, and startup configuration validation",
+      "requires": [
+        "OIDC_ISSUER",
+        "OIDC_AUDIENCE",
+        "OIDC_JWKS_URL",
+        "CORS_ORIGIN",
+        "VITE_OIDC_* endpoints"
+      ]
+    },
+    "frontend_oidc_session": {
+      "status": "implemented_requires_configuration",
+      "evidence": "apps/web-dashboard/src/lib/oidc.ts, AuthGate, LiveDashboard, and local mock-OIDC tests",
+      "requires": ["provider registration", "exact HTTPS redirect URI", "live API origin"]
     },
     "local_demo_authentication": {
       "status": "implemented_and_verified",
@@ -72,13 +83,18 @@
       ]
     },
     "dependency_vulnerability_intelligence": {
-      "status": "not_implemented",
-      "reason": "SBOM output is inventory only; no CVE provider is configured"
+      "status": "implemented_requires_configuration",
+      "evidence": "OSV batch adapter and deterministic provider-mock tests",
+      "requires": [
+        "advisory-result persistence",
+        "scan-lifecycle activation",
+        "provider-outage policy"
+      ]
     }
   },
   "limitations": [
-    "The static dashboard contains a deterministic demo console and is not proof of a live authenticated API deployment.",
-    "GitHub App, OSV enrichment, and signed-receipt primitives are not live-connected to the deployed demo.",
+    "The deployed Vercel dashboard is configured as a deterministic demo; the live OIDC/API mode is implemented but not activated in the deployment.",
+    "GitHub App, OSV enrichment, signed-receipt, and distributed-rate-limit primitives are not live-connected to the deployed demo.",
     "No production OIDC provider has been configured in the current environment.",
     "No Neon connection strings have been injected into the deployment.",
     "No Azure Container Apps API or scheduled worker resource has been created.",
