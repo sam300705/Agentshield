@@ -64,6 +64,8 @@ jobs:
           --ignore apps/api/src/controllers/controlPlaneController.ts
           --ignore packages/remediation/src/templates.ts
           --ignore packages/scanner/src/secretScanner.test.ts
+          --ignore packages/scanner/src/agentWorkflowScanner.test.ts
+          --ignore packages/schemas/src/evidenceRedaction.test.ts
           > agentshield-source.sarif
       - name: Job summary
         run: |
