@@ -24,8 +24,18 @@
     },
     "frontend_oidc_session": {
       "status": "implemented_requires_configuration",
-      "evidence": "apps/web-dashboard/src/lib/oidc.ts, AuthGate, LiveDashboard, and local mock-OIDC tests",
-      "requires": ["provider registration", "exact HTTPS redirect URI", "live API origin"]
+      "evidence": "apps/web-dashboard/src/lib/oidc.ts, AuthGate, LiveDashboard, jose JWKS verification, and local reload/expiry/signature tests",
+      "requires": [
+        "provider registration",
+        "exact HTTPS redirect URI",
+        "VITE_OIDC_JWKS_URI",
+        "live API origin"
+      ]
+    },
+    "centralized_evidence_redaction": {
+      "status": "implemented_and_verified",
+      "evidence": "packages/schemas evidence sanitizer, scanner regression tests, and scan-service persistence boundary",
+      "scope": "recursive JSON/text evidence and bounded scan failure metadata"
     },
     "local_demo_authentication": {
       "status": "implemented_and_verified",
