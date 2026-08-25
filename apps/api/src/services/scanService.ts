@@ -4,6 +4,7 @@ import { runScan } from "@agentshield/scanner";
 import {
   type Dependency,
   type Finding,
+  sanitizeEvidence,
   type JsonValue,
   type PolicyDecision,
   type PolicyDecisionType,
@@ -112,8 +113,13 @@ function createScanMetadata(input: {
 }
 
 function createScannerEvidence(finding: Finding): Prisma.InputJsonValue {
+  const sanitized = sanitizeEvidence(finding.evidence);
+  const evidence =
+    typeof sanitized === "object" && sanitized != null && !Array.isArray(sanitized)
+      ? sanitized
+      : {};
   return toInputJson({
-    ...finding.evidence,
+    ...evidence,
     scannerFingerprint: finding.fingerprint,
   });
 }
@@ -204,6 +210,9 @@ async function persistRemediation(
 }
 
 async function markScanFailed(client: PrismaClient, scanId: string, error: unknown): Promise<void> {
+  const errorMessage = error instanceof Error ? error.message : "Unknown scan failure";
+  const sanitizedError = sanitizeEvidence(errorMessage);
+  const safeError = typeof sanitizedError === "string" ? sanitizedError : "Unknown scan failure";
   await client.scan.update({
     where: {
       id: scanId,
@@ -215,7 +224,7 @@ async function markScanFailed(client: PrismaClient, scanId: string, error: unkno
         source: "LOCAL_EXAMPLE",
         targetPath: DEMO_TARGET_PATH,
         triggeredBy: SYSTEM_ACTOR,
-        error: error instanceof Error ? error.message : "Unknown scan failure",
+        error: safeError,
       },
     },
   });

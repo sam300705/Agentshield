@@ -1,4 +1,9 @@
-import { type Finding, type FindingSeverity, findingSchema } from "@agentshield/schemas";
+import {
+  sanitizeText,
+  type Finding,
+  type FindingSeverity,
+  findingSchema,
+} from "@agentshield/schemas";
 import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -93,7 +98,7 @@ export async function scanAgentWorkflowLog(input: AgentWorkflowScannerInput): Pr
           lineEnd: lineNumber,
           evidence: {
             ruleId: pattern.id,
-            logLine: line,
+            logLine: sanitizeText(line),
           },
           fingerprint: createFingerprint(pattern.id, relativePath, lineNumber, line),
           createdAt: new Date(),
