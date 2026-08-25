@@ -34,4 +34,3 @@ spec:
           hostPath:
             path: /
             type: Directory
-

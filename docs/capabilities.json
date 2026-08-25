@@ -1,0 +1,115 @@
+{
+  "schemaVersion": 1,
+  "product": "AgentShield",
+  "status": "portfolio-prototype-controlled-internal-alpha",
+  "capabilities": {
+    "deterministic_scanner": {
+      "status": "implemented_and_verified",
+      "evidence": "packages/scanner and pnpm test:integration"
+    },
+    "tenant_scoped_api": {
+      "status": "implemented_and_verified",
+      "evidence": "apps/api controllers, RBAC tests, and PostgreSQL integration smoke test"
+    },
+    "oidc_production_authentication": {
+      "status": "implemented_requires_configuration",
+      "evidence": "API JWT boundary, frontend PKCE session controller, and startup configuration validation",
+      "requires": [
+        "OIDC_ISSUER",
+        "OIDC_AUDIENCE",
+        "OIDC_JWKS_URL",
+        "CORS_ORIGIN",
+        "VITE_OIDC_* endpoints"
+      ]
+    },
+    "frontend_oidc_session": {
+      "status": "implemented_requires_configuration",
+      "evidence": "apps/web-dashboard/src/lib/oidc.ts, AuthGate, LiveDashboard, jose JWKS verification, and local reload/expiry/signature tests",
+      "requires": [
+        "provider registration",
+        "exact HTTPS redirect URI",
+        "VITE_OIDC_JWKS_URI",
+        "live API origin"
+      ]
+    },
+    "centralized_evidence_redaction": {
+      "status": "implemented_and_verified",
+      "evidence": "packages/schemas evidence sanitizer, scanner regression tests, and scan-service persistence boundary",
+      "scope": "recursive JSON/text evidence and bounded scan failure metadata"
+    },
+    "local_demo_authentication": {
+      "status": "implemented_and_verified",
+      "scope": "non-production only",
+      "evidence": "explicit DEMO_AUTH_ENABLED=true and demo authentication tests"
+    },
+    "durable_postgresql_scan_queue": {
+      "status": "implemented_and_verified",
+      "evidence": "atomic claims, bounded retries, stale-lock recovery, and integration smoke test"
+    },
+    "azure_container_apps_deployment": {
+      "status": "prepared_not_deployed",
+      "evidence": "deploy/azure-container-apps/README.md",
+      "requires": [
+        "Azure account authorization",
+        "Neon connection strings",
+        "production OIDC values"
+      ]
+    },
+    "vercel_dashboard": {
+      "status": "deployed_static_dashboard",
+      "evidence": "authenticated Git-backed Vercel deployment"
+    },
+    "github_app_repository_onboarding": {
+      "status": "implemented_requires_configuration",
+      "evidence": "apps/api/src/integrations/githubApp.ts and synthetic webhook tests",
+      "requires": [
+        "GitHub App registration",
+        "webhook secret",
+        "App private key",
+        "tenant installation mapping"
+      ]
+    },
+    "osv_vulnerability_enrichment": {
+      "status": "implemented_requires_configuration",
+      "evidence": "packages/scanner/src/vulnerabilityEnricher.ts and mocked provider tests",
+      "requires": [
+        "advisory-result persistence",
+        "scan-lifecycle activation",
+        "provider-outage policy"
+      ]
+    },
+    "signed_security_receipts": {
+      "status": "implemented_requires_configuration",
+      "evidence": "Ed25519 signing and verification primitives, key-ring tests, and receipt verification CLI",
+      "requires": ["production signing key management", "receipt export integration"]
+    },
+    "distributed_rate_limiting": {
+      "status": "implemented_requires_configuration",
+      "evidence": "apps/api/src/security/distributedRateLimit.ts and storage-outage tests",
+      "requires": [
+        "Redis-compatible client adapter",
+        "shared store credentials",
+        "route-specific policy"
+      ]
+    },
+    "dependency_vulnerability_intelligence": {
+      "status": "implemented_requires_configuration",
+      "evidence": "OSV batch adapter, deterministic provider-mock tests, and opt-in scanner --osv output",
+      "requires": [
+        "advisory-result persistence",
+        "API scan-lifecycle activation",
+        "provider-outage policy"
+      ]
+    }
+  },
+  "limitations": [
+    "The deployed Vercel dashboard is configured as a deterministic demo; the live OIDC/API mode is implemented but not activated in the deployment.",
+    "GitHub App, OSV enrichment, signed-receipt, and distributed-rate-limit primitives are not live-connected to the deployed demo.",
+    "No production OIDC provider has been configured in the current environment.",
+    "No Neon connection strings have been injected into the deployment.",
+    "No Azure Container Apps API or scheduled worker resource has been created.",
+    "The existing API limiter is per-instance by default; a Redis-compatible distributed adapter exists but is not selected or connected.",
+    "Secret scanning uses high-confidence patterns and does not provide entropy analysis.",
+    "The PostgreSQL polling queue is not a benchmarked high-throughput distributed queue."
+  ]
+}

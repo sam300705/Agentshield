@@ -4,13 +4,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "predev": "corepack pnpm --filter @agentshield/scanner --filter @agentshield/policy-engine --filter @agentshield/remediation build",
+    "predev": "pnpm --filter @agentshield/scanner --filter @agentshield/policy-engine --filter @agentshield/remediation build",
     "dev": "tsx watch --tsconfig=tsconfig.runtime.json src/index.ts",
-    "prebuild": "corepack pnpm --filter @agentshield/scanner --filter @agentshield/policy-engine --filter @agentshield/remediation build",
+    "dev:worker": "tsx watch --tsconfig=tsconfig.runtime.json src/worker.ts",
+    "prebuild": "pnpm --filter @agentshield/scanner --filter @agentshield/policy-engine --filter @agentshield/remediation build",
     "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "worker": "node dist/worker.js",
     "lint": "eslint .",
-    "test": "vitest run --passWithNoTests",
-    "pretypecheck": "corepack pnpm --filter @agentshield/scanner --filter @agentshield/policy-engine --filter @agentshield/remediation build",
+    "test": "vitest run",
+    "pretypecheck": "pnpm --filter @agentshield/scanner --filter @agentshield/policy-engine --filter @agentshield/remediation build",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
@@ -23,6 +26,7 @@
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "helmet": "^8.0.0",
+    "jose": "^6.0.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {

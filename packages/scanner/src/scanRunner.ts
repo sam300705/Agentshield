@@ -5,7 +5,7 @@ import { scanAgentWorkflowLog } from "./agentWorkflowScanner.js";
 import { generateSbomForPackageJson } from "./dependencyScanner.js";
 import { scanDockerfile } from "./dockerfileScanner.js";
 import { scanKubernetesManifest } from "./kubernetesScanner.js";
-import { walkRepository } from "./repoWalker.js";
+import { walkRepository, type WalkRepositoryOptions } from "./repoWalker.js";
 import { scanFileForSecrets } from "./secretScanner.js";
 
 export interface ScanRunnerResult {
@@ -32,7 +32,8 @@ const TEXT_FILE_EXTENSIONS = new Set([
 ]);
 
 function isDockerfile(filePath: string): boolean {
-  return path.basename(filePath).toLowerCase().startsWith("dockerfile");
+  const basename = path.basename(filePath).toLowerCase();
+  return basename === "dockerfile" || basename.startsWith("dockerfile.");
 }
 
 function isYamlFile(filePath: string): boolean {
@@ -71,13 +72,18 @@ function sortFindings(findings: Finding[]): Finding[] {
   );
 }
 
-export async function runScan(targetPath: string, scanId: string): Promise<ScanRunnerResult> {
+export async function runScan(
+  targetPath: string,
+  scanId: string,
+  options: WalkRepositoryOptions = {},
+): Promise<ScanRunnerResult> {
   const targetRoot = path.resolve(targetPath);
-  const filePaths = await walkRepository(targetRoot);
+  const filePaths = await walkRepository(targetRoot, options);
   const findings: Finding[] = [];
   const dependencies: Dependency[] = [];
 
   for (const filePath of filePaths) {
+    if (options.signal?.aborted === true) throw new Error("Scan cancelled");
     const scannerInput = {
       scanId,
       targetRoot,
@@ -112,4 +118,3 @@ export async function runScan(targetPath: string, scanId: string): Promise<ScanR
     dependencies,
   };
 }
-

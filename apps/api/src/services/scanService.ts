@@ -4,6 +4,7 @@ import { runScan } from "@agentshield/scanner";
 import {
   type Dependency,
   type Finding,
+  sanitizeEvidence,
   type JsonValue,
   type PolicyDecision,
   type PolicyDecisionType,
@@ -112,8 +113,13 @@ function createScanMetadata(input: {
 }
 
 function createScannerEvidence(finding: Finding): Prisma.InputJsonValue {
+  const sanitized = sanitizeEvidence(finding.evidence);
+  const evidence =
+    typeof sanitized === "object" && sanitized != null && !Array.isArray(sanitized)
+      ? sanitized
+      : {};
   return toInputJson({
-    ...finding.evidence,
+    ...evidence,
     scannerFingerprint: finding.fingerprint,
   });
 }
@@ -204,6 +210,9 @@ async function persistRemediation(
 }
 
 async function markScanFailed(client: PrismaClient, scanId: string, error: unknown): Promise<void> {
+  const errorMessage = error instanceof Error ? error.message : "Unknown scan failure";
+  const sanitizedError = sanitizeEvidence(errorMessage);
+  const safeError = typeof sanitizedError === "string" ? sanitizedError : "Unknown scan failure";
   await client.scan.update({
     where: {
       id: scanId,
@@ -215,26 +224,38 @@ async function markScanFailed(client: PrismaClient, scanId: string, error: unkno
         source: "LOCAL_EXAMPLE",
         targetPath: DEMO_TARGET_PATH,
         triggeredBy: SYSTEM_ACTOR,
-        error: error instanceof Error ? error.message : "Unknown scan failure",
+        error: safeError,
       },
     },
   });
 }
 
-export async function runDemoScan(): Promise<string> {
-  const scan = await prisma.scan.create({
-    data: {
-      repositoryName: "agentshield-vulnerable-demo-target",
-      repositoryUrl: "https://github.com/example/agentshield-vulnerable-demo-target",
-      branch: "main",
-      status: ScanStatus.RUNNING,
-      metadata: {
-        source: "LOCAL_EXAMPLE",
-        targetPath: DEMO_TARGET_PATH,
-        triggeredBy: SYSTEM_ACTOR,
-      },
-    },
-  });
+export async function runDemoScan(
+  existingScanId?: string,
+  organizationId = "demo-organization",
+  correlationId = "system",
+): Promise<string> {
+  const scan =
+    existingScanId == null
+      ? await prisma.scan.create({
+          data: {
+            repositoryName: "agentshield-vulnerable-demo-target",
+            repositoryUrl: "https://github.com/example/agentshield-vulnerable-demo-target",
+            branch: "main",
+            status: ScanStatus.RUNNING,
+            organizationId,
+            metadata: {
+              source: "LOCAL_EXAMPLE",
+              targetPath: DEMO_TARGET_PATH,
+              triggeredBy: SYSTEM_ACTOR,
+              correlationId,
+            },
+          },
+        })
+      : await prisma.scan.update({
+          where: { id: existingScanId },
+          data: { status: ScanStatus.RUNNING, startedAt: new Date(), completedAt: null },
+        });
 
   await prisma.auditEvent.create({
     data: {
@@ -243,6 +264,8 @@ export async function runDemoScan(): Promise<string> {
       entityType: "Scan",
       entityId: scan.id,
       scanId: scan.id,
+      organizationId,
+      correlationId,
       metadata: {
         status: ScanStatus.RUNNING,
         targetPath: DEMO_TARGET_PATH,
@@ -323,6 +346,8 @@ export async function runDemoScan(): Promise<string> {
             entityType: "Scan",
             entityId: scan.id,
             scanId: scan.id,
+            organizationId,
+            correlationId,
             metadata,
           },
         });

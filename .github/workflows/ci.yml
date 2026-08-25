@@ -1,0 +1,82 @@
+name: AgentShield CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: agentshield
+          POSTGRES_PASSWORD: agentshield_test_password
+          POSTGRES_DB: agentshield
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U agentshield"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://agentshield:agentshield_test_password@localhost:5432/agentshield?schema=public
+      DATABASE_URL_UNPOOLED: postgresql://agentshield:agentshield_test_password@localhost:5432/agentshield?schema=public
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:generate
+      - run: pnpm db:deploy
+      - run: pnpm format:check
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm test:docs
+      - run: pnpm build
+      - run: pnpm test:integration
+      - name: Scan deterministic fixture
+        id: scan
+        run: |
+          set +e
+          node packages/scanner/dist/cli.js --path examples/vulnerable-repo --format sarif > agentshield-fixture.sarif
+          exit_code=$?
+          set -e
+          echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
+          test "$exit_code" -eq 3
+      - name: Gate repository source
+        # Exclude synthetic token fixtures and remediation before/after examples.
+        run: >-
+          node packages/scanner/dist/cli.js --path . --format sarif
+          --ignore examples
+          --ignore apps/api/src/controllers/controlPlaneController.ts
+          --ignore packages/remediation/src/templates.ts
+          --ignore packages/scanner/src/secretScanner.test.ts
+          --ignore packages/scanner/src/agentWorkflowScanner.test.ts
+          --ignore packages/schemas/src/evidenceRedaction.test.ts
+          > agentshield-source.sarif
+      - name: Job summary
+        run: |
+          echo "## AgentShield security gate" >> "$GITHUB_STEP_SUMMARY"
+          echo "Deterministic scanner exit code: ${{ steps.scan.outputs.exit_code }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "No raw evidence is written to this summary." >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agentshield-sarif
+          path: agentshield-fixture.sarif
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: agentshield-source.sarif

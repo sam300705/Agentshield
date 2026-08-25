@@ -1,8 +1,4 @@
-import {
-  type Finding,
-  type FindingSeverity,
-  findingSchema,
-} from "@agentshield/schemas";
+import { type Finding, type FindingSeverity, findingSchema } from "@agentshield/schemas";
 import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -86,7 +82,8 @@ export async function scanDockerfile(input: DockerfileScannerInput): Promise<Fin
           ruleId: "dockerfile.from_latest",
           severity: "MEDIUM",
           title: "Dockerfile uses a latest tag",
-          description: "The Dockerfile base image uses :latest instead of a pinned version or digest.",
+          description:
+            "The Dockerfile base image uses :latest instead of a pinned version or digest.",
           lineStart: lineNumber,
           evidence: {
             image: fromLatestMatch.groups.image,
@@ -112,7 +109,8 @@ export async function scanDockerfile(input: DockerfileScannerInput): Promise<Fin
             ruleId: "dockerfile.user_root",
             severity: "HIGH",
             title: "Dockerfile runs as root",
-            description: "The Dockerfile explicitly switches to root for the runtime container user.",
+            description:
+              "The Dockerfile explicitly switches to root for the runtime container user.",
             lineStart: lineNumber,
             evidence: {
               user: userMatch.groups.user,
@@ -149,7 +147,8 @@ export async function scanDockerfile(input: DockerfileScannerInput): Promise<Fin
         ruleId: "dockerfile.missing_user",
         severity: "MEDIUM",
         title: "Dockerfile does not declare a non-root runtime user",
-        description: "No USER instruction was found, so the image may run with the base image default user.",
+        description:
+          "No USER instruction was found, so the image may run with the base image default user.",
         evidence: {
           hasUserInstruction: false,
         },
@@ -159,4 +158,3 @@ export async function scanDockerfile(input: DockerfileScannerInput): Promise<Fin
 
   return findings;
 }
-
