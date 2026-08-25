@@ -17,6 +17,7 @@
   "dependencies": {
     "@agentshield/schemas": "workspace:*",
     "@tanstack/react-table": "^8.20.6",
+    "jose": "6.2.9",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.28.1",

@@ -1,9 +1,12 @@
+import { createRemoteJWKSet, jwtVerify } from "jose";
+
 export interface OidcConfig {
   issuer: string;
   clientId: string;
   redirectUri: string;
   authorizationEndpoint: string;
   tokenEndpoint: string;
+  jwksUri: string;
   endSessionEndpoint?: string;
   scopes: string[];
   audience?: string;
@@ -29,6 +32,7 @@ export interface OidcTokenClient {
     codeVerifier: string;
     redirectUri: string;
     clientId: string;
+    nonce?: string;
   }): Promise<OidcTokenSet>;
   refresh(input: { refreshToken: string; clientId: string }): Promise<OidcTokenSet>;
 }
@@ -40,7 +44,14 @@ interface LoginTransaction {
   createdAt: number;
 }
 
+interface TransactionStorage {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+}
+
 const TRANSACTION_TTL_MS = 10 * 60_000;
+const TRANSACTION_STORAGE_PREFIX = "agentshield.oidc.transaction.";
 const ACCESS_TOKEN_SKEW_MS = 30_000;
 
 function toBase64Url(bytes: Uint8Array): string {
@@ -60,6 +71,18 @@ async function createCodeChallenge(codeVerifier: string): Promise<string> {
   return toBase64Url(new Uint8Array(digest));
 }
 
+function getTransactionStorage(): TransactionStorage | null {
+  try {
+    return typeof window === "undefined" ? null : window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+function transactionStorageKey(config: OidcConfig): string {
+  return `${TRANSACTION_STORAGE_PREFIX}${encodeURIComponent(`${config.issuer}|${config.clientId}|${config.redirectUri}`)}`;
+}
+
 function audienceMatches(audience: string | string[], expected: string): boolean {
   return Array.isArray(audience) ? audience.includes(expected) : audience === expected;
 }
@@ -75,7 +98,7 @@ function validateClaims(
   if (claims.issuer !== config.issuer || claims.nonce !== transaction.nonce) {
     throw new Error("OIDC issuer or nonce validation failed.");
   }
-  if (config.audience != null && !audienceMatches(claims.audience, config.audience)) {
+  if (!audienceMatches(claims.audience, config.clientId)) {
     throw new Error("OIDC audience validation failed.");
   }
   if (claims.subject.length === 0 || claims.expiresAt * 1000 <= Date.now()) {
@@ -92,6 +115,7 @@ export class OidcSession {
     private readonly config: OidcConfig,
     private readonly client: OidcTokenClient,
     private readonly now: () => number = Date.now,
+    private readonly storage: TransactionStorage | null = getTransactionStorage(),
   ) {}
 
   async beginLogin(): Promise<string> {
@@ -102,6 +126,7 @@ export class OidcSession {
       createdAt: this.now(),
     };
     this.transaction = transaction;
+    this.storage?.setItem(transactionStorageKey(this.config), JSON.stringify(transaction));
     const params = new URLSearchParams({
       response_type: "code",
       client_id: this.config.clientId,
@@ -119,11 +144,16 @@ export class OidcSession {
   async handleCallback(callbackUrl: string): Promise<void> {
     const url = new URL(callbackUrl);
     const error = url.searchParams.get("error");
-    if (error != null) throw new Error(`OIDC authorization failed: ${error}.`);
+    if (error != null) {
+      this.transaction = null;
+      this.storage?.removeItem(transactionStorageKey(this.config));
+      throw new Error(`OIDC authorization failed: ${error}.`);
+    }
     const code = url.searchParams.get("code");
     const state = url.searchParams.get("state");
-    const transaction = this.transaction;
+    const transaction = this.transaction ?? this.readStoredTransaction();
     this.transaction = null;
+    this.storage?.removeItem(transactionStorageKey(this.config));
     if (code == null || state == null || transaction == null) {
       throw new Error("OIDC callback is missing a pending authorization transaction.");
     }
@@ -135,6 +165,7 @@ export class OidcSession {
       codeVerifier: transaction.codeVerifier,
       redirectUri: this.config.redirectUri,
       clientId: this.config.clientId,
+      nonce: transaction.nonce,
     });
     validateClaims(this.config, transaction, tokens);
     this.tokens = tokens;
@@ -167,7 +198,27 @@ export class OidcSession {
   clear(): void {
     this.tokens = null;
     this.transaction = null;
+    this.storage?.removeItem(transactionStorageKey(this.config));
     this.refreshInFlight = null;
+  }
+
+  private readStoredTransaction(): LoginTransaction | null {
+    const raw = this.storage?.getItem(transactionStorageKey(this.config));
+    if (raw == null) return null;
+    try {
+      const parsed = JSON.parse(raw) as Partial<LoginTransaction>;
+      if (
+        typeof parsed.state !== "string" ||
+        typeof parsed.nonce !== "string" ||
+        typeof parsed.codeVerifier !== "string" ||
+        typeof parsed.createdAt !== "number"
+      ) {
+        return null;
+      }
+      return parsed as LoginTransaction;
+    } catch {
+      return null;
+    }
   }
 
   isAuthenticated(): boolean {
@@ -182,13 +233,15 @@ export class OidcSession {
     }
     try {
       const tokens = await this.client.refresh({ refreshToken, clientId: this.config.clientId });
-      const transaction = this.transaction ?? {
-        state: "refresh",
-        nonce: tokens.idTokenClaims?.nonce ?? "refresh",
-        codeVerifier: "refresh",
-        createdAt: this.now(),
-      };
-      validateClaims(this.config, transaction, tokens);
+      if (tokens.idTokenClaims != null) {
+        const transaction = this.transaction ?? {
+          state: "refresh",
+          nonce: tokens.idTokenClaims.nonce,
+          codeVerifier: "refresh",
+          createdAt: this.now(),
+        };
+        validateClaims(this.config, transaction, tokens);
+      }
       this.tokens = tokens;
       return tokens.accessToken;
     } catch {
@@ -206,6 +259,7 @@ export function readOidcConfig(env: Record<string, string | undefined>): OidcCon
     redirectUri: env.VITE_OIDC_REDIRECT_URI,
     authorizationEndpoint: env.VITE_OIDC_AUTHORIZATION_ENDPOINT,
     tokenEndpoint: env.VITE_OIDC_TOKEN_ENDPOINT,
+    jwksUri: env.VITE_OIDC_JWKS_URI,
   };
   if (Object.values(required).some((value) => value == null || value.trim().length === 0))
     return null;
@@ -218,21 +272,47 @@ export function readOidcConfig(env: Record<string, string | undefined>): OidcCon
 }
 
 export function createFetchTokenClient(config: OidcConfig): OidcTokenClient {
-  async function parseResponse(response: Response): Promise<OidcTokenSet> {
+  const jwks = createRemoteJWKSet(new URL(config.jwksUri));
+
+  async function parseResponse(response: Response, nonce?: string): Promise<OidcTokenSet> {
     if (!response.ok) throw new Error(`OIDC token endpoint returned HTTP ${response.status}.`);
     const body = (await response.json()) as Record<string, unknown>;
     const accessToken = typeof body.access_token === "string" ? body.access_token : null;
     const expiresIn = typeof body.expires_in === "number" ? body.expires_in : 0;
     if (accessToken == null || expiresIn <= 0) throw new Error("OIDC token response is invalid.");
-    const idTokenClaims = body.id_token_claims;
+    const idToken = typeof body.id_token === "string" ? body.id_token : null;
+    if (nonce != null && idToken == null) {
+      throw new Error("OIDC token response did not include an ID token.");
+    }
     const tokenSet: OidcTokenSet = {
       accessToken,
       expiresAt: Date.now() + expiresIn * 1000,
     };
     if (typeof body.refresh_token === "string") tokenSet.refreshToken = body.refresh_token;
-    if (typeof body.id_token === "string") tokenSet.idToken = body.id_token;
-    if (typeof idTokenClaims === "object" && idTokenClaims != null) {
-      tokenSet.idTokenClaims = idTokenClaims as NonNullable<OidcTokenSet["idTokenClaims"]>;
+    if (idToken != null) {
+      const verified = await jwtVerify(idToken, jwks, {
+        issuer: config.issuer,
+        audience: config.clientId,
+        ...(nonce == null ? {} : { nonce }),
+      });
+      const { aud, exp, iss, nonce: verifiedNonce, sub } = verified.payload;
+      if (
+        (typeof aud !== "string" && !Array.isArray(aud)) ||
+        typeof exp !== "number" ||
+        typeof iss !== "string" ||
+        typeof sub !== "string" ||
+        typeof verifiedNonce !== "string"
+      ) {
+        throw new Error("OIDC ID-token claims are incomplete.");
+      }
+      tokenSet.idToken = idToken;
+      tokenSet.idTokenClaims = {
+        issuer: iss,
+        audience: aud,
+        nonce: verifiedNonce,
+        subject: sub,
+        expiresAt: exp,
+      };
     }
     return tokenSet;
   }
@@ -249,7 +329,7 @@ export function createFetchTokenClient(config: OidcConfig): OidcTokenClient {
           client_id: input.clientId,
         }),
         credentials: "omit",
-      }).then(parseResponse);
+      }).then((response) => parseResponse(response, input.nonce));
     },
     refresh(input) {
       return fetch(config.tokenEndpoint, {
