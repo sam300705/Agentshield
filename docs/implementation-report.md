@@ -5,6 +5,7 @@
 **Repository:** [sam300705/Agentshield](https://github.com/sam300705/Agentshield)  
 **Verified base:** PR #2 head `94d6e17` on `agent/production-hardening`
 **Follow-up branch:** `agent/final-product-hardening`
+**Follow-up PR:** [PR #3](https://github.com/sam300705/Agentshield/pull/3)
 
 ## 1. Executive verdict
 
@@ -30,19 +31,21 @@ The original production-hardening branch remains untouched by the follow-up work
 
 The follow-up branch was created from the verified PR #2 head rather than from stale `main`:
 
-| Item                            | Current result                                                                 |
-| ------------------------------- | ------------------------------------------------------------------------------ |
-| Existing hardening branch       | `agent/production-hardening`                                                   |
-| Follow-up branch                | `agent/final-product-hardening`                                                |
-| Follow-up base                  | `94d6e17`                                                                      |
-| Follow-up code commit           | `ff9919a` — `test: add browser e2e and sarif validation`                       |
-| Existing PR #2                  | [Open PR #2](https://github.com/sam300705/Agentshield/pull/2), not merged      |
-| PR #1                           | [Open draft PR #1](https://github.com/sam300705/Agentshield/pull/1), unchanged |
-| `main` comparison at audit time | 42 commits ahead, 0 behind                                                     |
-| Branch protection               | GitHub reported `Branch not protected` for `main`                              |
-| Merge action                    | Not performed; no force-push or history rewrite used                           |
+| Item                                   | Current result                                                                 |
+| -------------------------------------- | ------------------------------------------------------------------------------ |
+| Existing hardening branch              | `agent/production-hardening`                                                   |
+| Follow-up branch                       | `agent/final-product-hardening`                                                |
+| Follow-up base                         | `94d6e17`                                                                      |
+| Follow-up code commit                  | `ff9919a` — `test: add browser e2e and sarif validation`                       |
+| Initial follow-up documentation commit | `788fe35` — `docs: record final hardening verification`                        |
+| Follow-up PR #3                        | [Open PR #3](https://github.com/sam300705/Agentshield/pull/3), not merged      |
+| Existing PR #2                         | [Open PR #2](https://github.com/sam300705/Agentshield/pull/2), not merged      |
+| PR #1                                  | [Open draft PR #1](https://github.com/sam300705/Agentshield/pull/1), unchanged |
+| `main` comparison at audit time        | 42 commits ahead, 0 behind                                                     |
+| Branch protection                      | GitHub reported `Branch not protected` for `main`                              |
+| Merge action                           | Not performed; no force-push or history rewrite used                           |
 
-**Merge verdict:** `SAFE TO MERGE — OWNER APPROVAL REQUIRED` applies to the already verified PR #2 change set after the owner reviews it. The follow-up branch must first receive its own successful remote CI/Vercel checks and should be reviewed through a separate follow-up PR; it has not been merged automatically.
+**Merge verdict:** `SAFE TO MERGE — OWNER APPROVAL REQUIRED` applies to the already verified PR #2 change set after the owner reviews it. Follow-up PR #3 is also review-only, has passed its remote CI and Vercel checks, and remains unmerged; the owner should review the layered diff before accepting it.
 
 Recommended protection settings are required repository governance rather than code changes: pull request review before merge, successful CI status required, stale approval dismissal, conversation resolution, no force pushes, no branch deletion, and CODEOWNERS review for security-sensitive paths. These settings were not changed automatically to avoid locking the owner out.
 
@@ -106,7 +109,7 @@ The complete local CI-equivalent pipeline passed on the follow-up branch after t
 | API security tests                             | Passed for authentication negatives, RBAC, rate limiting, distributed-store outage behavior, and GitHub webhook primitives                   |
 | Docker build                                   | Not run; Docker CLI is unavailable in the sandbox                                                                                            |
 
-The earlier PR #2 remote quality run passed at [GitHub Actions run 32840340094](https://github.com/sam300705/Agentshield/actions/runs/32840340094/job/97778212971). The follow-up branch requires a new remote run because it adds browser installation, SARIF validation, and the CodeQL v4 action.
+The earlier PR #2 remote quality run passed at [GitHub Actions run 32840340094](https://github.com/sam300705/Agentshield/actions/runs/32840340094/job/97778212971). Follow-up PR #3 passed its complete CI quality job, including browser installation, six Playwright tests, SARIF validation, source scanning, and CodeQL v4 SARIF upload: [GitHub Actions run 32979576811](https://github.com/sam300705/Agentshield/actions/runs/32979576811/job/98212623543). Its Vercel check also passed: [deployment check](https://vercel.com/sam300705s-projects/agentshield/C3x9C8Hkuc2Cu2B2aqEN6FeFt1LU).
 
 ## 7. Security verification
 
@@ -122,25 +125,25 @@ The rate-limit abstraction supports bounded local fallback and explicit fail-ope
 
 ## 8. Deployment status
 
-| Surface                 | Status                                                                                                   |
-| ----------------------- | -------------------------------------------------------------------------------------------------------- |
-| Local dashboard         | Verified through Vite and real Chromium E2E in deterministic demo mode                                   |
-| Local API               | Verified through existing integration/smoke coverage with local PostgreSQL                               |
-| Local worker            | Verified through existing queue/integration coverage; demo target only                                   |
-| Local PostgreSQL        | Migration and integration path verified using process-only sandbox values                                |
-| GitHub Actions          | Existing PR #2 run passed; follow-up branch needs its new remote run                                     |
-| Vercel                  | Static dashboard deployment check passed previously; follow-up branch Vercel check is pending after push |
-| API cloud deployment    | Not deployed                                                                                             |
-| Worker cloud deployment | Not deployed                                                                                             |
-| Managed database        | Neon project is not connected to this repository/deployment                                              |
-| OIDC provider           | Not registered/configured in the current environment                                                     |
-| GitHub App              | Not registered or installed                                                                              |
-| OSV                     | Adapter and opt-in CLI verified; API lifecycle persistence/activation absent                             |
-| Signing                 | Ed25519 primitives and offline CLIs verified; production key custody/lifecycle export absent             |
-| Shared rate limiter     | Redis-compatible adapter verified; no shared vendor/store connected                                      |
-| Container               | Docker build/smoke not locally verified because Docker is unavailable                                    |
+| Surface                 | Status                                                                                            |
+| ----------------------- | ------------------------------------------------------------------------------------------------- |
+| Local dashboard         | Verified through Vite and real Chromium E2E in deterministic demo mode                            |
+| Local API               | Verified through existing integration/smoke coverage with local PostgreSQL                        |
+| Local worker            | Verified through existing queue/integration coverage; demo target only                            |
+| Local PostgreSQL        | Migration and integration path verified using process-only sandbox values                         |
+| GitHub Actions          | PR #3 follow-up quality run passed, including browser E2E, SARIF validation, and CodeQL v4 upload |
+| Vercel                  | Follow-up branch deployment check passed; deployment remains a static dashboard/demo              |
+| API cloud deployment    | Not deployed                                                                                      |
+| Worker cloud deployment | Not deployed                                                                                      |
+| Managed database        | Neon project is not connected to this repository/deployment                                       |
+| OIDC provider           | Not registered/configured in the current environment                                              |
+| GitHub App              | Not registered or installed                                                                       |
+| OSV                     | Adapter and opt-in CLI verified; API lifecycle persistence/activation absent                      |
+| Signing                 | Ed25519 primitives and offline CLIs verified; production key custody/lifecycle export absent      |
+| Shared rate limiter     | Redis-compatible adapter verified; no shared vendor/store connected                               |
+| Container               | Docker build/smoke not locally verified because Docker is unavailable                             |
 
-The current Vercel dashboard remains a **static deterministic demo**. It is not a deployed API, PostgreSQL-backed control plane, worker, GitHub integration, or production OIDC environment.
+The current Vercel dashboard remains a **static deterministic demo**. Its follow-up deployment check passed, but it is not a deployed API, PostgreSQL-backed control plane, worker, GitHub integration, or production OIDC environment.
 
 ## 9. Remaining owner-required items
 
@@ -170,7 +173,7 @@ AgentShield is **done for the automated hardening phase represented by this bran
 
 It is not honest to call the whole system publicly production-operational until the external API, database, worker, OIDC, GitHub App, advisory, receipt, and shared-rate-limit lifecycles are activated and smoke-tested. The correct repository-level conclusion is:
 
-> **SAFE TO MERGE — OWNER APPROVAL REQUIRED** for the verified PR change set, with the follow-up branch reviewed after its remote checks pass.
+> **SAFE TO MERGE — OWNER APPROVAL REQUIRED** for the verified PR change set and follow-up PR #3 after owner review of the layered diff and successful checks.
 > **Production deployment: not yet activated; owner configuration required.**
 
 ## References
