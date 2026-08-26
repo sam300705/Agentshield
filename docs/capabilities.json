@@ -37,6 +37,15 @@
       "evidence": "packages/schemas evidence sanitizer, scanner regression tests, and scan-service persistence boundary",
       "scope": "recursive JSON/text evidence and bounded scan failure metadata"
     },
+    "browser_e2e_demo_workflows": {
+      "status": "implemented_and_verified",
+      "evidence": "Playwright suite covering demo boot, navigation, simulation, replay, approvals, receipt export, keyboard use, accessible graph fallback, and mobile viewport",
+      "scope": "deterministic dashboard only; live API/browser auth workflows remain configuration-dependent"
+    },
+    "sarif_validation": {
+      "status": "implemented_and_verified",
+      "evidence": "scripts/validate-sarif.ts integrated into CI fixture and repository source gates"
+    },
     "local_demo_authentication": {
       "status": "implemented_and_verified",
       "scope": "non-production only",
@@ -105,6 +114,7 @@
   "limitations": [
     "The deployed Vercel dashboard is configured as a deterministic demo; the live OIDC/API mode is implemented but not activated in the deployment.",
     "GitHub App, OSV enrichment, signed-receipt, and distributed-rate-limit primitives are not live-connected to the deployed demo.",
+    "The browser E2E suite verifies the deterministic dashboard; no live API/OIDC browser E2E is claimed until owner infrastructure is configured.",
     "No production OIDC provider has been configured in the current environment.",
     "No Neon connection strings have been injected into the deployment.",
     "No Azure Container Apps API or scheduled worker resource has been created.",
