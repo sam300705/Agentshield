@@ -47,6 +47,10 @@ jobs:
       - run: pnpm test:docs
       - run: pnpm build
       - run: pnpm test:integration
+      - name: Install Playwright browser
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Browser E2E
+        run: pnpm test:e2e
       - name: Scan deterministic fixture
         id: scan
         run: |
@@ -56,17 +60,16 @@ jobs:
           set -e
           echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
           test "$exit_code" -eq 3
+          node --import tsx scripts/validate-sarif.ts agentshield-fixture.sarif
       - name: Gate repository source
-        # Exclude synthetic token fixtures and remediation before/after examples.
-        run: >-
-          node packages/scanner/dist/cli.js --path . --format sarif
-          --ignore examples
-          --ignore apps/api/src/controllers/controlPlaneController.ts
-          --ignore packages/remediation/src/templates.ts
-          --ignore packages/scanner/src/secretScanner.test.ts
-          --ignore packages/scanner/src/agentWorkflowScanner.test.ts
-          --ignore packages/schemas/src/evidenceRedaction.test.ts
-          > agentshield-source.sarif
+        # Exclude only synthetic examples and intentionally illustrative remediation/controller content.
+        run: |
+          node packages/scanner/dist/cli.js --path . --format sarif \
+            --ignore examples \
+            --ignore apps/api/src/controllers/controlPlaneController.ts \
+            --ignore packages/remediation/src/templates.ts \
+            > agentshield-source.sarif
+          node --import tsx scripts/validate-sarif.ts agentshield-source.sarif
       - name: Job summary
         run: |
           echo "## AgentShield security gate" >> "$GITHUB_STEP_SUMMARY"
@@ -76,7 +79,7 @@ jobs:
         with:
           name: agentshield-sarif
           path: agentshield-fixture.sarif
-      - uses: github/codeql-action/upload-sarif@v3
+      - uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: agentshield-source.sarif
