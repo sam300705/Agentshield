@@ -35,6 +35,10 @@ export function createServer(): Express {
       windowMs: config.RATE_LIMIT_WINDOW_MS,
     }),
   );
+  app.use(
+    "/api/v1/integrations/github/webhooks",
+    express.raw({ type: "application/json", limit: "1mb" }),
+  );
   app.use(express.json({ limit: "1mb" }));
   app.use(requestContext);
 

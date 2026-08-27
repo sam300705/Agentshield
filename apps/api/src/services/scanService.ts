@@ -9,6 +9,7 @@ import {
   type PolicyDecision,
   type PolicyDecisionType,
   type Remediation,
+  type ScanOptions,
 } from "@agentshield/schemas";
 import { AuditAction, Prisma, ScanStatus, type PrismaClient } from "@prisma/client";
 import path from "node:path";
@@ -90,7 +91,10 @@ function createDecisionCounts(decisions: PolicyDecision[]): Record<PolicyDecisio
 }
 
 function createScanMetadata(input: {
+  source: string;
   targetPath: string;
+  triggeredBy: string;
+  labels: string[];
   findingCounts: FindingCounts;
   decisionCounts: Record<PolicyDecisionType, number>;
   dependencyCount: number;
@@ -98,10 +102,10 @@ function createScanMetadata(input: {
   approvalCount: number;
 }): Prisma.InputJsonValue {
   return toInputJson({
-    source: "LOCAL_EXAMPLE",
+    source: input.source,
     targetPath: input.targetPath,
-    triggeredBy: SYSTEM_ACTOR,
-    labels: ["demo", "api-run"],
+    triggeredBy: input.triggeredBy,
+    labels: input.labels,
     aggregateCounts: {
       findings: input.findingCounts,
       policyDecisions: input.decisionCounts,
@@ -209,7 +213,12 @@ async function persistRemediation(
   });
 }
 
-async function markScanFailed(client: PrismaClient, scanId: string, error: unknown): Promise<void> {
+async function markScanFailed(
+  client: PrismaClient,
+  scanId: string,
+  error: unknown,
+  metadata: Pick<ScanRunOptions, "source" | "targetPathLabel" | "triggeredBy" | "labels">,
+): Promise<void> {
   const errorMessage = error instanceof Error ? error.message : "Unknown scan failure";
   const sanitizedError = sanitizeEvidence(errorMessage);
   const safeError = typeof sanitizedError === "string" ? sanitizedError : "Unknown scan failure";
@@ -221,61 +230,94 @@ async function markScanFailed(client: PrismaClient, scanId: string, error: unkno
       status: ScanStatus.FAILED,
       completedAt: new Date(),
       metadata: {
-        source: "LOCAL_EXAMPLE",
-        targetPath: DEMO_TARGET_PATH,
-        triggeredBy: SYSTEM_ACTOR,
+        source: metadata.source,
+        targetPath: metadata.targetPathLabel,
+        triggeredBy: metadata.triggeredBy,
+        labels: metadata.labels,
         error: safeError,
       },
     },
   });
 }
 
-export async function runDemoScan(
+export interface ScanRunOptions {
+  source: "LOCAL_EXAMPLE" | "GITHUB" | "MANUAL";
+  targetPath: string;
+  targetPathLabel: string;
+  repositoryName: string;
+  repositoryUrl?: string;
+  branch: string;
+  commitSha?: string;
+  organizationId: string;
+  correlationId: string;
+  triggeredBy: string;
+  labels: string[];
+  options: ScanOptions;
+  signal?: AbortSignal;
+}
+
+export async function runConfiguredScan(
+  options: ScanRunOptions,
   existingScanId?: string,
-  organizationId = "demo-organization",
-  correlationId = "system",
 ): Promise<string> {
+  const initialMetadata = {
+    source: options.source,
+    targetPath: options.targetPathLabel,
+    triggeredBy: options.triggeredBy,
+    labels: options.labels,
+    correlationId: options.correlationId,
+  };
   const scan =
     existingScanId == null
       ? await prisma.scan.create({
           data: {
-            repositoryName: "agentshield-vulnerable-demo-target",
-            repositoryUrl: "https://github.com/example/agentshield-vulnerable-demo-target",
-            branch: "main",
+            repositoryName: options.repositoryName,
+            ...(options.repositoryUrl == null ? {} : { repositoryUrl: options.repositoryUrl }),
+            branch: options.branch,
+            ...(options.commitSha == null ? {} : { commitSha: options.commitSha }),
             status: ScanStatus.RUNNING,
-            organizationId,
-            metadata: {
-              source: "LOCAL_EXAMPLE",
-              targetPath: DEMO_TARGET_PATH,
-              triggeredBy: SYSTEM_ACTOR,
-              correlationId,
-            },
+            organizationId: options.organizationId,
+            metadata: initialMetadata,
           },
         })
       : await prisma.scan.update({
           where: { id: existingScanId },
-          data: { status: ScanStatus.RUNNING, startedAt: new Date(), completedAt: null },
+          data: {
+            status: ScanStatus.RUNNING,
+            startedAt: new Date(),
+            completedAt: null,
+            branch: options.branch,
+            ...(options.commitSha == null ? {} : { commitSha: options.commitSha }),
+            metadata: initialMetadata,
+          },
         });
 
   await prisma.auditEvent.create({
     data: {
-      actor: SYSTEM_ACTOR,
+      actor: options.triggeredBy,
       action: AuditAction.SCAN_CREATED,
       entityType: "Scan",
       entityId: scan.id,
       scanId: scan.id,
-      organizationId,
-      correlationId,
+      organizationId: options.organizationId,
+      correlationId: options.correlationId,
       metadata: {
-        status: ScanStatus.RUNNING,
-        targetPath: DEMO_TARGET_PATH,
+        source: options.source,
+        repository: options.repositoryName,
+        ref: options.branch,
+        commitSha: options.commitSha ?? null,
       },
     },
   });
 
   try {
-    const targetPath = path.resolve(fileURLToPath(new URL(DEMO_TARGET_PATH, API_PACKAGE_ROOT)));
-    const scanResult = await runScan(targetPath, scan.id);
+    const scanResult = await runScan(options.targetPath, scan.id, {
+      maxFiles: options.options.maxFiles,
+      maxFileSizeBytes: options.options.maxBytes,
+      maxTotalBytes: options.options.maxBytes,
+      ignorePatterns: options.options.ignorePaths,
+      ...(options.signal == null ? {} : { signal: options.signal }),
+    });
     const policyDecisions = evaluateFindings(scanResult.findings, scan.id);
     const decisionsByFindingId = new Map(
       policyDecisions.map((decision) => [decision.findingId, decision]),
@@ -284,25 +326,24 @@ export async function runDemoScan(
     const approvalFindingIds: string[] = [];
 
     for (const finding of scanResult.findings) {
+      if (options.signal?.aborted === true) throw new Error("Scan cancelled");
       const decision = decisionsByFindingId.get(finding.id);
-
       if (decision == null) {
         throw new Error(`No policy decision generated for finding ${finding.id}`);
       }
-
       if (shouldGenerateRemediation(decision.decision)) {
         remediations.push(generateRemediation(finding, scan.id));
       }
-
-      if (decision.decision === "REQUIRE_APPROVAL") {
-        approvalFindingIds.push(finding.id);
-      }
+      if (decision.decision === "REQUIRE_APPROVAL") approvalFindingIds.push(finding.id);
     }
 
     const findingCounts = createFindingCounts(scanResult.findings);
     const decisionCounts = createDecisionCounts(policyDecisions);
     const metadata = createScanMetadata({
-      targetPath: DEMO_TARGET_PATH,
+      source: options.source,
+      targetPath: options.targetPathLabel,
+      triggeredBy: options.triggeredBy,
+      labels: options.labels,
       findingCounts,
       decisionCounts,
       dependencyCount: scanResult.dependencies.length,
@@ -312,65 +353,74 @@ export async function runDemoScan(
 
     await prisma.$transaction(
       async (tx) => {
-        for (const dependency of scanResult.dependencies) {
-          await persistDependency(tx, dependency);
-        }
-
-        for (const finding of scanResult.findings) {
-          await persistFinding(tx, finding, scan.id);
-        }
-
-        for (const decision of policyDecisions) {
-          await persistPolicyDecision(tx, decision);
-        }
-
-        for (const remediation of remediations) {
-          await persistRemediation(tx, remediation);
-        }
-
+        for (const dependency of scanResult.dependencies) await persistDependency(tx, dependency);
+        for (const finding of scanResult.findings) await persistFinding(tx, finding, scan.id);
+        for (const decision of policyDecisions) await persistPolicyDecision(tx, decision);
+        for (const remediation of remediations) await persistRemediation(tx, remediation);
         for (const findingId of approvalFindingIds) {
           await tx.approval.create({
             data: {
               findingId,
               status: "PENDING",
-              actor: SYSTEM_ACTOR,
+              actor: options.triggeredBy,
+              requestedBy: options.triggeredBy,
               reason: "Policy decision requires human approval before merge.",
             },
           });
         }
-
         await tx.auditEvent.create({
           data: {
-            actor: SYSTEM_ACTOR,
+            actor: options.triggeredBy,
             action: AuditAction.SCAN_COMPLETED,
             entityType: "Scan",
             entityId: scan.id,
             scanId: scan.id,
-            organizationId,
-            correlationId,
+            organizationId: options.organizationId,
+            correlationId: options.correlationId,
             metadata,
           },
         });
-
         await tx.scan.update({
-          where: {
-            id: scan.id,
-          },
-          data: {
-            status: ScanStatus.COMPLETED,
-            completedAt: new Date(),
-            metadata,
-          },
+          where: { id: scan.id },
+          data: { status: ScanStatus.COMPLETED, completedAt: new Date(), metadata },
         });
       },
-      {
-        timeout: 30_000,
-      },
+      { timeout: 30_000 },
     );
-
     return scan.id;
   } catch (error) {
-    await markScanFailed(prisma, scan.id, error);
+    await markScanFailed(prisma, scan.id, error, options);
     throw error;
   }
+}
+
+export async function runDemoScan(
+  existingScanId?: string,
+  organizationId = "demo-organization",
+  correlationId = "system",
+  signal?: AbortSignal,
+): Promise<string> {
+  return runConfiguredScan(
+    {
+      source: "LOCAL_EXAMPLE",
+      targetPath: path.resolve(fileURLToPath(new URL(DEMO_TARGET_PATH, API_PACKAGE_ROOT))),
+      targetPathLabel: DEMO_TARGET_PATH,
+      repositoryName: "agentshield-vulnerable-demo-target",
+      repositoryUrl: "https://github.com/example/agentshield-vulnerable-demo-target",
+      branch: "main",
+      organizationId,
+      correlationId,
+      triggeredBy: SYSTEM_ACTOR,
+      labels: ["demo", "api-run"],
+      options: {
+        maxFiles: 10_000,
+        maxBytes: 100 * 1024 * 1024,
+        timeoutMs: 120_000,
+        ignorePaths: [],
+        includeOsv: false,
+      },
+      ...(signal == null ? {} : { signal }),
+    },
+    existingScanId,
+  );
 }

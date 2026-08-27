@@ -104,13 +104,13 @@ export function parseVerifiedGitHubWebhook(
     event?: string;
   },
   webhookSecret: string,
-  replayGuard: WebhookReplayGuard,
+  replayGuard?: WebhookReplayGuard,
 ): VerifiedGitHubWebhook {
   if (!verifyGitHubWebhookSignature(rawPayload, headers.signature, webhookSecret)) {
     throw new Error("GitHub webhook signature verification failed.");
   }
   const deliveryId = safeHeader(headers.delivery, "delivery");
-  if (!replayGuard.accept(deliveryId))
+  if (replayGuard != null && !replayGuard.accept(deliveryId))
     throw new Error("GitHub webhook delivery has already been processed.");
   const eventName = safeHeader(headers.event, "event");
   const parsed = JSON.parse(rawPayload.toString("utf8")) as Record<string, unknown>;
