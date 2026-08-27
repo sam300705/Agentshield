@@ -21,6 +21,7 @@ type EventRecord = {
 };
 
 type FakeClient = {
+  $executeRaw: Mock<(...args: unknown[]) => Promise<number>>;
   agentSession: { findFirst: Mock<() => Promise<{ id: string } | null>> };
   agentEvent: {
     findUnique: Mock<() => Promise<EventRecord | null>>;
@@ -53,6 +54,7 @@ const fakePrisma = vi.hoisted(() => {
     );
   };
   const client: FakeClient = {
+    $executeRaw: vi.fn(() => Promise.resolve(1)),
     agentSession: { findFirst: vi.fn(() => Promise.resolve({ id: "session-test" })) },
     agentEvent: {
       findUnique: vi.fn(findByIdempotency),

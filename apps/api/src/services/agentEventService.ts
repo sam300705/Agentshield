@@ -157,6 +157,9 @@ export async function ingestAgentEvent(
         });
         if (session == null) return { kind: "SESSION_NOT_FOUND" as const };
 
+        await tx.$executeRaw(
+          Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${input.sessionId}))`,
+        );
         const inTransactionExisting = await tx.agentEvent.findFirst({
           where: {
             sessionId: input.sessionId,
