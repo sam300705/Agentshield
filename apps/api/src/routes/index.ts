@@ -14,6 +14,12 @@ import {
 import { listAuditEventsController } from "../controllers/auditController.js";
 import { githubWebhookController } from "../controllers/githubWebhookController.js";
 import {
+  approveAgentApprovalController,
+  createAgentApprovalController,
+  getAgentApprovalController,
+  rejectAgentApprovalController,
+} from "../controllers/agentApprovalController.js";
+import {
   authorizeAgentActionController,
   getReceiptController,
   recordAgentEventController,
@@ -74,6 +80,26 @@ router.post(
   "/api/v1/agent/events",
   requirePermission("scan:run"),
   asyncHandler(recordAgentEventController),
+);
+router.post(
+  "/api/v1/agent/approvals",
+  requirePermission("scan:run"),
+  asyncHandler(createAgentApprovalController),
+);
+router.get(
+  "/api/v1/agent/approvals/:approvalId",
+  requirePermission("scan:read"),
+  asyncHandler(getAgentApprovalController),
+);
+router.post(
+  "/api/v1/agent/approvals/:approvalId/approve",
+  requirePermission("approval:review"),
+  asyncHandler(approveAgentApprovalController),
+);
+router.post(
+  "/api/v1/agent/approvals/:approvalId/reject",
+  requirePermission("approval:review"),
+  asyncHandler(rejectAgentApprovalController),
 );
 router.get(
   "/api/v1/receipts/:scanId",

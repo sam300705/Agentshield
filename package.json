@@ -21,6 +21,7 @@
     "receipt:verify": "node --import tsx scripts/verify-receipt.ts",
     "receipt:sign": "node --import tsx scripts/sign-receipt.ts",
     "test:integration": "node --import tsx scripts/verify-integration.ts",
+    "test:gateway": "node --import tsx scripts/verify-agent-gateway.ts",
     "test:e2e": "playwright test",
     "typecheck": "tsc -b",
     "db:up": "docker compose up -d postgres",

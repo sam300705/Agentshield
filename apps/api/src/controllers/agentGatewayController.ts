@@ -1,21 +1,19 @@
-import {
-  canonicalJson,
-  createIntegrityChain,
-  evaluateAgentAction,
-} from "@agentshield/policy-engine";
+import { evaluateAgentAction } from "@agentshield/policy-engine";
 import {
   agentAuthorizationRequestSchema,
   agentDecisionSchema,
   agentEventInputSchema,
 } from "@agentshield/schemas";
 import type { Request, Response } from "express";
-import { createHash, randomUUID } from "node:crypto";
-import { Prisma } from "@prisma/client";
-
 import { prisma } from "../db/prisma.js";
+import { ensureAgentApproval } from "../services/agentApprovalService.js";
+import { ingestAgentEvent } from "../services/agentEventService.js";
 import { getActor, getCorrelationId } from "../security/auth.js";
 
-export function authorizeAgentActionController(request: Request, response: Response): void {
+export async function authorizeAgentActionController(
+  request: Request,
+  response: Response,
+): Promise<void> {
   const actor = getActor(response);
   const input = agentAuthorizationRequestSchema.parse(request.body);
   if (input.organizationId !== actor.organizationId || input.actor !== actor.id) {
@@ -31,7 +29,39 @@ export function authorizeAgentActionController(request: Request, response: Respo
   const decision = agentDecisionSchema.parse(
     evaluateAgentAction(input.action, input.correlationId),
   );
-  response.json({ data: decision });
+  if (decision.decision !== "REQUIRE_APPROVAL") {
+    response.json({ data: decision });
+    return;
+  }
+
+  const approval = await ensureAgentApproval(input, getCorrelationId(response));
+  if (approval.kind === "SESSION_NOT_FOUND") {
+    response.status(404).json({
+      error: {
+        code: "SESSION_NOT_FOUND",
+        message: "Agent session was not found.",
+        correlationId: getCorrelationId(response),
+      },
+    });
+    return;
+  }
+  if (approval.kind === "IDEMPOTENCY_CONFLICT") {
+    response.status(409).json({
+      error: {
+        code: "APPROVAL_IDEMPOTENCY_CONFLICT",
+        message: "The idempotency key is already bound to a different protected action.",
+        correlationId: getCorrelationId(response),
+      },
+    });
+    return;
+  }
+  response.json({
+    data: {
+      ...decision,
+      approvalId: approval.approval.id,
+      approvalStatus: approval.approval.status,
+    },
+  });
 }
 
 export async function recordAgentEventController(
@@ -50,11 +80,8 @@ export async function recordAgentEventController(
     });
     return;
   }
-  const session = await prisma.agentSession.findFirst({
-    where: { id: input.sessionId, organizationId: actor.organizationId },
-    select: { id: true },
-  });
-  if (session == null) {
+  const result = await ingestAgentEvent(input);
+  if (result.kind === "SESSION_NOT_FOUND") {
     response.status(404).json({
       error: {
         code: "SESSION_NOT_FOUND",
@@ -64,81 +91,44 @@ export async function recordAgentEventController(
     });
     return;
   }
-  const existing = await prisma.agentEvent.findFirst({
-    where: { sessionId: input.sessionId, idempotencyKey: input.idempotencyKey },
-    select: { id: true },
-  });
-  if (existing != null) {
-    response
-      .status(200)
-      .json({ accepted: true, eventId: existing.id, correlationId: getCorrelationId(response) });
-    return;
-  }
-  const latest = await prisma.agentEvent.findFirst({
-    where: { sessionId: input.sessionId },
-    orderBy: { sequence: "desc" },
-    select: { sequence: true, eventHash: true },
-  });
-  const expectedSequence = (latest?.sequence ?? -1) + 1;
-  if (input.sequence !== expectedSequence) {
+  if (result.kind === "SEQUENCE_INVALID") {
     response.status(409).json({
       error: {
         code: "EVENT_SEQUENCE_INVALID",
-        message: `Expected event sequence ${expectedSequence}.`,
+        message: `Expected event sequence ${result.expected}.`,
         correlationId: getCorrelationId(response),
       },
     });
     return;
   }
-  const event = createIntegrityChain(
-    [
-      {
-        id: randomUUID(),
-        sessionId: input.sessionId,
-        sequence: input.sequence,
-        timestamp: input.timestamp,
-        actor: input.actor,
-        source: input.source,
-        type: input.type,
-        riskLevel: input.riskLevel,
-        summary: input.summary,
-        ...(input.resource == null ? {} : { resource: input.resource }),
-        evidence: input.evidence,
-        correlationId: input.correlationId,
+  if (result.kind === "SEQUENCE_CONFLICT") {
+    response.status(409).json({
+      error: {
+        code: "EVENT_SEQUENCE_CONFLICT",
+        message: "Another event was accepted for this sequence; retry with the next sequence.",
+        correlationId: getCorrelationId(response),
       },
-    ],
-    latest?.eventHash ?? null,
-  )[0];
-  if (event == null) throw new Error("Event integrity construction failed.");
-  await prisma.agentEvent.create({
-    data: {
-      id: event.id,
-      sessionId: event.sessionId,
-      sequence: event.sequence,
-      idempotencyKey: input.idempotencyKey,
-      timestamp: event.timestamp,
-      actor: event.actor,
-      source: event.source,
-      type: event.type,
-      riskLevel: event.riskLevel,
-      summary: event.summary,
-      resource: event.resource ?? null,
-      evidence:
-        event.evidence == null
-          ? Prisma.JsonNull
-          : (JSON.parse(JSON.stringify(event.evidence)) as Prisma.InputJsonValue),
-      correlationId: event.correlationId,
-      previousHash: event.integrity.previousHash,
-      eventHash: event.integrity.eventHash,
-    },
-  });
-  response.status(201).json({
+    });
+    return;
+  }
+  if (result.kind === "IDEMPOTENCY_CONFLICT") {
+    response.status(409).json({
+      error: {
+        code: "EVENT_IDEMPOTENCY_CONFLICT",
+        message: "The idempotency key is already bound to different event content.",
+        correlationId: getCorrelationId(response),
+      },
+    });
+    return;
+  }
+  response.status(result.kind === "CREATED" ? 201 : 200).json({
     accepted: true,
-    eventId: event.id,
+    eventId: result.eventId,
     correlationId: getCorrelationId(response),
     integrity: {
-      eventHash: event.integrity.eventHash,
-      payloadHash: createHash("sha256").update(canonicalJson(event)).digest("hex"),
+      eventHash: result.eventHash,
+      previousHash: result.previousHash,
+      payloadHash: result.payloadHash,
     },
   });
 }

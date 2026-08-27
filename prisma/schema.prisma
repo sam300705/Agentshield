@@ -299,6 +299,7 @@ model Organization {
   webhookDeliveries   GitHubWebhookDelivery[]
   advisories          Advisory[]
   evidenceArtifacts   EvidenceArtifact[]
+  agentApprovals      AgentApproval[]
 }
 
 model User {
@@ -359,6 +360,7 @@ model AgentSession {
   startedAt      DateTime           @default(now())
   completedAt    DateTime?
   events         AgentEvent[]
+  agentApprovals AgentApproval[]
   riskNodes      RiskNode[]
   riskEdges      RiskEdge[]
   simulations    PolicySimulation[]
@@ -368,6 +370,32 @@ model AgentSession {
   @@index([organizationId, startedAt])
   @@index([repositoryId, startedAt])
   @@index([status])
+}
+
+model AgentApproval {
+  id             String         @id @default(cuid())
+  organizationId String
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sessionId      String
+  session        AgentSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  actor          String
+  actionType     String
+  resource       String?
+  actionDigest   String
+  status         ApprovalStatus @default(PENDING)
+  requestedBy    String
+  reviewedBy     String?
+  reason         String?
+  correlationId  String
+  idempotencyKey String
+  requestedAt    DateTime       @default(now())
+  reviewedAt     DateTime?
+
+  @@unique([organizationId, sessionId, idempotencyKey])
+  @@index([organizationId, status, requestedAt])
+  @@index([sessionId, status])
+  @@index([organizationId, actionDigest])
+  @@index([correlationId])
 }
 
 model AgentEvent {
