@@ -134,7 +134,10 @@ function resultFromEvent(
   };
 }
 
-export async function ingestAgentEvent(rawInput: AgentEventInput): Promise<AgentEventIngestResult> {
+export async function ingestAgentEvent(
+  rawInput: AgentEventInput,
+  retryOnConcurrency = true,
+): Promise<AgentEventIngestResult> {
   const input = agentEventInputSchema.parse(rawInput) as ParsedAgentEvent;
   const expectedHash = payloadHash(input);
 
@@ -249,6 +252,14 @@ export async function ingestAgentEvent(rawInput: AgentEventInput): Promise<Agent
     return result;
   } catch (error) {
     if (!isConcurrencyConflict(error)) throw error;
+    if (
+      retryOnConcurrency &&
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2034"
+    ) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 10));
+      return ingestAgentEvent(input, false);
+    }
     const concurrent = await findExisting(input);
     if (concurrent != null) {
       return samePayload(concurrent, expectedHash)
