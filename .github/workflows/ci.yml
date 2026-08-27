@@ -87,6 +87,6 @@ jobs:
           name: agentshield-sarif
           path: agentshield-fixture.sarif
       - uses: github/codeql-action/upload-sarif@v4
-        if: always()
+        if: always() && hashFiles('agentshield-source.sarif') != ''
         with:
           sarif_file: agentshield-source.sarif

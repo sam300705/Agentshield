@@ -191,6 +191,7 @@ async function main(): Promise<void> {
     );
   } finally {
     if (organizationCreated) {
+      await prisma.auditEvent.deleteMany({ where: { organizationId } });
       await prisma.organization.delete({ where: { id: organizationId } });
     }
   }
