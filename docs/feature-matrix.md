@@ -1,6 +1,6 @@
 # AgentShield Feature Matrix
 
-**Audit basis:** `agent/final-product-hardening` at `d879001`, layered on the open hardening PRs. This matrix is an engineering audit artifact; it is not a production-readiness claim.
+**Audit basis:** `agent/final-product-hardening` at `59ed400`, layered on the open hardening PRs. This matrix is an engineering audit artifact; it is not a production-readiness claim.
 
 | Capability                     | UI                                                                                                                                                            | API and worker                                                                                                                                                                                                                                                   | Persistence                                                                                                       | Tests and evidence                                                                                                                       | Current status                                                                                                       |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
@@ -23,7 +23,7 @@
 
 ## Merge-readiness snapshot
 
-PR #3 is open, non-draft, and mergeable into `agent/production-hardening`. The latest branch head is `d879001`, and the latest remote quality run `33058990476` passed. No PR or branch was merged, and no force-push or history rewrite was used. PR #2 and PR #1 remain preserved as separate open history.
+PR #3 is open, non-draft, and mergeable into `agent/production-hardening`. The latest branch head is `59ed400`, and the latest remote quality run `33059409595` passed. No PR or branch was merged, and no force-push or history rewrite was used. PR #2 and PR #1 remain preserved as separate open history.
 
 The correct classification is **portfolio-prototype-controlled-internal-alpha**. The branch is suitable for owner review and merge consideration after reviewing the layered diff; it is not a publicly operational production service. Static Vercel checks do not prove that the API, database, worker, GitHub App, OIDC provider, OSV provider, signing custody, or shared limiter are live.
 
