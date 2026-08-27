@@ -151,15 +151,15 @@ export async function ingestAgentEvent(
   try {
     const result = await prisma.$transaction(
       async (tx) => {
+        await tx.$executeRaw(
+          Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${input.sessionId}))`,
+        );
         const session = await tx.agentSession.findFirst({
           where: { id: input.sessionId, organizationId: input.organizationId },
           select: { id: true },
         });
         if (session == null) return { kind: "SESSION_NOT_FOUND" as const };
 
-        await tx.$executeRaw(
-          Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${input.sessionId}))`,
-        );
         const inTransactionExisting = await tx.agentEvent.findFirst({
           where: {
             sessionId: input.sessionId,
@@ -250,7 +250,7 @@ export async function ingestAgentEvent(
           expectedHash,
         );
       },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
     );
     return result;
   } catch (error) {
