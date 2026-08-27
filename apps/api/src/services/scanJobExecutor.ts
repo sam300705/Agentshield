@@ -52,6 +52,7 @@ export class ConfiguredScanJobExecutor implements ScanJobExecutor {
           correlationId: payload.correlationId,
           triggeredBy: payload.requester,
           labels: [payload.trigger.toLowerCase(), payload.provider.toLowerCase()],
+          policyBundleVersion: payload.policyBundleVersion,
           options,
           signal: input.signal,
         },

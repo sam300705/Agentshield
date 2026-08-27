@@ -13,6 +13,11 @@ import {
 } from "../controllers/approvalController.js";
 import { listAuditEventsController } from "../controllers/auditController.js";
 import { githubWebhookController } from "../controllers/githubWebhookController.js";
+import {
+  authorizeAgentActionController,
+  getReceiptController,
+  recordAgentEventController,
+} from "../controllers/agentGatewayController.js";
 import { getDashboardSummaryController } from "../controllers/dashboardController.js";
 import { getDemoControlPlaneController } from "../controllers/controlPlaneController.js";
 import { metricsController, readinessController } from "../controllers/systemController.js";
@@ -55,6 +60,26 @@ router.get("/health/live", (_request, response) =>
 router.get("/health/ready", asyncHandler(readinessController));
 router.post("/api/v1/integrations/github/webhooks", asyncHandler(githubWebhookController));
 router.get("/metrics", requirePermission("organization:manage"), asyncHandler(metricsController));
+router.post(
+  "/api/v1/agent/authorize",
+  requirePermission("scan:run"),
+  asyncHandler(authorizeAgentActionController),
+);
+router.post(
+  "/api/v1/agent/decision",
+  requirePermission("scan:run"),
+  asyncHandler(authorizeAgentActionController),
+);
+router.post(
+  "/api/v1/agent/events",
+  requirePermission("scan:run"),
+  asyncHandler(recordAgentEventController),
+);
+router.get(
+  "/api/v1/receipts/:scanId",
+  requirePermission("scan:read"),
+  asyncHandler(getReceiptController),
+);
 
 router.get(
   "/api/v1/demo/control-plane",

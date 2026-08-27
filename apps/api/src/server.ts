@@ -10,6 +10,8 @@ import express, {
 import helmet from "helmet";
 import { ZodError } from "zod";
 
+import { sanitizeText } from "@agentshield/schemas";
+
 import { getRuntimeConfig } from "./config.js";
 import { router } from "./routes/index.js";
 import { createRateLimiter } from "./security/rateLimit.js";
@@ -46,8 +48,11 @@ export function createServer(): Express {
 
   app.use((_request: Request, response: Response) => {
     response.status(404).json({
-      error: "NOT_FOUND",
-      message: "Route not found.",
+      error: {
+        code: "NOT_FOUND",
+        message: "Route not found.",
+        correlationId: getCorrelationId(response),
+      },
     });
   });
 
@@ -70,7 +75,7 @@ export function createServer(): Express {
       JSON.stringify({
         level: "error",
         correlationId: getCorrelationId(response),
-        message: error instanceof Error ? error.message : "Unknown error",
+        message: sanitizeText(error instanceof Error ? error.message : "Unknown error"),
       }),
     );
     response.status(500).json({

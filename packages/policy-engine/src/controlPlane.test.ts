@@ -58,6 +58,21 @@ describe("control plane primitives", () => {
     expect(verifyIntegrityChain(first)).toBe(true);
   });
 
+  it("continues an integrity chain from a persisted chain head", () => {
+    const first = createIntegrityChain(baseEvents.slice(0, 1));
+    const continued = createIntegrityChain(
+      [
+        {
+          ...baseEvents[1]!,
+          sequence: 2,
+        },
+      ],
+      first[0]?.integrity.eventHash ?? null,
+    );
+    expect(continued[0]?.integrity.previousHash).toBe(first[0]?.integrity.eventHash);
+    expect(verifyIntegrityChain([...first, ...continued])).toBe(true);
+  });
+
   it("rejects a tampered event chain", () => {
     const events = createIntegrityChain(baseEvents);
     const tampered = events.map((event, index) =>
