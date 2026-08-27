@@ -9,7 +9,11 @@
     },
     "tenant_scoped_api": {
       "status": "implemented_and_verified",
-      "evidence": "apps/api controllers, RBAC tests, and PostgreSQL integration smoke test"
+      "evidence": "apps/api controllers, RBAC tests, versioned response contracts, and PostgreSQL integration smoke test"
+    },
+    "versioned_api_contracts": {
+      "status": "implemented_and_verified",
+      "evidence": "shared Zod error/pagination contracts, v1 repository/scan/progress/cancel/receipt routes, and dashboard v1 scan client"
     },
     "oidc_production_authentication": {
       "status": "implemented_requires_configuration",
@@ -53,7 +57,7 @@
     },
     "durable_postgresql_scan_queue": {
       "status": "implemented_and_verified",
-      "evidence": "atomic claims, bounded retries, stale-lock recovery, and integration smoke test"
+      "evidence": "atomic claims, bounded retries, lease heartbeat, timeout/cancellation signals, stale-lock recovery, graceful worker shutdown, and integration smoke test"
     },
     "azure_container_apps_deployment": {
       "status": "prepared_not_deployed",
@@ -70,7 +74,7 @@
     },
     "github_app_repository_onboarding": {
       "status": "implemented_requires_configuration",
-      "evidence": "apps/api/src/integrations/githubApp.ts and synthetic webhook tests",
+      "evidence": "durable installation/delivery models, provider adapter interfaces, raw-body webhook boundary, and synthetic webhook tests",
       "requires": [
         "GitHub App registration",
         "webhook secret",
@@ -80,21 +84,24 @@
     },
     "osv_vulnerability_enrichment": {
       "status": "implemented_requires_configuration",
-      "evidence": "packages/scanner/src/vulnerabilityEnricher.ts and mocked provider tests",
+      "evidence": "OSV adapter, advisory persistence in configured scan lifecycle, mocked provider tests, and explicit UNAVAILABLE outage status",
       "requires": [
-        "advisory-result persistence",
-        "scan-lifecycle activation",
-        "provider-outage policy"
+        "approved advisory policy",
+        "live provider configuration if network enrichment is enabled"
       ]
     },
     "signed_security_receipts": {
       "status": "implemented_requires_configuration",
       "evidence": "Ed25519 signing and verification primitives, key-ring tests, and receipt verification CLI",
-      "requires": ["production signing key management", "receipt export integration"]
+      "requires": [
+        "production signing key management",
+        "receipt export integration",
+        "live scan/database smoke evidence"
+      ]
     },
     "distributed_rate_limiting": {
       "status": "implemented_requires_configuration",
-      "evidence": "apps/api/src/security/distributedRateLimit.ts and storage-outage tests",
+      "evidence": "route- and identity-aware local limiter, Redis-compatible adapter, correlation-aware outage behavior, and storage-outage tests",
       "requires": [
         "Redis-compatible client adapter",
         "shared store credentials",
@@ -103,11 +110,18 @@
     },
     "dependency_vulnerability_intelligence": {
       "status": "implemented_requires_configuration",
-      "evidence": "OSV batch adapter, deterministic provider-mock tests, and opt-in scanner --osv output",
-      "requires": [
-        "advisory-result persistence",
-        "API scan-lifecycle activation",
-        "provider-outage policy"
+      "evidence": "OSV batch adapter, advisory persistence, deterministic provider-mock tests, opt-in scan lifecycle, and non-blocking outage handling",
+      "requires": ["approved network-enrichment policy"]
+    },
+    "bounded_repository_scan_configuration": {
+      "status": "implemented_and_verified",
+      "evidence": ".agentshield.yml/.agentshieldignore data-only loader with size, field, and entry bounds plus scanner tests"
+    },
+    "agent_gateway_sdk": {
+      "status": "implemented_and_verified",
+      "evidence": "shared action/decision/event schemas, deterministic policy evaluator, tenant checks, chained event persistence, provider-neutral SDK tests, and explicit non-execution boundary",
+      "limitations": [
+        "Durable REQUIRE_APPROVAL records are not created because the existing Approval model requires a Finding relation."
       ]
     }
   },
@@ -118,8 +132,10 @@
     "No production OIDC provider has been configured in the current environment.",
     "No Neon connection strings have been injected into the deployment.",
     "No Azure Container Apps API or scheduled worker resource has been created.",
-    "The existing API limiter is per-instance by default; a Redis-compatible distributed adapter exists but is not selected or connected.",
+    "The API now uses route- and verified-identity-aware per-instance limiting by default; a Redis-compatible distributed adapter exists but is not selected or connected.",
     "Secret scanning uses high-confidence patterns and does not provide entropy analysis.",
-    "The PostgreSQL polling queue is not a benchmarked high-throughput distributed queue."
+    "The PostgreSQL polling queue is not a benchmarked high-throughput distributed queue.",
+    "The gateway returns REQUIRE_APPROVAL decisions but does not create Approval rows until a finding-linked approval model is introduced.",
+    "The API scan lifecycle now persists advisory summaries and receipt digests, but live external-provider, signing-custody, and deployed-worker evidence is absent."
   ]
 }

@@ -1,187 +1,160 @@
-# AgentShield Final Product Completion, Verification & Production Hardening Report
+# AgentShield Production-Hardening Implementation Report
 
-**Author:** Manus AI  
-**Report date:** 2026-08-26
-**Repository:** [sam300705/Agentshield](https://github.com/sam300705/Agentshield)  
-**Verified base:** PR #2 head `94d6e17` on `agent/production-hardening`
-**Follow-up branch:** `agent/final-product-hardening`
-**Follow-up PR:** [PR #3](https://github.com/sam300705/Agentshield/pull/3)
+**Author:** Manus AI
 
-## 1. Executive verdict
+**Report date:** 2026-08-27
 
-AgentShield is a strong, technically honest **controlled internal alpha / portfolio-grade security control plane**. The repository has a coherent security architecture, deterministic scanning and policy enforcement, tenant-scoped API boundaries, a durable PostgreSQL queue, explicit demo/live separation, signed-receipt primitives, safe evidence handling, and a real browser smoke suite for the implemented dashboard. The product is recruiter-impressive because its central story is demonstrable rather than merely visual: an autonomous-agent event sequence becomes explainable evidence, a deterministic policy decision, an approval boundary, a remediation context, and a tamper-evident receipt.
+**Repository:** [sam300705/Agentshield](https://github.com/sam300705/Agentshield)
+**Working branch:** `agent/final-product-hardening`
 
-It is **not yet a publicly operational production service** and is **not described as production-ready**. Real GitHub App installation, repository ingestion, API/worker/database deployment, production OIDC registration, advisory lifecycle persistence, signed-receipt key custody, and shared rate-limit storage still require external authorization or owner-controlled infrastructure. The static Vercel deployment must not be interpreted as proof that those services are live.
+**Latest pushed commit:** `44e7759` — `feat: use versioned scan APIs in dashboard client`
 
-| Area                 | Rating | Basis                                                                                                                                                                             |
-| -------------------- | -----: | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Architecture         |   8/10 | Clear separation among scanner, policy engine, schemas, API, queue, worker, dashboard, and provider-neutral adapters.                                                             |
-| Backend              |   7/10 | Tenant/RBAC controls, validation, correlation IDs, durable queue, and failure handling are implemented; real repository and integration lifecycles remain to be connected.        |
-| Frontend             |   8/10 | Serious security-command-center design, explicit demo/live boundary, live-state components, accessible graph fallback, responsive behavior, and browser coverage.                 |
-| Security             |   8/10 | Fail-closed production auth, server-side authorization, approval separation of duties, bounded scanning, webhook HMAC primitives, and centralized redaction are verified.         |
-| Testing              |   8/10 | Unit, integration, migration, scanner, SARIF, negative-auth, and six real-browser E2E tests pass locally; live-provider tests are necessarily mocked.                             |
-| DevOps               |   7/10 | Frozen installs, migration workflow, SARIF gate, CodeQL v4 upload, deployment runbooks, and CI browser installation are present; Docker/cloud deployment remains unverified here. |
-| Product quality      |   8/10 | The deterministic demo communicates risk, evidence, policy, approval, blast radius, and receipt concepts without pretending they are live.                                        |
-| Recruiter value      |   9/10 | The 90-second story is concrete, visual, explainable, and backed by real code and tests.                                                                                          |
-| Production readiness |   4/10 | Code is production-minded, but external service activation and several lifecycle integrations are not present.                                                                    |
+**Layered pull request:** [PR #3](https://github.com/sam300705/Agentshield/pull/3)
+**Preserved base history:** [PR #2](https://github.com/sam300705/Agentshield/pull/2) on `agent/production-hardening`; [PR #1](https://github.com/sam300705/Agentshield/pull/1) remains unchanged.
 
-## 2. Repository and merge-readiness state
+## Executive verdict
 
-The original production-hardening branch remains untouched by the follow-up work. PR #2 is open, non-draft, mergeable, clean, and 42 commits ahead of `main`; PR #1 remains an older open draft and was not modified. `main` has no recorded branch protection through the inspected GitHub API response, so repository owners should configure protection before accepting a production-bound change.
+AgentShield is a strong **portfolio-prototype-controlled-internal-alpha** security control plane. The repository now has deterministic scanning, bounded hostile-repository handling, tenant-scoped API boundaries, a durable PostgreSQL polling queue, worker leases and cancellation signals, safe evidence redaction, optional advisory persistence, receipt persistence/signing foundations, provider-neutral GitHub adapters, shared API contracts, an agent gateway/SDK, route- and identity-aware local rate limiting, secret-reference interfaces, CI SARIF gates, and a real browser suite for the deterministic dashboard.
 
-The follow-up branch was created from the verified PR #2 head rather than from stale `main`:
+> AgentShield is **not described as production-ready**. It is not yet a publicly operational production service because the external API, worker, managed database, OIDC provider, GitHub App, shared rate-limit store, production signing custody, and live provider smoke paths have not been activated or evidenced.
 
-| Item                                   | Current result                                                                 |
-| -------------------------------------- | ------------------------------------------------------------------------------ |
-| Existing hardening branch              | `agent/production-hardening`                                                   |
-| Follow-up branch                       | `agent/final-product-hardening`                                                |
-| Follow-up base                         | `94d6e17`                                                                      |
-| Follow-up code commit                  | `ff9919a` — `test: add browser e2e and sarif validation`                       |
-| Initial follow-up documentation commit | `788fe35` — `docs: record final hardening verification`                        |
-| Follow-up PR #3                        | [Open PR #3](https://github.com/sam300705/Agentshield/pull/3), not merged      |
-| Existing PR #2                         | [Open PR #2](https://github.com/sam300705/Agentshield/pull/2), not merged      |
-| PR #1                                  | [Open draft PR #1](https://github.com/sam300705/Agentshield/pull/1), unchanged |
-| `main` comparison at audit time        | 42 commits ahead, 0 behind                                                     |
-| Branch protection                      | GitHub reported `Branch not protected` for `main`                              |
-| Merge action                           | Not performed; no force-push or history rewrite used                           |
+The branch is reviewable and its latest remote CI and Vercel checks are green. This is evidence of repository and preview health, not evidence that static Vercel hosts the backend control plane.
 
-**Merge verdict:** `SAFE TO MERGE — OWNER APPROVAL REQUIRED` applies to the already verified PR #2 change set after the owner reviews it. Follow-up PR #3 is also review-only, has passed its remote CI and Vercel checks, and remains unmerged; the owner should review the layered diff before accepting it.
+| Area                 | Assessment | Evidence and limitation                                                                                                                                              |
+| -------------------- | ---------: | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Architecture         |       8/10 | Clear package separation and provider-neutral lifecycle boundaries; real external materialization remains unconfigured.                                              |
+| Backend              |       8/10 | Tenant/RBAC controls, versioned routes, queue persistence, gateway decisions, advisory/receipt persistence foundations, and sanitized failures are implemented.      |
+| Frontend             |       8/10 | Deterministic dashboard, explicit live-mode states, responsive behavior, OIDC PKCE flow, and six Chromium E2E scenarios are covered.                                 |
+| Security             |       8/10 | Production auth fails closed, scanner content is untrusted, event chains are tamper-evident, rate-limit outages have explicit policy, and secrets are not committed. |
+| Testing              |       8/10 | Full repository quality gates and remote CI pass; live provider tests remain mocked or unconfigured by design.                                                       |
+| DevOps               |       7/10 | Frozen installs, Prisma validation, bounded CI, SARIF validation, and Vercel preview checks pass; Docker cannot be built in this sandbox.                            |
+| Production readiness |       4/10 | Code is production-minded, but owner-controlled infrastructure and live integration evidence are still absent.                                                       |
 
-Recommended protection settings are required repository governance rather than code changes: pull request review before merge, successful CI status required, stale approval dismissal, conversation resolution, no force pushes, no branch deletion, and CODEOWNERS review for security-sensitive paths. These settings were not changed automatically to avoid locking the owner out.
+## Branch and repository state
 
-## 3. What was broken or incomplete
+The latest work was performed on the dedicated branch layered from the strongest hardening history. No merge, force-push, reset, rebase, deletion, DNS change, paid resource, GitHub App registration, production OIDC registration, production signing-key creation, or external provider activation was performed.
 
-The audit found that the strongest existing implementation still had a large difference between a controlled demo and a real product lifecycle. The dashboard had many implemented demo surfaces but no real repository registration/manual scan workflow. The queue and worker were durable but hard-wired to the deterministic demo scan. GitHub webhook security primitives existed, but installation persistence, durable delivery deduplication, public webhook routing, App authentication, repository discovery, scan enqueueing, check publishing, and report links were not connected end to end.
+| Item               | Current state                                                                                 |
+| ------------------ | --------------------------------------------------------------------------------------------- |
+| Working branch     | `agent/final-product-hardening`                                                               |
+| Latest pushed head | `44e7759`                                                                                     |
+| PR #3              | Open, non-draft, mergeable into `agent/production-hardening`                                  |
+| PR #2              | Preserved, open, non-draft, mergeable into `main`                                             |
+| PR #1              | Preserved, older draft, unchanged                                                             |
+| Merge status       | No pull request or branch was merged                                                          |
+| Working tree       | Clean after the latest push                                                                   |
+| Branch governance  | GitHub previously reported no branch protection on `main`; this was not changed automatically |
 
-The OSV adapter and signed-receipt primitives were tested but not connected to API scan persistence, advisory records, receipt export, production key custody, or independent lifecycle verification. The distributed limiter abstraction existed but the API still used the per-instance default. Frontend OIDC transactions were previously in memory and the token client expected nonstandard `id_token_claims`; this was corrected in the follow-up. There was no real browser E2E suite, and SARIF output did not have an independent repository validator.
+## Implemented engineering work
 
-The source-security gate also had explicit exclusions for synthetic test files because static credential examples triggered the scanner. Those fixtures were converted to runtime-assembled values, allowing the test-file exclusions to be removed while retaining only the narrower existing exclusions for the intentionally illustrative examples/controller/template content.
+### Repository and scan lifecycle
 
-## 4. What was fixed
+The scan path is provider-neutral. A validated job carries organization, provider, repository, ref, optional commit, requested policy bundle, trigger, requester, correlation ID, and bounded options. The worker no longer depends exclusively on the demo scan: a configured executor accepts a workspace provider and rejects non-demo providers when no safe materializer is configured. Repository workspaces have bounded cleanup and path-escape checks, and repository content is treated as hostile data rather than executable code.
 
-The earlier PR #2 work already supplied tenant/RBAC hardening, fail-closed backend OIDC validation, explicit non-production demo authentication, correlation IDs, a durable PostgreSQL queue with retries/stale-lock recovery/cancellation, approval separation of duties, scanner bounds and symlink safety, Prisma migration support, Vercel dashboard deployment configuration, startup configuration validation, governance documents, webhook HMAC/replay/ownership primitives, the OSV adapter, Ed25519 receipt primitives, and the Redis-compatible limiter abstraction.
+The scanner now loads optional `.agentshield.yml` and `.agentshieldignore` files as data only. Configuration is bounded by file size, allowed fields, entry count, and entry length. Unknown YAML fields fail validation. The existing traversal bounds, symlink checks, binary/text handling, ignore patterns, and deterministic sorting remain in place.
 
-The follow-up branch adds the following verified fixes:
+### GitHub lifecycle foundations
 
-| File or area                                        | Change                                                                                                                                                                                                                                   |
-| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `e2e/dashboard.spec.ts`                             | Added six real Playwright browser tests for deterministic demo boot, navigation/filtering, command palette, policy simulation, attack replay, accessible graph fallback, approvals, receipt download, keyboard use, and mobile viewport. |
-| `playwright.config.ts`                              | Added a real Vite-backed browser test configuration with retained traces/screenshots on failure, CI browser support, and local use of the installed Chromium binary.                                                                     |
-| `package.json`, `pnpm-lock.yaml`                    | Added the pinned `@playwright/test` development dependency and `test:e2e` script.                                                                                                                                                        |
-| `tsconfig.json`, `eslint.config.mjs`                | Included Playwright configuration/tests in strict typechecking and linting.                                                                                                                                                              |
-| `.gitignore`                                        | Prevented generated Playwright artifacts from entering Git.                                                                                                                                                                              |
-| `scripts/validate-sarif.ts`                         | Added deterministic structural SARIF validation for version, schema, runs, driver identity/version, and results arrays.                                                                                                                  |
-| `.github/workflows/ci.yml`                          | Added Playwright browser installation, browser E2E execution, SARIF validation, and upgraded SARIF upload from CodeQL Action v3 to v4. Removed now-unnecessary synthetic test-file exclusions.                                           |
-| `packages/scanner/src/secretScanner.test.ts`        | Runtime-assembled synthetic AWS fixture prevents the source scanner from treating the test source itself as a credential.                                                                                                                |
-| `packages/scanner/src/agentWorkflowScanner.test.ts` | Runtime-assembled synthetic Bearer/GitHub/AWS/connection-string fixtures preserve scanner redaction coverage without source exclusions.                                                                                                  |
-| `packages/schemas/src/evidenceRedaction.test.ts`    | Runtime-assembled redaction fixtures preserve nested credential, JWT, private-key, and connection-string coverage without static scanner triggers.                                                                                       |
-| `docs/feature-matrix.md`                            | Added the requested UI/API/DB/worker/tests/deployment/security/status audit matrix.                                                                                                                                                      |
-| `docs/capabilities.json`                            | Recorded browser E2E and SARIF validation as implemented and verified, while preserving the controlled-alpha status.                                                                                                                     |
-| `README.md`                                         | Documented browser E2E, SARIF validation, CodeQL v4, and current security-test coverage.                                                                                                                                                 |
+Durable installation and webhook-delivery models, normalized repository records, delivery idempotency, raw-body HMAC verification, installation ownership checks, typed event parsing, installation-token and Checks adapters, and safe event outcome mapping are present. The webhook route remains opt-in and fails closed without configuration. It intentionally does not claim a complete webhook-to-scan lifecycle until repository resolution, workspace materialization, external installation, and live dispatch are configured and tested.
 
-## 5. What was added
+### Queue, leases, cancellation, and shutdown
 
-The genuine additions are a browser-driven test layer for the behavior that actually exists, a structural SARIF validator, strict project integration for those files, runtime-assembled security fixtures, the feature audit matrix, and evidence-backed documentation. No fake GitHub App, cloud service, OIDC provider, customer repository, signing key, or paid resource was created.
+The PostgreSQL queue uses atomic claim conditions, globally unique worker identity, lease timestamps, heartbeat renewal, stale-job recovery, bounded retries with jitter, dead-letter timestamps, cancellation polling, and ownership checks before completion or failure transitions. A validated job timeout now aborts the executor signal. The worker stops claiming new jobs on shutdown, propagates abort to the in-flight executor, waits for the loop to unwind, and disconnects Prisma in a `finally` path for both one-shot and daemon operation.
 
-## 6. Verification evidence
+A timeout signal cannot forcibly terminate an executor that ignores its signal; safe workspace providers and the scanner are expected to honor cancellation. This is a deliberate boundary rather than a claim of process isolation.
 
-The complete local CI-equivalent pipeline passed on the follow-up branch after the implementation changes. Prisma commands used the existing sandbox PostgreSQL process with process-only test values; no external database credentials were used, stored, or printed.
+### Evidence, advisories, and receipts
 
-| Command or check                               | Result                                                                                                                                       |
-| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm install --frozen-lockfile`               | Passed                                                                                                                                       |
-| `pnpm db:generate`                             | Passed                                                                                                                                       |
-| `pnpm db:deploy`                               | Passed; no pending migrations                                                                                                                |
-| `pnpm format:check`                            | Passed                                                                                                                                       |
-| `pnpm lint`                                    | Passed                                                                                                                                       |
-| `pnpm typecheck`                               | Passed, including root Playwright files                                                                                                      |
-| `pnpm test`                                    | Passed: 18 workspace test files, 50 tests                                                                                                    |
-| `pnpm test:docs`                               | Passed capability/documentation consistency checks                                                                                           |
-| `pnpm build`                                   | Passed API, packages, and dashboard production builds                                                                                        |
-| `pnpm test:integration`                        | Passed: 15 findings and 6 dependencies on the synthetic vulnerable target                                                                    |
-| `pnpm test:e2e`                                | Passed: 6 real Chromium browser tests                                                                                                        |
-| Vulnerable fixture scanner                     | Passed with expected blocking exit code 3                                                                                                    |
-| Repository self-security scan                  | Passed with exit code 0 using only the documented narrow exclusions                                                                          |
-| SARIF validator on fixture/source reports      | Passed                                                                                                                                       |
-| SARIF validator malformed-report negative test | Passed; malformed report rejected                                                                                                            |
-| Evidence-redaction tests                       | Passed for nested JSON/text credential classes and safe-text preservation                                                                    |
-| OIDC tests                                     | Passed for PKCE, state/nonce, refresh, expiry, reload-safe transaction storage, signed JWKS ID-token verification, and missing configuration |
-| API security tests                             | Passed for authentication negatives, RBAC, rate limiting, distributed-store outage behavior, and GitHub webhook primitives                   |
-| Docker build                                   | Not run; Docker CLI is unavailable in the sandbox                                                                                            |
+Evidence is sanitized at scanner, API error, agent-event, finding, and receipt boundaries. Stored finding evidence contains redacted data and deterministic fingerprints rather than raw secrets. Optional OSV enrichment is opt-in. If the provider is unavailable, the scan continues with `UNAVAILABLE` status and a bounded diagnostic instead of asserting that no vulnerability exists. Advisory rows are organization- and scan-scoped with aliases, severity, fixed version, and last-seen metadata.
 
-The earlier PR #2 remote quality run passed at [GitHub Actions run 32840340094](https://github.com/sam300705/Agentshield/actions/runs/32840340094/job/97778212971). Follow-up PR #3 passed its complete CI quality job, including browser installation, six Playwright tests, SARIF validation, source scanning, and CodeQL v4 SARIF upload: [GitHub Actions run 32979576811](https://github.com/sam300705/Agentshield/actions/runs/32979576811/job/98212623543). Its Vercel check also passed: [deployment check](https://vercel.com/sam300705s-projects/agentshield/C3x9C8Hkuc2Cu2B2aqEN6FeFt1LU).
+Security receipts are canonicalized from scan facts, findings, policy decisions, approval state, and redacted evidence digests. Configured scans persist receipt hashes and receipt fields. Optional Ed25519 signing is supported through server-side environment values, and partial signing configuration fails closed. Production key custody, public-key publication, rotation operations, and a live deployed smoke test remain owner work.
 
-## 7. Security verification
+### Agent Security Gateway and SDK
 
-Authentication is fail-closed in production. Backend JWT verification checks issuer, audience, JWKS, subject, role, and organization context. Demo authentication requires explicit non-production configuration and a recognized demo header. The browser flow uses authorization-code PKCE, state and nonce validation, reload-safe short-lived transaction storage, standard signed `id_token` verification through a configured JWKS endpoint, token expiry handling, refresh failure cleanup, logout, and explicit missing-configuration states.
+The gateway exposes versioned authorization, decision, event-ingestion, and receipt routes. It validates organization and actor context against the authenticated actor, supports idempotent event ingestion, rejects sequence gaps, continues integrity chains from the persisted chain head, and stores only sanitized evidence. The shared policy engine deterministically maps read-only actions to `ALLOW`, file publication/write actions to `WARN`, and command/secret/infrastructure actions to `REQUIRE_APPROVAL`.
 
-Tenant isolation is enforced server-side across the implemented scan, finding, SBOM, approval, audit, and dashboard aggregate paths. Queue context includes organization and correlation identifiers. Approval transitions use atomic updates, reject requester self-approval, require the appropriate role, and write correlated audit events. The test suite covers tenant/RBAC and approval separation-of-duties behavior.
+The `@agentshield/agent-sdk` validates request and decision schemas, calls the gateway through an injectable transport, records events, retrieves receipts, and blocks client-side action continuation for `BLOCK` and `REQUIRE_APPROVAL`. It does not execute shell commands, repository code, MCP actions, or remote operations. The existing `Approval` model requires a Finding relation, so the gateway returns a decision but does not manufacture an invalid standalone approval row. A finding-linked approval model or an explicit gateway-approval model is still needed for durable approval creation.
 
-The scanner treats repository content as untrusted data, does not execute repository code, bounds traversal and output, rejects unsafe path/symlink behavior, and emits deterministic exit codes. Centralized evidence sanitization removes known private-key, Bearer/JWT, GitHub, AWS, connection-string, credential-URL, and secret-assignment patterns before covered persistence/output boundaries. Raw values are not used as persisted evidence; fingerprints are retained for correlation.
+### API contracts and dashboard integration
 
-GitHub webhook primitives validate the raw-body HMAC boundary, replay conditions, event parsing, and installation ownership. They are not represented as a live GitHub App because registration, credentials, installation, and public endpoint deployment were not authorized. Signed receipt primitives cover canonicalization, signature verification, tamper detection, wrong-key failure, and key rotation; private keys are never committed or printed.
+Shared Zod contracts now cover standardized error envelopes, correlation IDs, pagination queries, paginated responses, agent actions/events, scan jobs, and secret references. Versioned repository, scan, progress, cancel, findings, SBOM, and receipt routes are tenant-scoped. The dashboard’s scan list/detail/finding/SBOM reads now target `/api/v1`; compatibility routes remain for existing consumers, and the demo enqueue remains explicitly labelled as a legacy/demo path.
 
-The rate-limit abstraction supports bounded local fallback and explicit fail-open/fail-closed behavior, but the runtime remains per-instance until an approved shared store is configured. Observability foundations expose health/readiness, metrics, correlation, queue, and audit information without claiming a remote telemetry backend.
+The dashboard continues to distinguish deterministic demo mode from live mode. It does not display fake backend data or claim live API/OIDC functionality when those values are not configured.
 
-## 8. Deployment status
+### Rate limits, secret references, and CI
 
-| Surface                 | Status                                                                                            |
-| ----------------------- | ------------------------------------------------------------------------------------------------- |
-| Local dashboard         | Verified through Vite and real Chromium E2E in deterministic demo mode                            |
-| Local API               | Verified through existing integration/smoke coverage with local PostgreSQL                        |
-| Local worker            | Verified through existing queue/integration coverage; demo target only                            |
-| Local PostgreSQL        | Migration and integration path verified using process-only sandbox values                         |
-| GitHub Actions          | PR #3 follow-up quality run passed, including browser E2E, SARIF validation, and CodeQL v4 upload |
-| Vercel                  | Follow-up branch deployment check passed; deployment remains a static dashboard/demo              |
-| API cloud deployment    | Not deployed                                                                                      |
-| Worker cloud deployment | Not deployed                                                                                      |
-| Managed database        | Neon project is not connected to this repository/deployment                                       |
-| OIDC provider           | Not registered/configured in the current environment                                              |
-| GitHub App              | Not registered or installed                                                                       |
-| OSV                     | Adapter and opt-in CLI verified; API lifecycle persistence/activation absent                      |
-| Signing                 | Ed25519 primitives and offline CLIs verified; production key custody/lifecycle export absent      |
-| Shared rate limiter     | Redis-compatible adapter verified; no shared vendor/store connected                               |
-| Container               | Docker build/smoke not locally verified because Docker is unavailable                             |
+The default local limiter now keys by verified organization/user and route when identity is available, falling back to IP and route for unauthenticated traffic such as the opt-in webhook boundary. The Redis-compatible adapter supports explicit fail-open/fail-closed behavior and correlation-aware errors, but no shared Redis resource was created.
 
-The current Vercel dashboard remains a **static deterministic demo**. Its follow-up deployment check passed, but it is not a deployed API, PostgreSQL-backed control plane, worker, GitHub integration, or production OIDC environment.
+Secret references model provider, reference, optional key ID, and optional version without storing secret values. Environment-only resolution is available for local development; external provider resolution fails closed until an approved adapter is configured.
 
-## 9. Remaining owner-required items
+CI now has pull-request concurrency cancellation, a 45-minute quality-job timeout, Prisma schema validation, frozen installation, deterministic fixture/source SARIF validation, Playwright Chromium E2E, and CodeQL Action v4 SARIF upload. Synthetic PostgreSQL credentials exist only inside the CI service environment and were not exposed in repository output.
 
-| Item                            | Why owner action is required                                                           | Value/permission needed                                                          | Where to obtain/configure                                                                              | Verification method                                                                                       |
-| ------------------------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
-| Merge PR #2 and/or follow-up PR | Merging changes `main` and is an irreversible repository-governance action             | Owner review and merge approval                                                  | GitHub PR page                                                                                         | Confirm merged commit, checks, and protected-branch policy                                                |
-| Production API/worker/database  | Requires cloud account authorization and external connection strings                   | Azure/Container Apps authorization and pooled/direct PostgreSQL URLs             | Deployment secret manager; follow `deploy/azure-container-apps/README.md`                              | Apply migrations, call health/readiness, enqueue a scan, confirm worker completion                        |
-| Production OIDC                 | Requires registering an application with a trusted provider                            | Issuer, audience, JWKS URL, role/org claims, client ID, exact HTTPS redirect URI | Provider console and deployment environment; browser-public `VITE_*` values contain no private secrets | Test real login, expired session, role denial, organization isolation, and logout                         |
-| GitHub App                      | Requires GitHub registration, private key, webhook secret, and repository installation | App ID/client ID, private key, webhook secret, installation mapping permission   | GitHub App settings and server-side secret manager                                                     | Send signed installation/push/PR events, verify durable deduplication, enqueue scan, publish check/report |
-| OSV lifecycle                   | Requires policy decision about network enrichment and outage semantics                 | Approved OSV enablement and advisory retention policy                            | Server-side environment and reviewed database migration                                                | Run mocked outage/timeout/retry and optional non-required network smoke                                   |
-| Signed receipt custody          | Private signing material must be held by an approved KMS/HSM/key vault or equivalent   | Key identifier, public-key publication, signing permission, rotation procedure   | Approved key-management service; never Git or browser storage                                          | Create receipt in scan lifecycle, export, verify independently, rotate key, reject tampering              |
-| Shared rate limiter             | Multi-replica enforcement needs a shared store and credentials                         | Approved Redis-compatible endpoint and outage policy                             | Server-side deployment environment                                                                     | Confirm route-specific headers, organization/user keys, bounded memory, and outage behavior               |
-| DNS/custom HTTPS                | Needed only for a stable public API or OIDC redirect URL                               | Domain/DNS authorization                                                         | DNS provider and deployment platform                                                                   | Verify TLS, CORS exact-origin match, OIDC redirect, and API reachability                                  |
-| Container verification          | Requires Docker-enabled environment unavailable in this sandbox                        | Docker runtime access                                                            | CI runner or target host                                                                               | Build image, inspect non-root/runtime contents, run health and worker smoke tests                         |
+## Verification evidence
 
-No production credentials, paid resource, cloud secret, signing key, customer repository, DNS change, merge, force-push, or destructive action was performed.
+The non-database local quality suite passed on the latest worktree. The current sandbox did not retain the process-only `DATABASE_URL_UNPOOLED` variable for a second local Prisma invocation, so the final local rerun of `pnpm db:generate` and `pnpm db:deploy` could not be repeated in that shell. Earlier local migration deployment for the provider-lifecycle migration passed, and the latest remote CI run passed the complete database-backed quality job.
 
-## 10. CI and maintenance notes
+| Check                               | Result                                                                                                            |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `pnpm install --frozen-lockfile`    | Passed locally                                                                                                    |
+| `pnpm format:check`                 | Passed locally                                                                                                    |
+| `pnpm lint`                         | Passed locally                                                                                                    |
+| `pnpm typecheck`                    | Passed locally                                                                                                    |
+| `pnpm test`                         | Passed locally across all 8 workspace projects                                                                    |
+| `pnpm test:docs`                    | Passed locally                                                                                                    |
+| `pnpm build`                        | Passed locally for packages, API, and dashboard                                                                   |
+| `pnpm test:integration`             | Passed locally: synthetic target produced 15 findings and 6 dependencies                                          |
+| Vulnerable fixture scanner          | Expected blocking exit code `3`; SARIF validation passed                                                          |
+| Repository source self-scan         | Exit code `0`; SARIF validation passed                                                                            |
+| Scanner configuration tests         | Passed: 3 tests                                                                                                   |
+| Gateway SDK tests                   | Passed: 2 tests                                                                                                   |
+| Policy-engine tests                 | Passed: 12 tests after gateway-chain additions                                                                    |
+| API focused tests                   | Passed: 28 tests in the latest focused run                                                                        |
+| Browser E2E                         | Existing six deterministic Chromium scenarios pass in prior local/CI evidence; no live API/OIDC browser claim     |
+| Prisma provider-lifecycle migration | Previously applied successfully with process-only local database values; shadow database creation was not claimed |
+| Docker build                        | Not run; Docker CLI is unavailable in the sandbox                                                                 |
 
-The follow-up workflow now runs Playwright browser installation and E2E tests, validates both SARIF reports before upload, and uses CodeQL Action v4 for SARIF upload. GitHub’s official migration notice states that CodeQL Action v4 runs on Node.js 24 and that advanced workflows should replace `github/codeql-action/upload-sarif@v3` with `@v4` [6]. GitHub also documents the Node.js 20 action-runtime migration and the need to use current action versions [7].
+## Remote checks and preview state
 
-The remote checks may still emit informational annotations from other actions during the transition to Node.js 24. Those annotations do not invalidate the repository’s local or prior remote quality results, but the action versions should continue to be maintained through Dependabot and periodic CI review.
+The latest pushed head `44e7759` has a successful GitHub Actions quality run and successful PR checks, including Vercel checks. The relevant links are:
 
-## 11. Final conclusion
+- [Latest branch CI run 33048329047](https://github.com/sam300705/Agentshield/actions/runs/33048329047)
+- [PR #3 with current check status](https://github.com/sam300705/Agentshield/pull/3)
+- [Vercel project](https://vercel.com/sam300705s-projects/agentshield)
+- [Repository](https://github.com/sam300705/Agentshield)
 
-AgentShield is **done for the automated hardening phase represented by this branch**: the deterministic product path is browser-tested, security fixtures no longer require synthetic test-file exclusions, SARIF is independently validated, CI is prepared for real browser checks, and documentation now distinguishes verified code from owner-controlled infrastructure.
+The Vercel result is a static dashboard/preview result. It does not prove that an Express API, PostgreSQL database, durable worker, OIDC provider, GitHub App, OSV lifecycle, receipt signer, or shared Redis store is reachable.
 
-It is not honest to call the whole system publicly production-operational until the external API, database, worker, OIDC, GitHub App, advisory, receipt, and shared-rate-limit lifecycles are activated and smoke-tested. The correct repository-level conclusion is:
+## Production and owner-only boundaries
 
-> **SAFE TO MERGE — OWNER APPROVAL REQUIRED** for the verified PR change set and follow-up PR #3 after owner review of the layered diff and successful checks.
-> **Production deployment: not yet activated; owner configuration required.**
+| Boundary                       | Current state                                                                  | Required owner action                                                                                                                                    |
+| ------------------------------ | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| API/worker/database deployment | Not deployed publicly                                                          | Authorize a deployment platform and provide managed PostgreSQL connection values; apply migrations and run health/readiness/scan smoke tests             |
+| OIDC                           | Code and PKCE/JWKS verification are implemented; no provider is registered     | Register the provider, set issuer/audience/JWKS/client/redirect values, and test login, refresh, logout, roles, and tenant isolation                     |
+| GitHub App                     | Adapter and durable model foundations exist; no App is registered or installed | Create and authorize the App, store private key/webhook secret server-side, bind installation to an organization, and exercise signed event-to-scan flow |
+| Repository materialization     | Workspace interface exists; no live GitHub fetch/provider is wired             | Authorize and implement a bounded provider materializer, then test cleanup, cancellation, commit pinning, and hostile repository cases                   |
+| OSV                            | Opt-in adapter and persistence path exist; no live provider policy is selected | Approve network-enrichment and outage policy, configure endpoint if required, and run reviewed live smoke tests                                          |
+| Signing                        | Receipt persistence and Ed25519 primitives exist                               | Provide approved KMS/HSM/key-vault custody, key ID/public-key publication, rotation procedure, and live verification evidence                            |
+| Shared rate limiter            | Redis-compatible adapter exists; no store is connected                         | Provide an approved shared Redis-compatible service and validate route, organization, user, outage, and recovery behavior                                |
+| DNS and HTTPS                  | No production API domain was changed                                           | Configure a stable domain only when the deployment and OIDC redirect plan is approved                                                                    |
+| Docker                         | Dockerfile is present; local Docker verification is unavailable                | Build and inspect the image in a Docker-enabled environment, confirm non-root runtime, health endpoint, and worker process behavior                      |
+| Merge                          | No merge performed                                                             | Review the layered PRs and merge only with owner approval and protected-branch governance                                                                |
+
+## Final conclusion
+
+The automated repository-hardening work is complete for the safe scope represented by `agent/final-product-hardening`. The current branch has been committed and pushed without history rewriting. The strongest honest status remains **portfolio-prototype-controlled-internal-alpha**.
+
+> **Review/merge decision:** owner approval required; PR #3 remains open and unmerged.
+>
+> **Public production operation:** not activated and not evidenced.
+>
+> **Static preview:** available through the Vercel project, but it is not the backend control plane.
 
 ## References
 
 [1]: https://github.com/sam300705/Agentshield "AgentShield repository"
 [2]: https://github.com/sam300705/Agentshield/pull/1 "AgentShield older draft pull request"
 [3]: https://github.com/sam300705/Agentshield/pull/2 "AgentShield production-hardening pull request"
-[4]: https://github.com/sam300705/Agentshield/actions/runs/32840340094/job/97778212971 "AgentShield CI quality run for PR #2 head"
-[5]: https://agentshield-gov0eexcc-sam300705s-projects.vercel.app "AgentShield static Vercel dashboard"
-[6]: https://github.blog/changelog/2025-10-28-upcoming-deprecation-of-codeql-action-v3/ "GitHub: Upcoming deprecation of CodeQL Action v3"
-[7]: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/ "GitHub: Deprecation of Node 20 on GitHub Actions runners"
+[4]: https://github.com/sam300705/Agentshield/pull/3 "AgentShield final-product-hardening pull request"
+[5]: https://github.com/sam300705/Agentshield/actions/runs/33048329047 "Latest AgentShield CI quality run"
+[6]: https://vercel.com/sam300705s-projects/agentshield "AgentShield Vercel project"
+[7]: https://github.blog/changelog/2025-10-28-upcoming-deprecation-of-codeql-action-v3/ "GitHub CodeQL Action v3 deprecation notice"
