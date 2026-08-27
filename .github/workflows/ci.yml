@@ -9,9 +9,14 @@ permissions:
   contents: read
   security-events: write
 
+concurrency:
+  group: agentshield-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   quality:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     services:
       postgres:
         image: postgres:16-alpine
@@ -39,6 +44,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm db:generate
+      - run: pnpm exec prisma validate
       - run: pnpm db:deploy
       - run: pnpm format:check
       - run: pnpm lint
