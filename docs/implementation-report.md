@@ -7,43 +7,43 @@
 **Repository:** [sam300705/Agentshield](https://github.com/sam300705/Agentshield)
 **Working branch:** `agent/final-product-hardening`
 
-**Latest pushed commit:** `44e7759` — `feat: use versioned scan APIs in dashboard client`
+**Latest implementation commit:** `d879001` — `test: verify event predecessor continuity`
 
 **Layered pull request:** [PR #3](https://github.com/sam300705/Agentshield/pull/3)
 **Preserved base history:** [PR #2](https://github.com/sam300705/Agentshield/pull/2) on `agent/production-hardening`; [PR #1](https://github.com/sam300705/Agentshield/pull/1) remains unchanged.
 
 ## Executive verdict
 
-AgentShield is a strong **portfolio-prototype-controlled-internal-alpha** security control plane. The repository now has deterministic scanning, bounded hostile-repository handling, tenant-scoped API boundaries, a durable PostgreSQL polling queue, worker leases and cancellation signals, safe evidence redaction, optional advisory persistence, receipt persistence/signing foundations, provider-neutral GitHub adapters, shared API contracts, an agent gateway/SDK, route- and identity-aware local rate limiting, secret-reference interfaces, CI SARIF gates, and a real browser suite for the deterministic dashboard.
+AgentShield is a strong **portfolio-prototype-controlled-internal-alpha** security control plane. The repository now has deterministic scanning, bounded hostile-repository handling, tenant-scoped API boundaries, a durable PostgreSQL polling queue, worker leases and cancellation signals, safe evidence redaction, optional advisory persistence, receipt persistence/signing foundations, provider-neutral GitHub adapters, shared API contracts, a durable Agent Gateway approval lifecycle, serializable agent-event integrity chains, an agent gateway/SDK, route- and identity-aware local rate limiting, secret-reference interfaces, CI SARIF gates, and a real browser suite for the deterministic dashboard.
 
 > AgentShield is **not described as production-ready**. It is not yet a publicly operational production service because the external API, worker, managed database, OIDC provider, GitHub App, shared rate-limit store, production signing custody, and live provider smoke paths have not been activated or evidenced.
 
 The branch is reviewable and its latest remote CI and Vercel checks are green. This is evidence of repository and preview health, not evidence that static Vercel hosts the backend control plane.
 
-| Area                 | Assessment | Evidence and limitation                                                                                                                                              |
-| -------------------- | ---------: | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Architecture         |       8/10 | Clear package separation and provider-neutral lifecycle boundaries; real external materialization remains unconfigured.                                              |
-| Backend              |       8/10 | Tenant/RBAC controls, versioned routes, queue persistence, gateway decisions, advisory/receipt persistence foundations, and sanitized failures are implemented.      |
-| Frontend             |       8/10 | Deterministic dashboard, explicit live-mode states, responsive behavior, OIDC PKCE flow, and six Chromium E2E scenarios are covered.                                 |
-| Security             |       8/10 | Production auth fails closed, scanner content is untrusted, event chains are tamper-evident, rate-limit outages have explicit policy, and secrets are not committed. |
-| Testing              |       8/10 | Full repository quality gates and remote CI pass; live provider tests remain mocked or unconfigured by design.                                                       |
-| DevOps               |       7/10 | Frozen installs, Prisma validation, bounded CI, SARIF validation, and Vercel preview checks pass; Docker cannot be built in this sandbox.                            |
-| Production readiness |       4/10 | Code is production-minded, but owner-controlled infrastructure and live integration evidence are still absent.                                                       |
+| Area                 | Assessment | Evidence and limitation                                                                                                                                                                          |
+| -------------------- | ---------: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Architecture         |       8/10 | Clear package separation and provider-neutral lifecycle boundaries; real external materialization remains unconfigured.                                                                          |
+| Backend              |       8/10 | Tenant/RBAC controls, versioned routes, queue persistence, gateway decisions and durable approval transitions, advisory/receipt persistence foundations, and sanitized failures are implemented. |
+| Frontend             |       8/10 | Deterministic dashboard, explicit live-mode states, responsive behavior, OIDC PKCE flow, and six Chromium E2E scenarios are covered.                                                             |
+| Security             |       8/10 | Production auth fails closed, scanner content is untrusted, event chains are tamper-evident, rate-limit outages have explicit policy, and secrets are not committed.                             |
+| Testing              |       8/10 | Full repository quality gates and remote CI pass; live provider tests remain mocked or unconfigured by design.                                                                                   |
+| DevOps               |       7/10 | Frozen installs, Prisma validation, bounded CI, SARIF validation, and Vercel preview checks pass; Docker cannot be built in this sandbox.                                                        |
+| Production readiness |       4/10 | Code is production-minded, but owner-controlled infrastructure and live integration evidence are still absent.                                                                                   |
 
 ## Branch and repository state
 
-The latest work was performed on the dedicated branch layered from the strongest hardening history. No merge, force-push, reset, rebase, deletion, DNS change, paid resource, GitHub App registration, production OIDC registration, production signing-key creation, or external provider activation was performed.
+The latest work was performed on the dedicated branch layered from the strongest hardening history. The targeted pass added dedicated gateway approvals, deterministic review rules, serialized event-chain writes, database-backed gateway verification, and CI wiring. No merge, force-push, reset, rebase, deletion, DNS change, paid resource, GitHub App registration, production OIDC registration, production signing-key creation, or external provider activation was performed.
 
-| Item               | Current state                                                                                 |
-| ------------------ | --------------------------------------------------------------------------------------------- |
-| Working branch     | `agent/final-product-hardening`                                                               |
-| Latest pushed head | `44e7759`                                                                                     |
-| PR #3              | Open, non-draft, mergeable into `agent/production-hardening`                                  |
-| PR #2              | Preserved, open, non-draft, mergeable into `main`                                             |
-| PR #1              | Preserved, older draft, unchanged                                                             |
-| Merge status       | No pull request or branch was merged                                                          |
-| Working tree       | Clean after the latest push                                                                   |
-| Branch governance  | GitHub previously reported no branch protection on `main`; this was not changed automatically |
+| Item                       | Current state                                                                                 |
+| -------------------------- | --------------------------------------------------------------------------------------------- |
+| Working branch             | `agent/final-product-hardening`                                                               |
+| Latest implementation head | `d879001`                                                                                     |
+| PR #3                      | Open, non-draft, mergeable into `agent/production-hardening`                                  |
+| PR #2                      | Preserved, open, non-draft, mergeable into `main`                                             |
+| PR #1                      | Preserved, older draft, unchanged                                                             |
+| Merge status               | No pull request or branch was merged                                                          |
+| Working tree               | Clean after the latest push                                                                   |
+| Branch governance          | GitHub previously reported no branch protection on `main`; this was not changed automatically |
 
 ## Implemented engineering work
 
@@ -71,9 +71,9 @@ Security receipts are canonicalized from scan facts, findings, policy decisions,
 
 ### Agent Security Gateway and SDK
 
-The gateway exposes versioned authorization, decision, event-ingestion, and receipt routes. It validates organization and actor context against the authenticated actor, supports idempotent event ingestion, rejects sequence gaps, continues integrity chains from the persisted chain head, and stores only sanitized evidence. The shared policy engine deterministically maps read-only actions to `ALLOW`, file publication/write actions to `WARN`, and command/secret/infrastructure actions to `REQUIRE_APPROVAL`.
+The gateway exposes versioned authorization, decision, durable approval create/retrieve/approve/reject, event-ingestion, and receipt routes. It validates organization and actor context against the authenticated actor, creates idempotent approvals for `REQUIRE_APPROVAL`, prevents self-approval, binds review transitions to pending state, serializes per-session event writes with a transaction-scoped lock, rejects sequence gaps and deterministic conflicts, continues integrity chains from the persisted chain head, and stores only sanitized evidence. The shared policy engine deterministically maps read-only actions to `ALLOW`, file publication/write actions to `WARN`, and command/secret/infrastructure actions to `REQUIRE_APPROVAL`.
 
-The `@agentshield/agent-sdk` validates request and decision schemas, calls the gateway through an injectable transport, records events, retrieves receipts, and blocks client-side action continuation for `BLOCK` and `REQUIRE_APPROVAL`. It does not execute shell commands, repository code, MCP actions, or remote operations. The existing `Approval` model requires a Finding relation, so the gateway returns a decision but does not manufacture an invalid standalone approval row. A finding-linked approval model or an explicit gateway-approval model is still needed for durable approval creation.
+The `@agentshield/agent-sdk` validates request, decision, and approval schemas, calls the gateway through an injectable transport, records events, retrieves and polls approvals/receipts, verifies approval binding to the authorization context, and blocks client-side action continuation for `BLOCK` and unapproved `REQUIRE_APPROVAL`. It does not execute shell commands, repository code, MCP actions, or remote operations. Gateway approvals use a dedicated organization/session-scoped model rather than the existing Finding-linked `Approval` model.
 
 ### API contracts and dashboard integration
 
@@ -87,11 +87,11 @@ The default local limiter now keys by verified organization/user and route when 
 
 Secret references model provider, reference, optional key ID, and optional version without storing secret values. Environment-only resolution is available for local development; external provider resolution fails closed until an approved adapter is configured.
 
-CI now has pull-request concurrency cancellation, a 45-minute quality-job timeout, Prisma schema validation, frozen installation, deterministic fixture/source SARIF validation, Playwright Chromium E2E, and CodeQL Action v4 SARIF upload. Synthetic PostgreSQL credentials exist only inside the CI service environment and were not exposed in repository output.
+CI now has pull-request concurrency cancellation, a 45-minute quality-job timeout, Prisma schema validation, frozen installation, deterministic fixture/source SARIF validation, Playwright Chromium E2E, conditional CodeQL Action v4 SARIF upload, and database-backed Agent Gateway verification. Synthetic PostgreSQL credentials exist only inside the CI service environment and were not exposed in repository output.
 
 ## Verification evidence
 
-The non-database local quality suite passed on the latest worktree. The current sandbox did not retain the process-only `DATABASE_URL_UNPOOLED` variable for a second local Prisma invocation, so the final local rerun of `pnpm db:generate` and `pnpm db:deploy` could not be repeated in that shell. Earlier local migration deployment for the provider-lifecycle migration passed, and the latest remote CI run passed the complete database-backed quality job.
+The non-database local quality suite passed on the latest worktree. The current sandbox could not authenticate to its local PostgreSQL process with the synthetic values available in this shell, so the final local rerun of the database-backed gateway script was not claimed. The latest remote CI run passed the complete database-backed quality job, including the gateway verification step.
 
 | Check                               | Result                                                                                                            |
 | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
@@ -106,18 +106,18 @@ The non-database local quality suite passed on the latest worktree. The current 
 | Vulnerable fixture scanner          | Expected blocking exit code `3`; SARIF validation passed                                                          |
 | Repository source self-scan         | Exit code `0`; SARIF validation passed                                                                            |
 | Scanner configuration tests         | Passed: 3 tests                                                                                                   |
-| Gateway SDK tests                   | Passed: 2 tests                                                                                                   |
+| Gateway SDK tests                   | Passed: 4 tests                                                                                                   |
 | Policy-engine tests                 | Passed: 12 tests after gateway-chain additions                                                                    |
-| API focused tests                   | Passed: 28 tests in the latest focused run                                                                        |
+| API focused tests                   | Passed: 36 tests in the latest focused workspace run; targeted approval/event tests add 8 tests                   |
 | Browser E2E                         | Existing six deterministic Chromium scenarios pass in prior local/CI evidence; no live API/OIDC browser claim     |
 | Prisma provider-lifecycle migration | Previously applied successfully with process-only local database values; shadow database creation was not claimed |
 | Docker build                        | Not run; Docker CLI is unavailable in the sandbox                                                                 |
 
 ## Remote checks and preview state
 
-The latest pushed head `44e7759` has a successful GitHub Actions quality run and successful PR checks, including Vercel checks. The relevant links are:
+The latest pushed head `d879001` has a successful GitHub Actions quality run and successful PR checks, including Vercel checks. The relevant links are:
 
-- [Latest branch CI run 33048329047](https://github.com/sam300705/Agentshield/actions/runs/33048329047)
+- [Latest branch CI run 33058990476](https://github.com/sam300705/Agentshield/actions/runs/33058990476)
 - [PR #3 with current check status](https://github.com/sam300705/Agentshield/pull/3)
 - [Vercel project](https://vercel.com/sam300705s-projects/agentshield)
 - [Repository](https://github.com/sam300705/Agentshield)
@@ -155,6 +155,6 @@ The automated repository-hardening work is complete for the safe scope represent
 [2]: https://github.com/sam300705/Agentshield/pull/1 "AgentShield older draft pull request"
 [3]: https://github.com/sam300705/Agentshield/pull/2 "AgentShield production-hardening pull request"
 [4]: https://github.com/sam300705/Agentshield/pull/3 "AgentShield final-product-hardening pull request"
-[5]: https://github.com/sam300705/Agentshield/actions/runs/33048329047 "Latest AgentShield CI quality run"
+[5]: https://github.com/sam300705/Agentshield/actions/runs/33058990476 "Latest AgentShield CI quality run"
 [6]: https://vercel.com/sam300705s-projects/agentshield "AgentShield Vercel project"
 [7]: https://github.blog/changelog/2025-10-28-upcoming-deprecation-of-codeql-action-v3/ "GitHub CodeQL Action v3 deprecation notice"

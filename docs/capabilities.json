@@ -119,9 +119,9 @@
     },
     "agent_gateway_sdk": {
       "status": "implemented_and_verified",
-      "evidence": "shared action/decision/event schemas, deterministic policy evaluator, tenant checks, chained event persistence, provider-neutral SDK tests, and explicit non-execution boundary",
+      "evidence": "shared action/decision/approval/event schemas, deterministic policy evaluator, tenant checks, dedicated AgentApproval lifecycle, serialized event-chain persistence, provider-neutral SDK tests, and explicit non-execution boundary",
       "limitations": [
-        "Durable REQUIRE_APPROVAL records are not created because the existing Approval model requires a Finding relation."
+        "Approval and event lifecycle behavior is verified with unit tests and CI database smoke coverage; live agent/provider deployment remains unconfigured."
       ]
     }
   },
@@ -135,7 +135,7 @@
     "The API now uses route- and verified-identity-aware per-instance limiting by default; a Redis-compatible distributed adapter exists but is not selected or connected.",
     "Secret scanning uses high-confidence patterns and does not provide entropy analysis.",
     "The PostgreSQL polling queue is not a benchmarked high-throughput distributed queue.",
-    "The gateway returns REQUIRE_APPROVAL decisions but does not create Approval rows until a finding-linked approval model is introduced.",
+    "The gateway creates dedicated AgentApproval rows for REQUIRE_APPROVAL actions; live identity/provider deployment and operational review remain unconfigured.",
     "The API scan lifecycle now persists advisory summaries and receipt digests, but live external-provider, signing-custody, and deployed-worker evidence is absent."
   ]
 }
