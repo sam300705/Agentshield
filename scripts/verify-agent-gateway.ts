@@ -182,8 +182,7 @@ async function main(): Promise<void> {
     );
     assert(sequential.kind === "CREATED", "next sequential event was not accepted");
     const previousEvent = await prisma.agentEvent.findFirst({
-      where: { sessionId },
-      orderBy: { sequence: "desc" },
+      where: { sessionId, sequence: 1 },
     });
     assert(
       previousEvent != null && sequential.previousHash === previousEvent.eventHash,
