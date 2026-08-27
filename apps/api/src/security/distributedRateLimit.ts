@@ -1,5 +1,7 @@
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 
+import { getCorrelationId } from "./auth.js";
+
 export interface RateLimitDecision {
   count: number;
   resetAt: number;
@@ -52,7 +54,7 @@ export interface DistributedRateLimitOptions {
   max: number;
   windowMs: number;
   store: RateLimitStore;
-  keyForRequest?: (request: Request) => string;
+  keyForRequest?: (request: Request, response: Response) => string;
   onStoreError?: "fail-closed" | "fail-open";
 }
 
@@ -67,7 +69,14 @@ function setHeaders(
 }
 
 export function createDistributedRateLimiter(options: DistributedRateLimitOptions): RequestHandler {
-  const keyForRequest = options.keyForRequest ?? ((request) => request.ip || "unknown");
+  const keyForRequest =
+    options.keyForRequest ??
+    ((request: Request, response: Response) => {
+      const actor = response.locals.actor as { organizationId?: unknown; id?: unknown } | undefined;
+      return typeof actor?.organizationId === "string" && typeof actor.id === "string"
+        ? `organization:${actor.organizationId}:user:${actor.id}:route:${request.method}:${request.path}`
+        : `ip:${request.ip || "unknown"}:route:${request.method}:${request.path}`;
+    });
   const handleRequest = async (
     request: Request,
     response: Response,
@@ -78,11 +87,18 @@ export function createDistributedRateLimiter(options: DistributedRateLimitOption
       return;
     }
     try {
-      const decision = await options.store.increment(keyForRequest(request), options.windowMs);
+      const decision = await options.store.increment(
+        keyForRequest(request, response),
+        options.windowMs,
+      );
       setHeaders(response, options, decision);
       if (decision.count > options.max) {
         response.status(429).json({
-          error: { code: "RATE_LIMITED", message: "Too many requests. Try again later." },
+          error: {
+            code: "RATE_LIMITED",
+            message: "Too many requests. Try again later.",
+            correlationId: getCorrelationId(response),
+          },
         });
         return;
       }
@@ -96,6 +112,7 @@ export function createDistributedRateLimiter(options: DistributedRateLimitOption
         error: {
           code: "RATE_LIMIT_UNAVAILABLE",
           message: "Request protection is temporarily unavailable.",
+          correlationId: getCorrelationId(response),
         },
       });
     }

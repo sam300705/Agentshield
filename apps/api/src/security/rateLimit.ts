@@ -9,6 +9,7 @@ export function createRateLimiter(options: {
   enabled: boolean;
   max: number;
   windowMs: number;
+  keyForRequest?: (request: Request, response: Response) => string;
 }): RequestHandler {
   const buckets = new Map<string, Bucket>();
 
@@ -19,7 +20,12 @@ export function createRateLimiter(options: {
     }
 
     const now = Date.now();
-    const key = request.ip || "unknown";
+    const actor = response.locals.actor as { organizationId?: unknown; id?: unknown } | undefined;
+    const defaultKey =
+      typeof actor?.organizationId === "string" && typeof actor.id === "string"
+        ? `organization:${actor.organizationId}:user:${actor.id}:route:${request.method}:${request.path}`
+        : `ip:${request.ip || "unknown"}:route:${request.method}:${request.path}`;
+    const key = options.keyForRequest?.(request, response) ?? defaultKey;
     const current = buckets.get(key);
     const bucket =
       current == null || current.resetAt <= now
@@ -44,6 +50,10 @@ export function createRateLimiter(options: {
         error: {
           code: "RATE_LIMITED",
           message: "Too many requests. Try again later.",
+          correlationId:
+            typeof response.getHeader("x-correlation-id") === "string"
+              ? response.getHeader("x-correlation-id")
+              : "unknown",
         },
       });
       return;
