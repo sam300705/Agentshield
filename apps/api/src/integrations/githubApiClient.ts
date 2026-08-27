@@ -29,6 +29,16 @@ interface CheckRunResponse {
   html_url?: string;
 }
 
+export interface GitHubArchiveClient {
+  downloadRepositoryArchive(
+    owner: string,
+    repository: string,
+    commitSha: string,
+    token: string,
+    signal: AbortSignal,
+  ): Promise<ReadableStream<Uint8Array>>;
+}
+
 export interface GitHubApiClientOptions {
   fetchImpl?: FetchLike;
   apiBaseUrl?: string;
@@ -37,7 +47,9 @@ export interface GitHubApiClientOptions {
   installationToken?: string;
 }
 
-export class FetchGitHubAppClient implements GitHubAppClient, GitHubChecksClient {
+export class FetchGitHubAppClient
+  implements GitHubAppClient, GitHubChecksClient, GitHubArchiveClient
+{
   private readonly fetchImpl: FetchLike;
   private readonly apiBaseUrl: string;
   private readonly apiVersion: string;
@@ -98,6 +110,34 @@ export class FetchGitHubAppClient implements GitHubAppClient, GitHubChecksClient
     }
 
     return { data: (await response.json()) as T, headers: response.headers };
+  }
+
+  async downloadRepositoryArchive(
+    owner: string,
+    repository: string,
+    commitSha: string,
+    token: string,
+    signal: AbortSignal,
+  ): Promise<ReadableStream<Uint8Array>> {
+    if (!/^[a-f0-9]{40}$/i.test(commitSha)) {
+      throw new Error("GitHub archive materialization requires a full commit SHA.");
+    }
+    const response = await this.fetchImpl(
+      `${this.apiBaseUrl}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}/tarball/${encodeURIComponent(commitSha)}`,
+      {
+        method: "GET",
+        headers: {
+          Accept: "application/vnd.github+json",
+          Authorization: `Bearer ${token}`,
+          "X-GitHub-Api-Version": this.apiVersion,
+        },
+        signal,
+      },
+    );
+    if (!response.ok || response.body == null) {
+      throw new Error(`GitHub archive request failed with status ${response.status}.`);
+    }
+    return response.body;
   }
 
   async createInstallationToken(
