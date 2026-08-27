@@ -1,4 +1,8 @@
-import { createIntegrityChain, canonicalJson } from "@agentshield/policy-engine";
+import {
+  canonicalJson,
+  createIntegrityChain,
+  evaluateAgentAction,
+} from "@agentshield/policy-engine";
 import {
   agentAuthorizationRequestSchema,
   agentDecisionSchema,
@@ -10,44 +14,6 @@ import { Prisma } from "@prisma/client";
 
 import { prisma } from "../db/prisma.js";
 import { getActor, getCorrelationId } from "../security/auth.js";
-
-function decisionForAction(
-  action:
-    | "READ_FILE"
-    | "WRITE_FILE"
-    | "RUN_COMMAND"
-    | "NETWORK_REQUEST"
-    | "ACCESS_SECRET"
-    | "CHANGE_INFRASTRUCTURE"
-    | "PUBLISH_ARTIFACT",
-) {
-  if (
-    action === "ACCESS_SECRET" ||
-    action === "CHANGE_INFRASTRUCTURE" ||
-    action === "RUN_COMMAND"
-  ) {
-    return {
-      decision: "REQUIRE_APPROVAL" as const,
-      allowed: true,
-      reason: "This action requires a separate human approval before execution.",
-      ruleId: "agent.action.requires_approval",
-    };
-  }
-  if (action === "WRITE_FILE" || action === "PUBLISH_ARTIFACT") {
-    return {
-      decision: "WARN" as const,
-      allowed: true,
-      reason: "The action is permitted with an auditable warning.",
-      ruleId: "agent.action.warn",
-    };
-  }
-  return {
-    decision: "ALLOW" as const,
-    allowed: true,
-    reason: "The read-only or metadata action is permitted.",
-    ruleId: "agent.action.allow",
-  };
-}
 
 export function authorizeAgentActionController(request: Request, response: Response): void {
   const actor = getActor(response);
@@ -62,12 +28,9 @@ export function authorizeAgentActionController(request: Request, response: Respo
     });
     return;
   }
-  const policy = decisionForAction(input.action);
-  const decision = agentDecisionSchema.parse({
-    ...policy,
-    ruleVersion: "builtin-agent-policy@1.0.0",
-    correlationId: input.correlationId,
-  });
+  const decision = agentDecisionSchema.parse(
+    evaluateAgentAction(input.action, input.correlationId),
+  );
   response.json({ data: decision });
 }
 

@@ -1,3 +1,4 @@
+export { evaluateAgentAction } from "./agentGateway.js";
 export {
   decisionRequiresHumanApproval,
   evaluateFindings,

@@ -9,6 +9,7 @@ import {
   verifyIntegrityChain,
   type AgentEventInput,
 } from "./controlPlane.js";
+import { evaluateAgentAction } from "./agentGateway.js";
 
 const baseEvents: AgentEventInput[] = [
   {
@@ -42,6 +43,22 @@ const baseEvents: AgentEventInput[] = [
 ];
 
 describe("control plane primitives", () => {
+  it("maps agent actions to deterministic non-executing gateway decisions", () => {
+    expect(evaluateAgentAction("READ_FILE", "corr-1")).toMatchObject({
+      decision: "ALLOW",
+      allowed: true,
+      ruleVersion: "builtin-agent-policy@1.0.0",
+    });
+    expect(evaluateAgentAction("RUN_COMMAND", "corr-1")).toMatchObject({
+      decision: "REQUIRE_APPROVAL",
+      allowed: true,
+    });
+    expect(evaluateAgentAction("PUBLISH_ARTIFACT", "corr-1")).toMatchObject({
+      decision: "WARN",
+      allowed: true,
+    });
+  });
+
   it("redacts sensitive keys and high-confidence token values", () => {
     expect(redactEvidence({ token: "abc", note: "Bearer secret-value" })).toEqual({
       token: "[REDACTED]",
