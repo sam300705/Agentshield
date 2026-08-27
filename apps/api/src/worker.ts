@@ -3,6 +3,7 @@ import "dotenv/config";
 import { hostname } from "node:os";
 import { randomUUID } from "node:crypto";
 
+import { sanitizeText } from "@agentshield/schemas";
 import { getRuntimeConfig } from "./config.js";
 import { prisma } from "./db/prisma.js";
 import { processNextScanJob } from "./services/scanQueue.js";
@@ -22,21 +23,24 @@ async function run(): Promise<void> {
       message: "worker started",
     }),
   );
-  while (!stopping) {
-    const processed = await processNextScanJob(workerId, undefined, shutdownController.signal);
-    if (!processed && runOnce) break;
-    if (!processed) await new Promise((resolve) => setTimeout(resolve, 1000));
-  }
+  try {
+    while (!stopping) {
+      const processed = await processNextScanJob(workerId, undefined, shutdownController.signal);
+      if (!processed && runOnce) break;
+      if (!processed) await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
 
-  if (runOnce) {
-    console.warn(
-      JSON.stringify({
-        level: "info",
-        service: "agentshield-worker",
-        workerId,
-        message: "worker batch complete",
-      }),
-    );
+    if (runOnce) {
+      console.warn(
+        JSON.stringify({
+          level: "info",
+          service: "agentshield-worker",
+          workerId,
+          message: "worker batch complete",
+        }),
+      );
+    }
+  } finally {
     await prisma.$disconnect();
   }
 }
@@ -59,15 +63,14 @@ function shutdown(signal: string): void {
 process.on("SIGINT", () => shutdown("SIGINT"));
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 
-run().catch(async (error: unknown) => {
+run().catch((error: unknown) => {
   console.error(
     JSON.stringify({
       level: "error",
       service: "agentshield-worker",
       workerId,
-      message: error instanceof Error ? error.message : "Unknown worker error",
+      message: sanitizeText(error instanceof Error ? error.message : "Unknown worker error"),
     }),
   );
-  await prisma.$disconnect();
   process.exitCode = 1;
 });

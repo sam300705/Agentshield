@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import {
   createRepositoryScanSchema,
   sanitizeText,
+  scanJobPayloadSchema,
   type CreateRepositoryScan,
 } from "@agentshield/schemas";
 
@@ -286,6 +287,8 @@ export async function processNextScanJob(
   if (shutdownSignal != null && shutdownSignal.aborted) abortController.abort();
   shutdownSignal?.addEventListener("abort", shutdownHandler, { once: true });
   let leaseLost = false;
+  let timeoutTriggered = false;
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   const heartbeat = setInterval(() => {
     void renewScanJobLease(candidate.id, workerId)
       .then((owned) => {
@@ -311,6 +314,11 @@ export async function processNextScanJob(
   try {
     const latest = await prisma.scanJob.findUniqueOrThrow({ where: { id: candidate.id } });
     if (latest.cancelRequestedAt != null) throw new Error("CANCEL_REQUESTED");
+    const payload = scanJobPayloadSchema.parse(latest.payload);
+    timeoutHandle = setTimeout(() => {
+      timeoutTriggered = true;
+      abortController.abort();
+    }, payload.options.timeoutMs);
     await executor.execute({
       scanId: candidate.scanId,
       payload: candidate.payload,
@@ -334,8 +342,11 @@ export async function processNextScanJob(
   } catch (error) {
     const latest = await prisma.scanJob.findUniqueOrThrow({ where: { id: candidate.id } });
     const cancelled =
-      abortController.signal.aborted ||
-      (error instanceof Error && error.message === "CANCEL_REQUESTED");
+      !timeoutTriggered &&
+      (abortController.signal.aborted ||
+        (error instanceof Error && error.message === "CANCEL_REQUESTED"));
+    const timedOut =
+      timeoutTriggered || (error instanceof Error && error.message === "SCAN_TIMEOUT");
     const exhausted = latest.attempts >= latest.maxAttempts;
     const retryDelayMs = calculateRetryDelayMs(latest.attempts);
     const failureMessage = sanitizeText(
@@ -349,7 +360,13 @@ export async function processNextScanJob(
           lockedAt: null,
           lockedBy: null,
           leaseExpiresAt: null,
-          failureCode: cancelled ? "CANCELLED" : exhausted ? "RETRIES_EXHAUSTED" : "SCAN_FAILED",
+          failureCode: cancelled
+            ? "CANCELLED"
+            : timedOut
+              ? "SCAN_TIMEOUT"
+              : exhausted
+                ? "RETRIES_EXHAUSTED"
+                : "SCAN_FAILED",
           failureMessage,
           deadLetteredAt: exhausted && !cancelled ? new Date() : null,
           nextAttemptAt: cancelled || exhausted ? null : new Date(Date.now() + retryDelayMs),
@@ -367,6 +384,7 @@ export async function processNextScanJob(
   } finally {
     clearInterval(cancellationPoll);
     clearInterval(heartbeat);
+    if (timeoutHandle != null) clearTimeout(timeoutHandle);
     shutdownSignal?.removeEventListener("abort", shutdownHandler);
   }
   return true;
