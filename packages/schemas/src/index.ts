@@ -11,3 +11,4 @@ export * from "./remediation.schema.js";
 export * from "./sbom.schema.js";
 export * from "./scan.schema.js";
 export * from "./scan-job.schema.js";
+export * from "./secret-reference.schema.js";
