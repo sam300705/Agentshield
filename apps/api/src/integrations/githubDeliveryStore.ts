@@ -15,6 +15,9 @@ export interface GitHubDeliveryClaim {
 
 export interface GitHubDeliveryStore {
   claim(input: GitHubDeliveryClaim): Promise<boolean>;
+  markResolved(organizationId: string, deliveryId: string): Promise<void>;
+  markQueued(organizationId: string, deliveryId: string, scanId: string): Promise<void>;
+  markIgnored(organizationId: string, deliveryId: string, reason: string): Promise<void>;
   markProcessed(organizationId: string, deliveryId: string): Promise<void>;
   markFailed(organizationId: string, deliveryId: string, reason: string): Promise<void>;
 }
@@ -45,6 +48,32 @@ export class PrismaGitHubDeliveryStore implements GitHubDeliveryStore {
       }
       throw error;
     }
+  }
+
+  async markResolved(organizationId: string, deliveryId: string): Promise<void> {
+    await this.client.gitHubWebhookDelivery.updateMany({
+      where: { organizationId, deliveryId, status: { in: ["RECEIVED", "RESOLVED"] } },
+      data: { status: "RESOLVED", failureReason: null },
+    });
+  }
+
+  async markQueued(organizationId: string, deliveryId: string, scanId: string): Promise<void> {
+    await this.client.gitHubWebhookDelivery.updateMany({
+      where: { organizationId, deliveryId, status: { in: ["RECEIVED", "RESOLVED", "QUEUED"] } },
+      data: { status: "QUEUED", scanId, failureReason: null },
+    });
+  }
+
+  async markIgnored(organizationId: string, deliveryId: string, reason: string): Promise<void> {
+    await this.client.gitHubWebhookDelivery.updateMany({
+      where: { organizationId, deliveryId },
+      data: {
+        status: "IGNORED",
+        failureReason: sanitizeText(reason).slice(0, 500),
+        processedAt: new Date(),
+        nextAttemptAt: null,
+      },
+    });
   }
 
   async markProcessed(organizationId: string, deliveryId: string): Promise<void> {

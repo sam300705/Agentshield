@@ -160,6 +160,7 @@ model Scan {
   simulations    PolicySimulation[]
   receipt        SecurityReceipt?
   advisories     Advisory[]
+  githubDeliveries GitHubWebhookDelivery[]
 
   @@index([status])
   @@index([repositoryName])
@@ -640,11 +641,14 @@ model GitHubWebhookDelivery {
   nextAttemptAt      DateTime?
   correlationId      String
   payloadHash        String
+  scanId             String?
+  scan               Scan?              @relation(fields: [scanId], references: [id], onDelete: SetNull)
 
   @@unique([organizationId, deliveryId])
   @@index([organizationId, status, receivedAt])
   @@index([installationId, receivedAt])
   @@index([correlationId])
+  @@index([organizationId, scanId])
 }
 
 model Advisory {

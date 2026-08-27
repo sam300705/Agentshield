@@ -5,13 +5,7 @@ import { prisma } from "../db/prisma.js";
 import { getCorrelationId } from "../security/auth.js";
 import { parseVerifiedGitHubWebhook } from "../integrations/githubApp.js";
 import { PrismaGitHubDeliveryStore } from "../integrations/githubDeliveryStore.js";
-
-const SUPPORTED_EVENTS = new Set([
-  "installation",
-  "installation_repositories",
-  "push",
-  "pull_request",
-]);
+import { processGitHubWebhookDelivery } from "../integrations/githubWebhookLifecycle.js";
 
 function sendWebhookError(response: Response, status: number, code: string, message: string): void {
   response.status(status).json({
@@ -84,24 +78,32 @@ export async function githubWebhookController(request: Request, response: Respon
     return;
   }
 
-  if (!SUPPORTED_EVENTS.has(webhook.eventName)) {
-    await store.markProcessed(installation.organizationId, webhook.deliveryId);
-    response.status(202).json({
-      status: "recorded_unsupported_event",
-      deliveryId: webhook.deliveryId,
-      correlationId: getCorrelationId(response),
-    });
-    return;
-  }
-
-  // Repository resolution and scan enqueue remain explicitly separate until a configured
-  // provider adapter is available; this endpoint records the verified delivery only.
-  await store.markProcessed(installation.organizationId, webhook.deliveryId);
-  response.status(202).json({
-    status: "recorded",
+  const lifecycleConfig = getRuntimeConfig();
+  const lifecycle = await processGitHubWebhookDelivery(
+    installation.organizationId,
+    webhook,
+    getCorrelationId(response),
+    {
+      client: prisma,
+      deliveryStore: store,
+      scanLifecycleEnabled: lifecycleConfig.githubScanLifecycleEnabled,
+      ...(lifecycleConfig.GITHUB_SCAN_POLICY_BUNDLE_VERSION == null
+        ? {}
+        : { policyBundleVersion: lifecycleConfig.GITHUB_SCAN_POLICY_BUNDLE_VERSION }),
+    },
+  );
+  response.status(lifecycle.status === "FAILED" ? 503 : 202).json({
+    status: lifecycle.status.toLowerCase(),
     deliveryId: webhook.deliveryId,
     event: webhook.eventName,
-    scanQueued: false,
+    scanQueued: lifecycle.scanQueued,
+    ...(lifecycle.status === "QUEUED"
+      ? { scanId: lifecycle.scanId, jobId: lifecycle.jobId }
+      : lifecycle.status === "IGNORED"
+        ? { reason: lifecycle.reason }
+        : lifecycle.status === "FAILED"
+          ? { reason: lifecycle.reason }
+          : {}),
     correlationId: getCorrelationId(response),
   });
 }
