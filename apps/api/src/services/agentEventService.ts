@@ -252,19 +252,15 @@ export async function ingestAgentEvent(
     return result;
   } catch (error) {
     if (!isConcurrencyConflict(error)) throw error;
-    if (
-      retryOnConcurrency &&
-      error instanceof Prisma.PrismaClientKnownRequestError &&
-      error.code === "P2034"
-    ) {
-      await new Promise<void>((resolve) => setTimeout(resolve, 10));
-      return ingestAgentEvent(input, false);
-    }
-    const concurrent = await findExisting(input);
-    if (concurrent != null) {
-      return samePayload(concurrent, expectedHash)
-        ? resultFromEvent("EXISTING", concurrent, expectedHash)
-        : { kind: "IDEMPOTENCY_CONFLICT" };
+    const retryDelays = retryOnConcurrency ? [0, 10, 50, 150] : [0];
+    for (const delay of retryDelays) {
+      if (delay > 0) await new Promise<void>((resolve) => setTimeout(resolve, delay));
+      const concurrent = await findExisting(input);
+      if (concurrent != null) {
+        return samePayload(concurrent, expectedHash)
+          ? resultFromEvent("EXISTING", concurrent, expectedHash)
+          : { kind: "IDEMPOTENCY_CONFLICT" };
+      }
     }
     return { kind: "SEQUENCE_CONFLICT" };
   }
