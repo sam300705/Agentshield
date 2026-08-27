@@ -144,8 +144,8 @@ async function main(): Promise<void> {
     );
 
     const identicalEvents = await Promise.all([
-      ingestAgentEvent(eventInput({ idempotencyKey: `gateway-event-${suffix}-same` })),
-      ingestAgentEvent(eventInput({ idempotencyKey: `gateway-event-${suffix}-same` })),
+      ingestAgentEvent(eventInput({ sequence: 1, idempotencyKey: `gateway-event-${suffix}-same` })),
+      ingestAgentEvent(eventInput({ sequence: 1, idempotencyKey: `gateway-event-${suffix}-same` })),
     ]);
     assert(
       identicalEvents.filter((result) => result.kind === "CREATED").length === 1,
@@ -157,32 +157,36 @@ async function main(): Promise<void> {
     );
 
     const changed = await ingestAgentEvent(
-      eventInput({ idempotencyKey: `gateway-event-${suffix}-same`, summary: "Changed content" }),
+      eventInput({
+        sequence: 1,
+        idempotencyKey: `gateway-event-${suffix}-same`,
+        summary: "Changed content",
+      }),
     );
     assert(changed.kind === "IDEMPOTENCY_CONFLICT", "changed idempotency payload was accepted");
 
     const next = await ingestAgentEvent(
       eventInput({
-        sequence: 2,
-        idempotencyKey: `gateway-event-${suffix}-2`,
+        sequence: 3,
+        idempotencyKey: `gateway-event-${suffix}-3`,
         summary: "Synthetic sequence two",
       }),
     );
     assert(next.kind === "SEQUENCE_INVALID", "sequence gap was accepted");
     const sequential = await ingestAgentEvent(
       eventInput({
-        sequence: 1,
-        idempotencyKey: `gateway-event-${suffix}-1`,
-        summary: "Synthetic sequence one",
+        sequence: 2,
+        idempotencyKey: `gateway-event-${suffix}-2`,
+        summary: "Synthetic sequence two",
       }),
     );
     assert(sequential.kind === "CREATED", "next sequential event was not accepted");
-    const firstEvent = await prisma.agentEvent.findFirst({
+    const previousEvent = await prisma.agentEvent.findFirst({
       where: { sessionId },
-      orderBy: { sequence: "asc" },
+      orderBy: { sequence: "desc" },
     });
     assert(
-      firstEvent != null && sequential.previousHash === firstEvent.eventHash,
+      previousEvent != null && sequential.previousHash === previousEvent.eventHash,
       "event hash continuity failed",
     );
 
