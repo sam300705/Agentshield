@@ -54,6 +54,7 @@ jobs:
       - run: pnpm build
       - run: pnpm test:integration
       - run: pnpm test:gateway
+      - run: pnpm test:github-lifecycle
       - name: Install Playwright browser
         run: pnpm exec playwright install --with-deps chromium
       - name: Browser E2E

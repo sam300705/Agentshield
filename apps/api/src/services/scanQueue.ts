@@ -6,6 +6,7 @@ import {
   sanitizeText,
   scanJobPayloadSchema,
   type CreateRepositoryScan,
+  type ScanTrigger,
 } from "@agentshield/schemas";
 
 import { prisma } from "../db/prisma.js";
@@ -32,6 +33,7 @@ export async function enqueueRepositoryScan(
   organizationId: string,
   requester: string,
   correlationId: string,
+  trigger: ScanTrigger = "MANUAL",
 ): Promise<{ id: string; scanId: string; status: ScanStatus }> {
   const request = createRepositoryScanSchema.parse(input);
   const scopedIdempotencyKey = `${organizationId}:${idempotencyKey}`;
@@ -44,12 +46,32 @@ export async function enqueueRepositoryScan(
   return prisma.$transaction(async (tx) => {
     const repository = await tx.repository.findFirst({
       where: { id: request.repositoryId, organizationId },
-      select: { id: true, provider: true, fullName: true, defaultBranch: true },
+      select: {
+        id: true,
+        provider: true,
+        fullName: true,
+        defaultBranch: true,
+        githubInstallationId: true,
+      },
     });
     if (repository == null) throw new Error("Repository is not registered for this organization.");
     const provider = repository.provider.toUpperCase();
     if (provider !== "GITHUB" && provider !== "LOCAL") {
       throw new Error("Repository provider is not supported.");
+    }
+    let githubInstallationNumericId: number | undefined;
+    if (provider === "GITHUB") {
+      if (repository.githubInstallationId == null) {
+        throw new Error("GitHub repository installation mapping is missing.");
+      }
+      const installation = await tx.gitHubInstallation.findFirst({
+        where: { id: repository.githubInstallationId, organizationId },
+        select: { id: true, installationId: true },
+      });
+      if (installation == null || installation.id !== repository.githubInstallationId) {
+        throw new Error("GitHub repository installation mapping is invalid.");
+      }
+      githubInstallationNumericId = installation.installationId;
     }
     const scan = await tx.scan.create({
       data: {
