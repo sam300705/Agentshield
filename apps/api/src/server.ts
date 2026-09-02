@@ -10,6 +10,8 @@ import express, {
 import helmet from "helmet";
 import { ZodError } from "zod";
 
+import { sanitizeText } from "@agentshield/schemas";
+
 import { getRuntimeConfig } from "./config.js";
 import { router } from "./routes/index.js";
 import { createRateLimiter } from "./security/rateLimit.js";
@@ -28,6 +30,7 @@ export function createServer(): Express {
       origin: config.corsOrigin,
     }),
   );
+  app.use(requestContext);
   app.use(
     createRateLimiter({
       enabled: config.rateLimitEnabled,
@@ -35,15 +38,21 @@ export function createServer(): Express {
       windowMs: config.RATE_LIMIT_WINDOW_MS,
     }),
   );
+  app.use(
+    "/api/v1/integrations/github/webhooks",
+    express.raw({ type: "application/json", limit: "1mb" }),
+  );
   app.use(express.json({ limit: "1mb" }));
-  app.use(requestContext);
 
   app.use("/", router);
 
   app.use((_request: Request, response: Response) => {
     response.status(404).json({
-      error: "NOT_FOUND",
-      message: "Route not found.",
+      error: {
+        code: "NOT_FOUND",
+        message: "Route not found.",
+        correlationId: getCorrelationId(response),
+      },
     });
   });
 
@@ -66,7 +75,7 @@ export function createServer(): Express {
       JSON.stringify({
         level: "error",
         correlationId: getCorrelationId(response),
-        message: error instanceof Error ? error.message : "Unknown error",
+        message: sanitizeText(error instanceof Error ? error.message : "Unknown error"),
       }),
     );
     response.status(500).json({

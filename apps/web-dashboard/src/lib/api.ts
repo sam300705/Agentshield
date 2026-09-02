@@ -128,20 +128,43 @@ export const api = {
     });
   },
   listScans(limit = 20, page = 1) {
-    return request<PaginatedResponse<ScanListItem>>(`/api/scans?limit=${limit}&page=${page}`);
+    return request<PaginatedResponse<ScanListItem>>(`/api/v1/scans?limit=${limit}&page=${page}`);
   },
   getScan(scanId: string) {
-    return request<{ data: ScanDetail }>(`/api/scans/${scanId}`);
+    return request<{ data: ScanDetail }>(`/api/v1/scans/${encodeURIComponent(scanId)}`);
   },
   getFindings(scanId: string, limit = 100, page = 1) {
     return request<PaginatedResponse<FindingWithRelations>>(
-      `/api/scans/${scanId}/findings?limit=${limit}&page=${page}`,
+      `/api/v1/scans/${encodeURIComponent(scanId)}/findings?limit=${limit}&page=${page}`,
     );
   },
   getSbom(scanId: string, limit = 100, page = 1) {
     return request<PaginatedResponse<Dependency>>(
-      `/api/scans/${scanId}/sbom?limit=${limit}&page=${page}`,
+      `/api/v1/scans/${encodeURIComponent(scanId)}/sbom?limit=${limit}&page=${page}`,
     );
+  },
+  listRepositories() {
+    return request<{ data: Array<{ id: string; provider: string; fullName: string }> }>(
+      "/api/v1/repositories",
+    );
+  },
+  createScan(body: unknown) {
+    return request<{ id: string; scanId: string; status: string; correlationId: string }>(
+      "/api/v1/scans",
+      { method: "POST", body: JSON.stringify(body) },
+    );
+  },
+  getScanProgress(scanId: string) {
+    return request<{ data: unknown }>(`/api/v1/scans/${encodeURIComponent(scanId)}/progress`);
+  },
+  cancelScan(scanId: string) {
+    return request<{ scanId: string; status: string; correlationId: string }>(
+      `/api/v1/scans/${encodeURIComponent(scanId)}/cancel`,
+      { method: "POST" },
+    );
+  },
+  getReceipt(scanId: string) {
+    return request<{ data: unknown }>(`/api/v1/receipts/${encodeURIComponent(scanId)}`);
   },
   listApprovals(limit = 50, page = 1) {
     return request<PaginatedResponse<ApprovalWithFinding>>(
@@ -149,10 +172,13 @@ export const api = {
     );
   },
   approve(approvalId: string, reason: string) {
-    return request<{ data: ApprovalWithFinding }>(`/api/approvals/${approvalId}/approve`, {
-      method: "POST",
-      body: JSON.stringify({ reason }),
-    });
+    return request<{ data: ApprovalWithFinding }>(
+      `/api/approvals/${encodeURIComponent(approvalId)}/approve`,
+      {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      },
+    );
   },
   reject(approvalId: string, reason: string) {
     return request<{ data: ApprovalWithFinding }>(`/api/approvals/${approvalId}/reject`, {

@@ -5,6 +5,8 @@ node_modules.pnpm11/
 dist/
 build/
 coverage/
+test-results/
+playwright-report/
 .turbo/
 .vite/
 *.tsbuildinfo

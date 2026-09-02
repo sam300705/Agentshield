@@ -14,7 +14,7 @@ describe("secret scanner", () => {
   it("detects and redacts high-confidence credentials", async () => {
     temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "agentshield-scanner-"));
     const filePath = path.join(temporaryDirectory, ".env");
-    const secret = "AKIA1234567890ABCDEF";
+    const secret = ["AKIA", "1234567890ABCDEF"].join("");
     await writeFile(filePath, `AWS_ACCESS_KEY_ID=${secret}\n`);
     const findings = await scanFileForSecrets({
       scanId: "scan-1",

@@ -159,6 +159,8 @@ model Scan {
   job            ScanJob?
   simulations    PolicySimulation[]
   receipt        SecurityReceipt?
+  advisories     Advisory[]
+  githubDeliveries GitHubWebhookDelivery[]
 
   @@index([status])
   @@index([repositoryName])
@@ -250,6 +252,7 @@ model Dependency {
   supplier       String?
   metadata       Json            @default("{}")
   createdAt      DateTime        @default(now())
+  advisories     Advisory[]
 
   @@unique([scanId, packageName, version, manifestPath])
   @@index([scanId])
@@ -279,20 +282,25 @@ model AuditEvent {
 }
 
 model Organization {
-  id            String             @id @default(cuid())
-  slug          String             @unique
-  name          String
-  createdAt     DateTime           @default(now())
-  updatedAt     DateTime           @updatedAt
-  memberships   Membership[]
-  repositories  Repository[]
-  sessions      AgentSession[]
-  policyBundles PolicyBundle[]
-  simulations   PolicySimulation[]
-  integrations  Integration[]
-  baselines     AgentBaseline[]
-  scans         Scan[]
-  auditEvents   AuditEvent[]
+  id                  String                  @id @default(cuid())
+  slug                String                  @unique
+  name                String
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+  memberships         Membership[]
+  repositories        Repository[]
+  sessions            AgentSession[]
+  policyBundles       PolicyBundle[]
+  simulations         PolicySimulation[]
+  integrations        Integration[]
+  baselines           AgentBaseline[]
+  scans               Scan[]
+  auditEvents         AuditEvent[]
+  githubInstallations GitHubInstallation[]
+  webhookDeliveries   GitHubWebhookDelivery[]
+  advisories          Advisory[]
+  evidenceArtifacts   EvidenceArtifact[]
+  agentApprovals      AgentApproval[]
 }
 
 model User {
@@ -320,18 +328,20 @@ model Membership {
 }
 
 model Repository {
-  id             String          @id @default(cuid())
-  organizationId String
-  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  provider       String
-  externalId     String
-  fullName       String
-  defaultBranch  String          @default("main")
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-  sessions       AgentSession[]
-  scans          Scan[]
-  baselines      AgentBaseline[]
+  id                   String              @id @default(cuid())
+  organizationId       String
+  organization         Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  provider             String
+  externalId           String
+  fullName             String
+  defaultBranch        String              @default("main")
+  githubInstallationId String?
+  githubInstallation   GitHubInstallation? @relation(fields: [githubInstallationId], references: [id], onDelete: SetNull)
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  sessions             AgentSession[]
+  scans                Scan[]
+  baselines            AgentBaseline[]
 
   @@unique([organizationId, provider, externalId])
   @@index([organizationId, fullName])
@@ -351,6 +361,7 @@ model AgentSession {
   startedAt      DateTime           @default(now())
   completedAt    DateTime?
   events         AgentEvent[]
+  agentApprovals AgentApproval[]
   riskNodes      RiskNode[]
   riskEdges      RiskEdge[]
   simulations    PolicySimulation[]
@@ -360,6 +371,32 @@ model AgentSession {
   @@index([organizationId, startedAt])
   @@index([repositoryId, startedAt])
   @@index([status])
+}
+
+model AgentApproval {
+  id             String         @id @default(cuid())
+  organizationId String
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sessionId      String
+  session        AgentSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  actor          String
+  actionType     String
+  resource       String?
+  actionDigest   String
+  status         ApprovalStatus @default(PENDING)
+  requestedBy    String
+  reviewedBy     String?
+  reason         String?
+  correlationId  String
+  idempotencyKey String
+  requestedAt    DateTime       @default(now())
+  reviewedAt     DateTime?
+
+  @@unique([organizationId, sessionId, idempotencyKey])
+  @@index([organizationId, status, requestedAt])
+  @@index([sessionId, status])
+  @@index([organizationId, actionDigest])
+  @@index([correlationId])
 }
 
 model AgentEvent {
@@ -389,25 +426,39 @@ model AgentEvent {
 }
 
 model ScanJob {
-  id                String     @id @default(cuid())
-  scanId            String     @unique
-  scan              Scan       @relation(fields: [scanId], references: [id], onDelete: Cascade)
-  idempotencyKey    String     @unique
-  status            ScanStatus @default(QUEUED)
-  progress          Int        @default(0)
-  attempts          Int        @default(0)
-  maxAttempts       Int        @default(3)
-  nextAttemptAt     DateTime?
-  lockedAt          DateTime?
-  lockedBy          String?
-  cancelRequestedAt DateTime?
-  failureCode       String?
-  failureMessage    String?
-  createdAt         DateTime   @default(now())
-  updatedAt         DateTime   @updatedAt
+  id                  String     @id @default(cuid())
+  scanId              String     @unique
+  scan                Scan       @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  idempotencyKey      String     @unique
+  status              ScanStatus @default(QUEUED)
+  progress            Int        @default(0)
+  attempts            Int        @default(0)
+  maxAttempts         Int        @default(3)
+  nextAttemptAt       DateTime?
+  lockedAt            DateTime?
+  lockedBy            String?
+  leaseExpiresAt      DateTime?
+  lastHeartbeatAt     DateTime?
+  cancelRequestedAt   DateTime?
+  failureCode         String?
+  failureMessage      String?
+  deadLetteredAt      DateTime?
+  provider            String     @default("LOCAL")
+  repositoryRef       String
+  commitSha           String?
+  policyBundleVersion String
+  trigger             String     @default("MANUAL")
+  requester           String
+  correlationId       String
+  payload             Json       @default("{}")
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
 
   @@index([status, nextAttemptAt])
   @@index([lockedAt])
+  @@index([provider, repositoryRef])
+  @@index([correlationId])
+  @@index([deadLetteredAt])
 }
 
 model PolicyBundle {
@@ -512,17 +563,20 @@ model RiskEdge {
 }
 
 model EvidenceArtifact {
-  id         String   @id @default(cuid())
-  findingId  String?
-  sessionId  String?
-  mediaType  String
-  digest     String
-  storageKey String
-  redacted   Boolean  @default(true)
-  sizeBytes  Int
-  createdAt  DateTime @default(now())
+  id             String        @id @default(cuid())
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  findingId      String?
+  sessionId      String?
+  mediaType      String
+  digest         String
+  storageKey     String
+  redacted       Boolean       @default(true)
+  sizeBytes      Int
+  createdAt      DateTime      @default(now())
 
   @@unique([digest, storageKey])
+  @@index([organizationId, createdAt])
   @@index([findingId])
   @@index([sessionId])
 }
@@ -531,15 +585,97 @@ model SecurityReceipt {
   id                  String             @id @default(cuid())
   scanId              String             @unique
   scan                Scan               @relation(fields: [scanId], references: [id], onDelete: Restrict)
+  schemaVersion       String             @default("1")
   scannerVersion      String
   policyBundleVersion String
+  branch              String?
+  commitSha           String?
   findingCounts       Json
   decisionCounts      Json
   approvalState       String
   evidenceDigest      String
   gateResult          PolicyDecisionType
+  signingAlgorithm    String?
+  keyId               String?
+  signature           String?
+  signedPayload       Json?
   receiptHash         String             @unique
   createdAt           DateTime           @default(now())
+}
+
+model GitHubInstallation {
+  id             String                  @id @default(cuid())
+  organizationId String
+  organization   Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  installationId Int                     @unique
+  accountLogin   String
+  accountType    String?
+  status         String                  @default("ACTIVE")
+  permissions    Json                    @default("{}")
+  installedAt    DateTime                @default(now())
+  lastSyncedAt   DateTime?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+  repositories   Repository[]
+  deliveries     GitHubWebhookDelivery[]
+
+  @@unique([organizationId, accountLogin])
+  @@index([organizationId, status])
+}
+
+model GitHubWebhookDelivery {
+  id                 String             @id @default(cuid())
+  organizationId     String
+  organization       Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  installationId     Int
+  installation       GitHubInstallation @relation(fields: [installationId], references: [installationId], onDelete: Restrict)
+  deliveryId         String
+  eventName          String
+  action             String?
+  repositoryFullName String?
+  status             String             @default("RECEIVED")
+  receivedAt         DateTime           @default(now())
+  processedAt        DateTime?
+  failureReason      String?
+  attempts           Int                @default(0)
+  nextAttemptAt      DateTime?
+  correlationId      String
+  payloadHash        String
+  scanId             String?
+  scan               Scan?              @relation(fields: [scanId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, deliveryId])
+  @@index([organizationId, status, receivedAt])
+  @@index([installationId, receivedAt])
+  @@index([correlationId])
+  @@index([organizationId, scanId])
+}
+
+model Advisory {
+  id              String       @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  scanId          String?
+  scan            Scan?        @relation(fields: [scanId], references: [id], onDelete: SetNull)
+  dependencyId    String?
+  dependency      Dependency?  @relation(fields: [dependencyId], references: [id], onDelete: SetNull)
+  packageName     String
+  version         String
+  ecosystem       String
+  advisoryId      String
+  aliases         Json         @default("[]")
+  affectedRange   String?
+  severity        String?
+  cvss            Float?
+  fixedVersion    String?
+  firstSeen       DateTime     @default(now())
+  lastSeen        DateTime     @default(now())
+  resolutionState String       @default("OPEN")
+
+  @@unique([organizationId, advisoryId, packageName, version])
+  @@index([organizationId, packageName, version])
+  @@index([scanId])
+  @@index([dependencyId])
 }
 
 model Integration {

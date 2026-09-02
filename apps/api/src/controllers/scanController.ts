@@ -1,14 +1,18 @@
 import { type Request, type Response } from "express";
+import {
+  createRepositoryScanSchema,
+  paginatedResponseSchema,
+  paginationQuerySchema,
+} from "@agentshield/schemas";
 import { z } from "zod";
 
 import { prisma } from "../db/prisma.js";
 import { getActor, getCorrelationId } from "../security/auth.js";
-import { enqueueDemoScan } from "../services/scanQueue.js";
-
-const paginationQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(100).default(25),
-  page: z.coerce.number().int().min(1).default(1),
-});
+import {
+  enqueueDemoScan,
+  enqueueRepositoryScan,
+  requestJobCancellation,
+} from "../services/scanQueue.js";
 
 const scanParamsSchema = z.object({
   scanId: z.string().min(1).max(128),
@@ -21,6 +25,105 @@ function getPagination(query: Request["query"]) {
     ...pagination,
     skip: (pagination.page - 1) * pagination.limit,
   };
+}
+
+export async function listRepositoriesController(
+  request: Request,
+  response: Response,
+): Promise<void> {
+  const actor = getActor(response);
+  const repositories = await prisma.repository.findMany({
+    where: { organizationId: actor.organizationId },
+    orderBy: { fullName: "asc" },
+    select: {
+      id: true,
+      provider: true,
+      externalId: true,
+      fullName: true,
+      defaultBranch: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+  response.json({ data: repositories });
+}
+
+export async function createRepositoryScanController(
+  request: Request,
+  response: Response,
+): Promise<void> {
+  const actor = getActor(response);
+  const body = createRepositoryScanSchema.parse(request.body);
+  const suppliedKey = request.header("idempotency-key");
+  const idempotencyKey =
+    suppliedKey != null && /^[A-Za-z0-9._:-]{8,128}$/.test(suppliedKey)
+      ? suppliedKey
+      : `manual:${getCorrelationId(response)}`;
+  const job = await enqueueRepositoryScan(
+    body,
+    idempotencyKey,
+    actor.organizationId,
+    actor.id,
+    getCorrelationId(response),
+  );
+  response.status(202).json({ ...job, correlationId: getCorrelationId(response) });
+}
+
+export async function getScanProgressController(
+  request: Request,
+  response: Response,
+): Promise<void> {
+  const actor = getActor(response);
+  const { scanId } = scanParamsSchema.parse(request.params);
+  const job = await prisma.scanJob.findFirst({
+    where: { scanId, scan: { organizationId: actor.organizationId } },
+    select: {
+      id: true,
+      scanId: true,
+      status: true,
+      progress: true,
+      attempts: true,
+      maxAttempts: true,
+      failureCode: true,
+      deadLetteredAt: true,
+      updatedAt: true,
+    },
+  });
+  if (job == null) {
+    response.status(404).json({
+      error: {
+        code: "SCAN_JOB_NOT_FOUND",
+        message: "Scan job was not found.",
+        correlationId: getCorrelationId(response),
+      },
+    });
+    return;
+  }
+  response.json({ data: job });
+}
+
+export async function cancelScanController(request: Request, response: Response): Promise<void> {
+  const actor = getActor(response);
+  const { scanId } = scanParamsSchema.parse(request.params);
+  const job = await prisma.scanJob.findFirst({
+    where: { scanId, scan: { organizationId: actor.organizationId } },
+    select: { id: true },
+  });
+  if (job == null || !(await requestJobCancellation(job.id, actor.organizationId))) {
+    response.status(404).json({
+      error: {
+        code: "SCAN_JOB_NOT_FOUND",
+        message: "An active scan job was not found.",
+        correlationId: getCorrelationId(response),
+      },
+    });
+    return;
+  }
+  response.status(202).json({
+    scanId,
+    status: "CANCEL_REQUESTED",
+    correlationId: getCorrelationId(response),
+  });
 }
 
 export async function runDemoScanController(request: Request, response: Response): Promise<void> {
@@ -66,7 +169,7 @@ export async function listScansController(request: Request, response: Response):
     }),
   ]);
 
-  response.json({ page, limit, total, data: scans });
+  response.json(paginatedResponseSchema.parse({ page, limit, total, data: scans }));
 }
 
 export async function getScanController(request: Request, response: Response): Promise<void> {
@@ -122,7 +225,7 @@ export async function getScanFindingsController(
     }),
   ]);
 
-  response.json({ page, limit, total, data: findings });
+  response.json(paginatedResponseSchema.parse({ page, limit, total, data: findings }));
 }
 
 export async function getScanSbomController(request: Request, response: Response): Promise<void> {
@@ -140,5 +243,5 @@ export async function getScanSbomController(request: Request, response: Response
     }),
   ]);
 
-  response.json({ page, limit, total, data: dependencies });
+  response.json(paginatedResponseSchema.parse({ page, limit, total, data: dependencies }));
 }

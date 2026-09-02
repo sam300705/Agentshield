@@ -46,6 +46,25 @@ describe("runtime configuration", () => {
     expect(config.rateLimitEnabled).toBe(false);
   });
 
+  it("rejects enabled GitHub webhooks without a secret", () => {
+    expect(() =>
+      getRuntimeConfig({
+        ...validProductionEnv,
+        GITHUB_WEBHOOK_ENABLED: "true",
+      }),
+    ).toThrow("GITHUB_WEBHOOK_SECRET is required");
+  });
+
+  it("accepts explicitly enabled GitHub webhooks with a secret", () => {
+    const config = getRuntimeConfig({
+      ...validProductionEnv,
+      GITHUB_WEBHOOK_ENABLED: "true",
+      GITHUB_WEBHOOK_SECRET: "synthetic-webhook-secret",
+    });
+
+    expect(config.githubWebhookEnabled).toBe(true);
+  });
+
   it("treats blank optional template values as unset", () => {
     const config = getRuntimeConfig({
       NODE_ENV: "development",

@@ -14,19 +14,20 @@ The core demo is deterministic and works without an LLM or external security API
 
 The repository contains a security-control-plane implementation and a deterministic dashboard demo. **The static dashboard is not proof of a deployed API, database, OIDC provider, or worker.** Production authentication requires OIDC configuration and the API intentionally fails closed when that configuration is absent.
 
-| Area                                                                | Current status                                                                   | Evidence or required action                                                                                                                                  |
-| ------------------------------------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Deterministic scanner and SARIF output                              | Implemented and locally/CI verified                                              | `packages/scanner`, fixture gate, and integration test                                                                                                       |
-| Tenant-scoped API, RBAC, approvals, audit events, and durable queue | Implemented and locally/CI verified                                              | Express controllers, Prisma schema, worker tests, and PostgreSQL integration smoke test                                                                      |
-| Production OIDC authentication                                      | Implemented; requires configuration                                              | Set `OIDC_ISSUER`, `OIDC_AUDIENCE`, `OIDC_JWKS_URL`, `OIDC_ROLE_CLAIM`, and exact `CORS_ORIGIN`; keep demo auth disabled                                     |
-| Local demo authentication                                           | Implemented for non-production only                                              | Explicit `DEMO_AUTH_ENABLED=true` and recognized demo header; never use in production                                                                        |
-| Vercel dashboard                                                    | Static dashboard deployment verified                                             | [Open the dashboard](https://agentshield-gov0eexcc-sam300705s-projects.vercel.app); it uses deterministic fixture content                                    |
-| Production frontend OIDC/session flow                               | Implemented with safe mocks; configuration required                              | PKCE login, callback validation, in-memory tokens, refresh, logout, and explicit 401/403 states are tested; no provider is activated in the deployed preview |
-| Neon PostgreSQL and Azure Container Apps                            | Prepared, not deployed                                                           | Neon Free project and Azure runbook exist, but credentials/resources are not connected or created                                                            |
-| GitHub App webhook boundary                                         | Implemented with safe mocks; live connection requires configuration              | HMAC verification, replay guard, event parsing, and tenant ownership checks are tested; App registration and persistence remain owner-configured             |
-| OSV vulnerability enrichment                                        | Implemented with safe mocks and opt-in CLI; API lifecycle requires configuration | Exact-version adapter, normalization, and `--osv` output are tested; advisory persistence and API scan-lifecycle wiring remain to be connected               |
-| Signed security receipts                                            | Implemented with safe tests; production key management requires configuration    | Ed25519 signing, verification, and key rotation are tested; export integration and private-key management remain to be connected                             |
-| Distributed rate limiting                                           | Adapter implemented with safe tests; shared store requires configuration         | Redis-compatible store contract, outage policy, custom key strategy, and headers are tested; no vendor or credentials are connected                          |
+| Area                                                                | Current status                                                                   | Evidence or required action                                                                                                                                                                 |
+| ------------------------------------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Deterministic scanner and SARIF output                              | Implemented and locally/CI verified                                              | `packages/scanner`, fixture gate, and integration test                                                                                                                                      |
+| Tenant-scoped API, RBAC, approvals, audit events, and durable queue | Implemented and locally/CI verified                                              | Express controllers, Prisma schema, worker tests, and PostgreSQL integration smoke test                                                                                                     |
+| Production OIDC authentication                                      | Implemented; requires configuration                                              | Set `OIDC_ISSUER`, `OIDC_AUDIENCE`, `OIDC_JWKS_URL`, `OIDC_ROLE_CLAIM`, and exact `CORS_ORIGIN`; keep demo auth disabled                                                                    |
+| Local demo authentication                                           | Implemented for non-production only                                              | Explicit `DEMO_AUTH_ENABLED=true` and recognized demo header; never use in production                                                                                                       |
+| Vercel dashboard                                                    | Static dashboard deployment verified                                             | [Open the dashboard](https://agentshield-gov0eexcc-sam300705s-projects.vercel.app); it uses deterministic fixture content                                                                   |
+| Production frontend OIDC/session flow                               | Implemented with safe mocks; configuration required                              | PKCE login, reload-safe transaction storage, signed JWKS ID-token verification, refresh, logout, and explicit 401/403 states are tested; no provider is activated in the deployed preview   |
+| Neon PostgreSQL and Azure Container Apps                            | Prepared, not deployed                                                           | Neon Free project and Azure runbook exist, but credentials/resources are not connected or created                                                                                           |
+| GitHub App webhook boundary                                         | Implemented with safe mocks; live connection requires configuration              | HMAC verification, replay guard, event parsing, and tenant ownership checks are tested; App registration and persistence remain owner-configured                                            |
+| OSV vulnerability enrichment                                        | Implemented with safe mocks and opt-in CLI; API lifecycle requires configuration | Exact-version adapter, normalization, and `--osv` output are tested; advisory persistence and API scan-lifecycle wiring remain to be connected                                              |
+| Signed security receipts                                            | Implemented with safe tests; production key management requires configuration    | Ed25519 signing, verification, and key rotation are tested; export integration and private-key management remain to be connected                                                            |
+| Distributed rate limiting                                           | Adapter implemented with safe tests; shared store requires configuration         | Redis-compatible store contract, outage policy, custom key strategy, and headers are tested; no vendor or credentials are connected                                                         |
+| Browser E2E and SARIF validation                                    | Implemented and locally verified                                                 | Playwright covers the deterministic dashboard’s real browser workflows; `scripts/validate-sarif.ts` validates CI scanner reports; live API/OIDC browser E2E remains configuration-dependent |
 
 The honest readiness level is **portfolio prototype / controlled internal alpha**. It is not a clinical product, security certification, or public production service.
 
@@ -74,7 +75,7 @@ The dashboard includes a clearly labelled deterministic demo that remains useful
 6. Export the JSON Security Receipt and inspect its evidence and receipt digests.
 7. Open **Behavior drift** to see the exact baseline and threshold behind each signal.
 
-Keyboard: press `Ctrl/⌘ + K` for the command palette. The interface includes visible focus states and reduced-motion support.
+Keyboard: press `Ctrl/⌘ + K` for the command palette. The interface includes visible focus states and reduced-motion support. Run `pnpm test:e2e` for the real-browser smoke suite; failure screenshots and traces are retained under ignored test-artifact directories.
 
 See [90-second and 5-minute scripts](./docs/demo-script.md).
 
@@ -128,7 +129,7 @@ Run `agentshield --help` for file, byte, timeout, ignore, policy, and output opt
 
 ## GitHub Actions
 
-The included workflow installs with the frozen lockfile, generates Prisma, checks formatting/lint/types/tests/build, scans the vulnerable fixture, uploads SARIF/artifacts, and adds a concise job summary. The scanner never prints raw finding evidence.
+The included workflow installs with the frozen lockfile, generates Prisma, checks formatting/lint/types/tests/build, runs the real-browser Playwright suite, validates SARIF, scans the vulnerable fixture, uploads SARIF/artifacts, and adds a concise job summary. The scanner never prints raw finding evidence. The SARIF upload uses the supported CodeQL Action v4.
 
 An architecture boundary for a future GitHub App is documented; webhook authentication and installation lifecycle are intentionally not faked.
 
@@ -151,10 +152,11 @@ pnpm format:check
 pnpm lint
 pnpm typecheck
 pnpm test
+pnpm test:e2e
 pnpm build
 ```
 
-Focused tests cover redaction, event-chain tampering, graph relationships, blast-radius calculation, receipt determinism, policy simulation traces, drift thresholds, scanner false-positive boundaries, remediation selection, RBAC, separation of duties, and dashboard simulation logic.
+Focused tests cover redaction, event-chain tampering, graph relationships, blast-radius calculation, receipt determinism, policy simulation traces, drift thresholds, scanner false-positive boundaries, remediation selection, RBAC, separation of duties, and dashboard simulation logic. Browser E2E covers demo boot, navigation, command palette, policy simulation, attack replay, accessible graph fallback, approval, receipt export, keyboard use, and mobile layout. SARIF validation is exercised on valid and malformed reports.
 
 ## Repository map
 

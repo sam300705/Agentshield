@@ -5,6 +5,7 @@ import { scanAgentWorkflowLog } from "./agentWorkflowScanner.js";
 import { generateSbomForPackageJson } from "./dependencyScanner.js";
 import { scanDockerfile } from "./dockerfileScanner.js";
 import { scanKubernetesManifest } from "./kubernetesScanner.js";
+import { loadRepositoryScanConfig } from "./config.js";
 import { walkRepository, type WalkRepositoryOptions } from "./repoWalker.js";
 import { scanFileForSecrets } from "./secretScanner.js";
 
@@ -78,7 +79,11 @@ export async function runScan(
   options: WalkRepositoryOptions = {},
 ): Promise<ScanRunnerResult> {
   const targetRoot = path.resolve(targetPath);
-  const filePaths = await walkRepository(targetRoot, options);
+  const repositoryConfig = await loadRepositoryScanConfig(targetRoot);
+  const filePaths = await walkRepository(targetRoot, {
+    ...options,
+    ignorePatterns: [...repositoryConfig.ignorePatterns, ...(options.ignorePatterns ?? [])],
+  });
   const findings: Finding[] = [];
   const dependencies: Dependency[] = [];
 

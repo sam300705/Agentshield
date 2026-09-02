@@ -97,8 +97,11 @@ export function redactEvidence(value: unknown, key = ""): JsonValue {
   return typeof value === "bigint" ? value.toString() : null;
 }
 
-export function createIntegrityChain(inputs: AgentEventInput[]): AgentEvent[] {
-  let previousHash: string | null = null;
+export function createIntegrityChain(
+  inputs: AgentEventInput[],
+  initialPreviousHash: string | null = null,
+): AgentEvent[] {
+  let previousHash: string | null = initialPreviousHash;
   return [...inputs]
     .sort((left, right) => left.sequence - right.sequence || left.id.localeCompare(right.id))
     .map((input) => {

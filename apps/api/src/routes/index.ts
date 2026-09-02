@@ -12,14 +12,30 @@ import {
   rejectApprovalController,
 } from "../controllers/approvalController.js";
 import { listAuditEventsController } from "../controllers/auditController.js";
+import { githubWebhookController } from "../controllers/githubWebhookController.js";
+import {
+  approveAgentApprovalController,
+  createAgentApprovalController,
+  getAgentApprovalController,
+  rejectAgentApprovalController,
+} from "../controllers/agentApprovalController.js";
+import {
+  authorizeAgentActionController,
+  getReceiptController,
+  recordAgentEventController,
+} from "../controllers/agentGatewayController.js";
 import { getDashboardSummaryController } from "../controllers/dashboardController.js";
 import { getDemoControlPlaneController } from "../controllers/controlPlaneController.js";
 import { metricsController, readinessController } from "../controllers/systemController.js";
 import { requirePermission } from "../security/auth.js";
 import {
+  cancelScanController,
+  createRepositoryScanController,
   getScanController,
   getScanFindingsController,
+  getScanProgressController,
   getScanSbomController,
+  listRepositoriesController,
   listScansController,
   runDemoScanController,
 } from "../controllers/scanController.js";
@@ -48,12 +64,89 @@ router.get("/health/live", (_request, response) =>
   response.json({ service: "agentshield-api", status: "alive" }),
 );
 router.get("/health/ready", asyncHandler(readinessController));
+router.post("/api/v1/integrations/github/webhooks", asyncHandler(githubWebhookController));
 router.get("/metrics", requirePermission("organization:manage"), asyncHandler(metricsController));
+router.post(
+  "/api/v1/agent/authorize",
+  requirePermission("scan:run"),
+  asyncHandler(authorizeAgentActionController),
+);
+router.post(
+  "/api/v1/agent/decision",
+  requirePermission("scan:run"),
+  asyncHandler(authorizeAgentActionController),
+);
+router.post(
+  "/api/v1/agent/events",
+  requirePermission("scan:run"),
+  asyncHandler(recordAgentEventController),
+);
+router.post(
+  "/api/v1/agent/approvals",
+  requirePermission("scan:run"),
+  asyncHandler(createAgentApprovalController),
+);
+router.get(
+  "/api/v1/agent/approvals/:approvalId",
+  requirePermission("scan:read"),
+  asyncHandler(getAgentApprovalController),
+);
+router.post(
+  "/api/v1/agent/approvals/:approvalId/approve",
+  requirePermission("approval:review"),
+  asyncHandler(approveAgentApprovalController),
+);
+router.post(
+  "/api/v1/agent/approvals/:approvalId/reject",
+  requirePermission("approval:review"),
+  asyncHandler(rejectAgentApprovalController),
+);
+router.get(
+  "/api/v1/receipts/:scanId",
+  requirePermission("scan:read"),
+  asyncHandler(getReceiptController),
+);
 
 router.get(
   "/api/v1/demo/control-plane",
   requirePermission("scan:read"),
   asyncHandler(getDemoControlPlaneController),
+);
+router.get(
+  "/api/v1/repositories",
+  requirePermission("scan:read"),
+  asyncHandler(listRepositoriesController),
+);
+router.post(
+  "/api/v1/scans",
+  requirePermission("scan:run"),
+  asyncHandler(createRepositoryScanController),
+);
+router.get("/api/v1/scans", requirePermission("scan:read"), asyncHandler(listScansController));
+router.get(
+  "/api/v1/scans/:scanId",
+  requirePermission("scan:read"),
+  asyncHandler(getScanController),
+);
+router.get(
+  "/api/v1/scans/:scanId/progress",
+  requirePermission("scan:read"),
+  asyncHandler(getScanProgressController),
+);
+router.post(
+  "/api/v1/scans/:scanId/cancel",
+  requirePermission("scan:run"),
+  asyncHandler(cancelScanController),
+);
+router.get(
+  "/api/v1/scans/:scanId/findings",
+  requirePermission("scan:read"),
+  asyncHandler(getScanFindingsController),
+);
+router.get(
+  "/api/v1/scans/:scanId/sbom",
+  requirePermission("scan:read"),
+  asyncHandler(getScanSbomController),
 );
 router.post(
   "/api/scans/run-demo",
