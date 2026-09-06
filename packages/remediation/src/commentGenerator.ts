@@ -30,4 +30,3 @@ export function generatePrComment(finding: Finding): string {
     template.fixSuggestion,
   ].join("\n");
 }
-

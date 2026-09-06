@@ -15,9 +15,11 @@ export default [
   {
     ignores: [
       "**/node_modules/**",
+      "**/node_modules.pnpm11/**",
       "**/dist/**",
       "**/build/**",
       "**/coverage/**",
+      ".vercel/**",
       "**/*.cjs",
       "pnpm-lock.yaml",
     ],
@@ -29,7 +31,7 @@ export default [
     languageOptions: {
       parserOptions: {
         projectService: {
-          allowDefaultProject: ["apps/web-dashboard/*.config.ts"],
+          allowDefaultProject: ["apps/web-dashboard/*.config.ts", "scripts/*.ts"],
         },
         tsconfigRootDir: import.meta.dirname,
       },

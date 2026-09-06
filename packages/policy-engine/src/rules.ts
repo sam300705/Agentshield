@@ -57,7 +57,8 @@ const ruleDictionary = {
     ],
     decision: "BLOCK",
     remediationEligible: true,
-    rationale: "Private key blocks in source code can allow direct impersonation or infrastructure access.",
+    rationale:
+      "Private key blocks in source code can allow direct impersonation or infrastructure access.",
     tags: ["secret", "private-key", "block", "phase-0-required"],
   },
   "kubernetes.privileged_container.block": {
@@ -83,7 +84,8 @@ const ruleDictionary = {
     ],
     decision: "BLOCK",
     remediationEligible: true,
-    rationale: "Privileged containers can bypass workload isolation and access host-level capabilities.",
+    rationale:
+      "Privileged containers can bypass workload isolation and access host-level capabilities.",
     tags: ["kubernetes", "privileged", "block", "phase-0-required"],
   },
   "kubernetes.host_path.require_approval": {
@@ -291,7 +293,8 @@ const ruleDictionary = {
     ],
     decision: "BLOCK",
     remediationEligible: true,
-    rationale: "AI-agent access to SSH material can expose credentials for source control or hosts.",
+    rationale:
+      "AI-agent access to SSH material can expose credentials for source control or hosts.",
     tags: ["agent-workflow", "ssh", "block", "phase-0-required"],
   },
   "kubernetes.missing_resource_limits.warn": {
@@ -324,7 +327,8 @@ const ruleDictionary = {
     id: "dependency.normal_inventory.allow",
     version: POLICY_RULE_VERSION,
     name: "Allow normal dependency inventory findings",
-    description: "Allows normal dependency inventory items because SBOM generation is not CVE scanning.",
+    description:
+      "Allows normal dependency inventory items because SBOM generation is not CVE scanning.",
     enabled: true,
     target: {
       categories: ["DEPENDENCY"],
@@ -338,7 +342,8 @@ const ruleDictionary = {
     ],
     decision: "ALLOW",
     remediationEligible: false,
-    rationale: "Dependency entries are treated as inventory unless a separate finding says otherwise.",
+    rationale:
+      "Dependency entries are treated as inventory unless a separate finding says otherwise.",
     tags: ["dependency", "sbom", "allow", "phase-0-required"],
   },
 } satisfies PolicyRuleDictionary;
@@ -348,7 +353,8 @@ const fallbackRuleDictionary = {
     id: "default.high_or_critical.warn",
     version: POLICY_RULE_VERSION,
     name: "Warn on unmatched high risk findings",
-    description: "Warns on unmatched high or critical findings when no explicit policy rule exists.",
+    description:
+      "Warns on unmatched high or critical findings when no explicit policy rule exists.",
     enabled: true,
     target: {
       severities: ["HIGH", "CRITICAL"],
@@ -362,7 +368,8 @@ const fallbackRuleDictionary = {
     ],
     decision: "WARN",
     remediationEligible: false,
-    rationale: "Unknown high-severity findings should remain visible even without a specific policy.",
+    rationale:
+      "Unknown high-severity findings should remain visible even without a specific policy.",
     tags: ["default", "warn"],
   },
   "default.low_or_medium.allow": {

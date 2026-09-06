@@ -68,13 +68,16 @@ else
   $PNPM db:push
 fi
 
-echo "Starting API and web dashboard..."
+echo "Starting API, durable scan worker, and web dashboard..."
 $PNPM dev &
 DEV_PID=$!
+$PNPM --filter @agentshield/api dev:worker &
+WORKER_PID=$!
 
 cleanup() {
   echo "Stopping local dev processes..."
   kill "$DEV_PID" >/dev/null 2>&1 || true
+  kill "$WORKER_PID" >/dev/null 2>&1 || true
 }
 
 trap cleanup INT TERM EXIT

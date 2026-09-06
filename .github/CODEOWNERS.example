@@ -1,0 +1,8 @@
+# CODEOWNERS example for AgentShield.
+# Replace the placeholders with verified GitHub users or teams before enabling.
+# Do not invent or guess an owner identity.
+#
+# * @verified-maintainer-or-team
+# /apps/api/ @verified-security-maintainer-or-team
+# /packages/scanner/ @verified-security-maintainer-or-team
+# /.github/ @verified-repository-admin-or-team

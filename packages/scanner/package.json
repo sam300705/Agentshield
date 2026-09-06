@@ -5,6 +5,9 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "bin": {
+    "agentshield": "dist/cli.js"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -13,14 +16,15 @@
     }
   },
   "scripts": {
-    "prebuild": "corepack pnpm --filter @agentshield/schemas build",
+    "prebuild": "pnpm --filter @agentshield/schemas build",
     "build": "tsc -p tsconfig.json",
     "lint": "eslint .",
-    "pretypecheck": "corepack pnpm --filter @agentshield/schemas build",
-    "test": "vitest run --passWithNoTests",
+    "pretypecheck": "pnpm --filter @agentshield/schemas build",
+    "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@agentshield/policy-engine": "workspace:*",
     "@agentshield/schemas": "workspace:*",
     "yaml": "^2.6.1",
     "zod": "^3.24.1"

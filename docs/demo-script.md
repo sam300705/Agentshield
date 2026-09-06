@@ -1,65 +1,40 @@
-# Demo Script
+# Recruiter Demo Scripts
 
-This is a three-minute technical interview walkthrough. Start with the API, dashboard, and PostgreSQL already running through `./scripts/run-local.sh`.
+## 90-second version
 
-## 0:00-0:20 - Position The Problem
+1. **0:00–0:15 — Thesis.** “AgentShield is a flight recorder and deterministic policy firewall for code changed by autonomous agents.” Point to Platform Risk `C`, blocks, and approvals.
+2. **0:15–0:35 — Replay.** Select **Replay attack scenario**. Explain that the session events are a labelled offline fixture: `.env` access, a remote-shell attempt, and a privileged Kubernetes edit.
+3. **0:35–0:55 — Causality.** Point to the Attack Graph. Confirmed edges share stored correlation evidence; inferred edges are labelled. Open the accessible relationship list and explain the blast-radius formula.
+4. **0:55–1:10 — Time Machine.** Select Production and run the simulation. Show the Docker warning becoming a block while original decisions remain immutable.
+5. **1:10–1:20 — Human control.** Open Approval Cockpit. Show different requester/reviewer identities and record a decision.
+6. **1:20–1:30 — Receipt.** Export the Security Receipt. Close with: “The core works without an LLM; deterministic evidence remains authoritative.”
 
-Open `http://localhost:5173`.
+## Five-minute technical version
 
-Say: "AgentShield is a TypeScript Policy-as-Code platform for AI coding agent output. The risk is that agents can now edit code, dependency manifests, Dockerfiles, Kubernetes YAML, and workflow logs faster than human reviewers can manually inspect them."
+### 0:00–0:45 — Threat and boundaries
 
-Point to the dashboard cards: `Total Scans`, `Total Findings`, `Pending Approvals`, and `Platform Risk Score`.
+Explain that untrusted repository content is scanned but never executed. Secret evidence is redacted before persistence. The scanner applies path, symlink, byte, file-count, and timeout limits.
 
-## 0:20-0:45 - Run The Demo Scan
+### 0:45–1:45 — Flight Recorder and graph
 
-Click `Run Demo Scan`.
+Replay the scenario. Each normalized event has actor, source, type, risk, resource, correlation ID, sequence, and SHA-256 chain metadata. Explain that the hash chain detects tampering but is not a signature. Walk the graph and show why each edge exists.
 
-Say: "This button calls `POST /api/scans/run-demo`. The API creates a scan, runs deterministic static scanners against `examples/vulnerable-repo`, evaluates declarative policy rules, generates eligible remediation, and persists the result in PostgreSQL."
+### 1:45–2:40 — Deterministic policy
 
-After navigation, confirm that the scan results page shows the repository name, finding count, and SBOM item count.
+Open Findings, then Policy Time Machine. Rules are versioned declarative objects. Simulation evaluates the same findings against another bundle, emits condition traces and workload/risk deltas, and never updates original decisions.
 
-## 0:45-1:20 - Explain Findings And Policy-as-Code
+### 2:40–3:25 — Approval and identity
 
-On the `Findings` tab, point to the severity and decision columns.
+Open Approval Cockpit. The API maps roles to permissions and checks them server-side. A Security Reviewer still cannot approve an action when their actor ID equals `requestedBy`. Approval state and audit records are transactional.
 
-Click a critical secret finding such as `High-confidence AWS access key id detected` or `High-confidence AWS secret access key detected`.
+### 3:25–4:05 — Worker and CLI
 
-Say: "The scanner produced evidence, but it did not decide business impact. The policy engine mapped this finding to a versioned rule such as `secret.critical.block`, which is why the decision is `BLOCK`. This separation keeps scanner evidence factual and policy decisions auditable."
+Explain the PostgreSQL job state machine: idempotent enqueue, conditional claim, progress, cancellation, three attempts, and capped exponential backoff. Show CLI help and the exit-code table. Mention JSONL for pipelines and SARIF for GitHub code scanning.
 
-Point to the evidence panel and note that matched values are redacted.
+### 4:05–4:40 — Receipts and drift
 
-## 1:20-1:55 - Show Deterministic Remediation
+Export a receipt and show evidence/receipt digests. Open Behavior Drift and show current, baseline, and `baseline × 1.5` threshold for each warning.
 
-Scroll to `Remediation`.
+### 4:40–5:00 — Honest close
 
-Say: "Remediation is deterministic in v1. AgentShield does not ask an LLM to invent fix text. It selects a template based on finding category and evidence, then creates an explanation, PR comment, and fix suggestion. That makes the output reproducible and reviewable."
-
-Point out that detailed remediation appears for blocking and approval-required decisions, not for ordinary warnings.
-
-## 1:55-2:20 - Show SBOM Inventory Boundary
-
-Click the `Scan results` link to return to the scan page.
-
-Click `SBOM Inventory`.
-
-Say: "Dependency inspection is deliberately framed as SBOM inventory. It records package names, versions, scopes, manifests, and package URLs. It does not claim to be a full CVE vulnerability scanner in v1."
-
-Point to wildcard or `latest` versions if present and explain that they represent inventory drift.
-
-## 2:20-2:45 - Show Human Approval Workflow
-
-Click `Approvals` in the sidebar.
-
-Click `Review finding` for a pending approval, preferably an AI-agent workflow or Kubernetes hostPath finding.
-
-Say: "Approval-required findings are routed to humans. This is where platform owners can review risky agent behavior such as remote script execution, `.env` access, hostPath mounts, or privilege escalation before merge."
-
-Return to `Approvals`, then click `Reject` on one approval if you want to demonstrate auditability. Otherwise leave the queue intact.
-
-## 2:45-3:00 - Close With Architecture
-
-Click `Audit Trail`.
-
-Say: "The architecture is intentionally enterprise-shaped: shared Zod contracts, deterministic scanners, declarative policy rules, stored rule snapshots, Prisma-backed audit records, and an operational dashboard. The future path is to promote the scanner into a concurrent CLI and the policy engine into a scalable backend service."
-
-End by naming the core design choice: "For v1, determinism beats novelty. The system is built to be explainable, testable, and auditable."
+Production still needs OIDC, signed receipts if non-repudiation matters, object-store retention, GitHub App webhook verification, and deployment benchmarks. The architecture keeps those boundaries explicit instead of simulating them.

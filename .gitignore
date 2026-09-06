@@ -1,7 +1,12 @@
 node_modules/
+node_modules.pnpm11/
+.tmp/
+.bin/
 dist/
 build/
 coverage/
+test-results/
+playwright-report/
 .turbo/
 .vite/
 *.tsbuildinfo
@@ -13,3 +18,4 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .DS_Store
+.vercel
