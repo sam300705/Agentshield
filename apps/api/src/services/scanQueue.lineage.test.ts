@@ -32,7 +32,13 @@ function request() {
     ref: "refs/heads/main",
     commitSha: COMMIT_SHA,
     policyBundleVersion: "policy-v1",
-    options: {},
+    options: {
+      maxFiles: 10_000,
+      maxBytes: 100_000_000,
+      timeoutMs: 120_000,
+      ignorePaths: [],
+      includeOsv: false,
+    },
   };
 }
 
