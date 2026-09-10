@@ -7,6 +7,7 @@ import {
   buildGitHubCheckOutput,
   mapOutcomeToGitHubConclusion,
   type AgentShieldOutcome,
+  type GitHubCheckRunRequest,
   type GitHubChecksClient,
 } from "../integrations/githubChecks.js";
 
@@ -301,22 +302,24 @@ export async function processNextGitHubCheckPublication(
     const counts = findingCounts(scan.receipt.findingCounts);
     const outcome = parseAgentShieldOutcome(scan.receipt.gateResult);
     const scanDetailsUrl = detailsUrl(dashboardPublicUrl, scan.id);
-    const request = {
+    const severity = highestSeverity(counts);
+    const output = buildGitHubCheckOutput({
+      outcome,
+      findingCounts: counts,
+      ...(severity == null ? {} : { highestSeverity: severity }),
+      policyVersion: scan.receipt.policyBundleVersion,
+      ...(scanDetailsUrl == null ? {} : { scanUrl: scanDetailsUrl }),
+    });
+    const request: GitHubCheckRunRequest = {
       owner,
       repository,
       name: CHECK_NAME,
       headSha: scan.commitSha,
       externalId,
-      status: "completed" as const,
+      status: "completed",
       conclusion: mapOutcomeToGitHubConclusion(outcome),
-      detailsUrl: scanDetailsUrl,
-      output: buildGitHubCheckOutput({
-        outcome,
-        findingCounts: counts,
-        highestSeverity: highestSeverity(counts),
-        policyVersion: scan.receipt.policyBundleVersion,
-        scanUrl: scanDetailsUrl,
-      }),
+      ...(scanDetailsUrl == null ? {} : { detailsUrl: scanDetailsUrl }),
+      output,
       startedAt: scan.startedAt,
       completedAt: scan.completedAt ?? new Date(),
     };
