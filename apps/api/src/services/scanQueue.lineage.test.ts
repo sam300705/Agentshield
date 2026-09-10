@@ -82,7 +82,6 @@ describe("enqueueRepositoryScan trusted lineage", () => {
     expect(createCall.data?.trigger).toBe("MANUAL");
     expect(createCall.data?.payload).toMatchObject({
       organizationId: "org-1",
-      integrationId: "42",
       repositoryId: "repo-1",
       provider: "GITHUB",
       repositoryName: "octo/example",
@@ -93,6 +92,7 @@ describe("enqueueRepositoryScan trusted lineage", () => {
         repositoryFullName: "octo/example",
       },
     });
+    expect(createCall.data?.payload).not.toHaveProperty("integrationId");
   });
 
   it("persists webhook provenance and never rewrites PUSH to MANUAL", async () => {
