@@ -14,8 +14,8 @@ import { sanitizeText } from "@agentshield/schemas";
 
 import { getRuntimeConfig } from "./config.js";
 import { router } from "./routes/index.js";
-import { createRateLimiter } from "./security/rateLimit.js";
 import { getCorrelationId, requestContext } from "./security/auth.js";
+import { createConfiguredRateLimiter } from "./security/rateLimitComposition.js";
 
 const DEFAULT_PORT = 3001;
 
@@ -24,6 +24,7 @@ export function createServer(): Express {
   const app = express();
 
   app.disable("x-powered-by");
+  app.set("trust proxy", 1);
   app.use(helmet());
   app.use(
     cors({
@@ -31,13 +32,7 @@ export function createServer(): Express {
     }),
   );
   app.use(requestContext);
-  app.use(
-    createRateLimiter({
-      enabled: config.rateLimitEnabled,
-      max: config.RATE_LIMIT_MAX,
-      windowMs: config.RATE_LIMIT_WINDOW_MS,
-    }),
-  );
+  app.use(createConfiguredRateLimiter(config));
   app.use(
     "/api/v1/integrations/github/webhooks",
     express.raw({ type: "application/json", limit: "1mb" }),
