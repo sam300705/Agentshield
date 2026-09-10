@@ -7,7 +7,6 @@ const commitSha = "0123456789abcdef0123456789abcdef01234567";
 function githubPayload(overrides: Record<string, unknown> = {}) {
   return {
     organizationId: "org-1",
-    integrationId: "42",
     repositoryId: "repo-1",
     provider: "GITHUB",
     repositoryName: "acme/project",
@@ -119,15 +118,12 @@ describe("scan job payload schema", () => {
       scanJobPayloadSchema.parse({
         ...githubPayload(),
         github: undefined,
-        integrationId: undefined,
       }),
     ).toThrow("GitHub provider scans require trusted GitHub lineage");
   });
 
-  it("rejects mismatched transitional integration identity", () => {
-    expect(() => scanJobPayloadSchema.parse(githubPayload({ integrationId: "99" }))).toThrow(
-      "GitHub integration identity must match trusted installation lineage",
-    );
+  it("rejects legacy duplicate integration identity fields", () => {
+    expect(() => scanJobPayloadSchema.parse({ ...githubPayload(), integrationId: "42" })).toThrow();
   });
 
   it("rejects mismatched repository identity", () => {
