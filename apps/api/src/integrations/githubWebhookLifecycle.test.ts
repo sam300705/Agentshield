@@ -74,7 +74,7 @@ function makeClient(
 }
 
 describe("processGitHubWebhookDelivery", () => {
-  it("resolves a mapped push, pins after SHA, and queues one idempotent scan", async () => {
+  it("resolves a mapped push, pins after SHA, and queues trusted PUSH provenance", async () => {
     const store = makeStore();
     const client = makeClient();
     const enqueueScan = vi.fn(() =>
@@ -110,11 +110,19 @@ describe("processGitHubWebhookDelivery", () => {
       "org-test",
       "github:webhook",
       "corr-test",
+      {
+        trigger: "PUSH",
+        webhook: {
+          deliveryId: "delivery-push",
+          eventName: "push",
+          action: "opened",
+        },
+      },
     );
     expect(store.calls.map(({ method }) => method)).toEqual(["markResolved", "markQueued"]);
   });
 
-  it("pins a pull-request head rather than a floating merge ref", async () => {
+  it("pins a pull-request head and never attributes it as MANUAL", async () => {
     const store = makeStore();
     const enqueueScan = vi.fn(() =>
       Promise.resolve({ id: "job", scanId: "scan", status: "QUEUED" as const }),
@@ -141,11 +149,36 @@ describe("processGitHubWebhookDelivery", () => {
       "org-test",
       "github:webhook",
       "corr-pr",
+      expect.objectContaining({
+        trigger: "PULL_REQUEST",
+        webhook: expect.objectContaining({ eventName: "pull_request" }),
+      }),
     );
+    expect(enqueueScan.mock.calls[0]?.[5]).not.toMatchObject({ trigger: "MANUAL" });
   });
 
   it.each([
     ["unknown installation", makeClient(null), "UNKNOWN_INSTALLATION"],
+    [
+      "cross-org installation",
+      makeClient({
+        id: "installation-row",
+        organizationId: "other-org",
+        accountLogin: "octo-org",
+        installationId: 42,
+      }),
+      "UNKNOWN_INSTALLATION",
+    ],
+    [
+      "installation login mismatch",
+      makeClient({
+        id: "installation-row",
+        organizationId: "org-test",
+        accountLogin: "different-org",
+        installationId: 42,
+      }),
+      "UNKNOWN_INSTALLATION",
+    ],
     ["unknown repository", makeClient(undefined, null), "UNKNOWN_REPOSITORY"],
   ] as const)("does not enqueue for %s", async (_name, client, reason) => {
     const store = makeStore();
@@ -168,6 +201,55 @@ describe("processGitHubWebhookDelivery", () => {
       method: "markIgnored",
       args: ["org-test", expect.any(String), reason],
     });
+  });
+
+  it("binds repository lookup to the resolved installation row", async () => {
+    const store = makeStore();
+    const client = makeClient();
+    const enqueueScan = vi.fn(() =>
+      Promise.resolve({ id: "job", scanId: "scan", status: "QUEUED" as const }),
+    );
+    await processGitHubWebhookDelivery(
+      "org-test",
+      makeWebhook("push", { ref: "refs/heads/main", after: commitSha }),
+      "corr-bind",
+      {
+        client,
+        deliveryStore: store,
+        scanLifecycleEnabled: true,
+        policyBundleVersion: "policy-v1",
+        enqueueScan,
+      },
+    );
+    expect(client.repository.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          organizationId: "org-test",
+          provider: "GITHUB",
+          fullName: "octo/example",
+          githubInstallationId: "installation-row",
+        },
+      }),
+    );
+  });
+
+  it("rejects invalid or short webhook commit SHAs", async () => {
+    const store = makeStore();
+    const enqueueScan = vi.fn();
+    const result = await processGitHubWebhookDelivery(
+      "org-test",
+      makeWebhook("push", { ref: "refs/heads/main", after: "abcdef1" }),
+      "corr-bad-sha",
+      {
+        client: makeClient(),
+        deliveryStore: store,
+        scanLifecycleEnabled: true,
+        policyBundleVersion: "policy-v1",
+        enqueueScan,
+      },
+    );
+    expect(result).toEqual({ status: "IGNORED", reason: "INVALID_COMMIT", scanQueued: false });
+    expect(enqueueScan).not.toHaveBeenCalled();
   });
 
   it("ignores unsupported events and disabled lifecycle without creating jobs", async () => {
