@@ -7,6 +7,7 @@ import {
   createDistributedRateLimiter,
   InMemoryRateLimitStore,
   RedisRateLimitStore,
+  RedisRestRateLimitClient,
   type RateLimitStore,
 } from "./distributedRateLimit.js";
 
@@ -47,6 +48,44 @@ describe("distributed rate limiter", () => {
     expect(client.incr).toHaveBeenCalledWith("org:user");
     expect(client.pExpire).not.toHaveBeenCalled();
     expect(client.pTtl).toHaveBeenCalledWith("org:user");
+  });
+
+  it("rejects Redis buckets that lost their expiry", async () => {
+    const store = new RedisRateLimitStore({
+      incr: vi.fn().mockResolvedValue(2),
+      pExpire: vi.fn().mockResolvedValue(1),
+      pTtl: vi.fn().mockResolvedValue(-1),
+    });
+
+    await expect(store.increment("org:user", 60_000)).rejects.toThrow(
+      "Redis rate-limit bucket has no expiry",
+    );
+  });
+
+  it("executes authenticated Redis REST commands without exposing the token in the URL", async () => {
+    const responses = [3, 42_000];
+    const fetchImpl = vi.fn<typeof fetch>((input, init) => {
+      expect(String(input)).toBe("https://redis.example.test");
+      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer private-token");
+      expect(String(input)).not.toContain("private-token");
+      const command = JSON.parse(String(init?.body)) as unknown[];
+      const expected = command[0] === "INCR" ? responses[0] : responses[1];
+      return Promise.resolve(
+        new Response(JSON.stringify({ result: expected }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    });
+    const client = new RedisRestRateLimitClient(
+      "https://redis.example.test/",
+      "private-token",
+      fetchImpl,
+    );
+    const store = new RedisRateLimitStore(client);
+
+    await expect(store.increment("organization:1", 60_000)).resolves.toMatchObject({ count: 3 });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
   it("applies a shared store and standard headers", async () => {
