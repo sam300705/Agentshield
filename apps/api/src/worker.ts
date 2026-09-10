@@ -7,6 +7,7 @@ import { sanitizeText } from "@agentshield/schemas";
 import { getRuntimeConfig } from "./config.js";
 import { prisma } from "./db/prisma.js";
 import { processNextScanJob } from "./services/scanQueue.js";
+import { createWorkerScanExecutor } from "./services/workerComposition.js";
 
 const workerId = `scan-worker-${hostname()}-${process.pid}-${randomUUID()}`;
 const runOnce = process.env.WORKER_MODE === "once";
@@ -14,7 +15,8 @@ const shutdownController = new AbortController();
 let stopping = false;
 
 async function run(): Promise<void> {
-  getRuntimeConfig();
+  const config = getRuntimeConfig();
+  const executor = await createWorkerScanExecutor(config);
   console.warn(
     JSON.stringify({
       level: "info",
@@ -25,7 +27,7 @@ async function run(): Promise<void> {
   );
   try {
     while (!stopping) {
-      const processed = await processNextScanJob(workerId, undefined, shutdownController.signal);
+      const processed = await processNextScanJob(workerId, executor, shutdownController.signal);
       if (!processed && runOnce) break;
       if (!processed) await new Promise((resolve) => setTimeout(resolve, 1000));
     }
