@@ -79,9 +79,7 @@ describe("bindAndSynchronizeGitHubInstallation", () => {
     const database = prismaClient();
     const createInstallationToken = vi.fn();
     const github = githubClient({
-      getInstallation: vi.fn(() =>
-        Promise.resolve({ ...installationMetadata, suspended: true }),
-      ),
+      getInstallation: vi.fn(() => Promise.resolve({ ...installationMetadata, suspended: true })),
       createInstallationToken,
     });
 
