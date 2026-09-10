@@ -82,3 +82,221 @@ describe("runtime configuration", () => {
     expect(config.rateLimitEnabled).toBe(false);
   });
 });
+
+const SYNTHETIC_KEY_BODY = "U1lOVEhFVElDLVRFVEVTVEtFWQ=="; // base64("SYNTHETIC-TESTKEY")
+
+function syntheticPrivateKeyPem(escaped: boolean): string {
+  const lines = ["-----BEGIN PRIVATE KEY-----", SYNTHETIC_KEY_BODY, "-----END PRIVATE KEY-----"];
+  return escaped ? lines.join("\\n") : lines.join("\n");
+}
+
+const githubLifecycleEnv = {
+  GITHUB_WEBHOOK_ENABLED: "true",
+  GITHUB_WEBHOOK_SECRET: "[SECURITY_DATA]",
+  GITHUB_SCAN_LIFECYCLE_ENABLED: "true",
+  GITHUB_SCAN_POLICY_BUNDLE_VERSION: "test-bundle-1.0.0",
+  GITHUB_APP_ID: "123456",
+  GITHUB_PRIVATE_KEY: syntheticPrivateKeyPem(true),
+};
+
+interface ConfigFailureCase {
+  name: string;
+  env: Record<string, string | undefined>;
+  message: string;
+}
+
+const githubFailureCases: ConfigFailureCase[] = [
+  {
+    name: "rejects enabled GitHub webhooks without a secret",
+    env: { GITHUB_WEBHOOK_SECRET: undefined, GITHUB_SCAN_LIFECYCLE_ENABLED: undefined },
+    message: "GITHUB_WEBHOOK_SECRET is required when GitHub webhook ingestion is enabled",
+  },
+  {
+    name: "rejects lifecycle without webhooks",
+    env: { GITHUB_WEBHOOK_ENABLED: undefined },
+    message: "GITHUB_WEBHOOK_ENABLED must be true when GitHub scan lifecycle is enabled",
+  },
+  {
+    name: "rejects lifecycle without a policy bundle version",
+    env: { GITHUB_SCAN_POLICY_BUNDLE_VERSION: undefined },
+    message: "GITHUB_SCAN_POLICY_BUNDLE_VERSION is required when GitHub scan lifecycle is enabled",
+  },
+  {
+    name: "rejects lifecycle without a GitHub App ID",
+    env: { GITHUB_APP_ID: undefined },
+    message: "GITHUB_APP_ID is required when GitHub scan lifecycle is enabled",
+  },
+  {
+    name: "rejects lifecycle with a non-numeric GitHub App ID",
+    env: { GITHUB_APP_ID: "app-one-two-three" },
+    message: "GITHUB_APP_ID must be a numeric GitHub App ID when GitHub scan lifecycle is enabled",
+  },
+  {
+    name: "rejects lifecycle without a GitHub App private key",
+    env: { GITHUB_PRIVATE_KEY: undefined },
+    message: "GITHUB_PRIVATE_KEY is required when GitHub scan lifecycle is enabled",
+  },
+  {
+    name: "rejects lifecycle with a malformed GitHub App private key",
+    env: { GITHUB_PRIVATE_KEY: "not-a-pem-private-key" },
+    message:
+      "GITHUB_PRIVATE_KEY must be a PEM-encoded private key (with BEGIN/END PRIVATE KEY markers) when GitHub scan lifecycle is enabled",
+  },
+  {
+    name: "rejects materialization without lifecycle",
+    env: {
+      GITHUB_SCAN_LIFECYCLE_ENABLED: undefined,
+      GITHUB_MATERIALIZATION_ENABLED: "true",
+      GITHUB_APP_ID: undefined,
+      GITHUB_PRIVATE_KEY: undefined,
+    },
+    message: "GITHUB_SCAN_LIFECYCLE_ENABLED must be true when GitHub materialization is enabled",
+  },
+  {
+    name: "rejects Checks publishing without lifecycle",
+    env: {
+      GITHUB_SCAN_LIFECYCLE_ENABLED: undefined,
+      GITHUB_CHECKS_ENABLED: "true",
+      GITHUB_APP_ID: undefined,
+      GITHUB_PRIVATE_KEY: undefined,
+    },
+    message: "GITHUB_SCAN_LIFECYCLE_ENABLED must be true when GitHub Checks publishing is enabled",
+  },
+  {
+    name: "rejects an invalid dashboard URL",
+    env: { DASHBOARD_PUBLIC_URL: "not-a-url" },
+    message: "DASHBOARD_PUBLIC_URL",
+  },
+];
+
+describe("GitHub capability requirements", () => {
+  it.each(githubFailureCases)("$name", ({ env, message }) => {
+    expect(() =>
+      getRuntimeConfig({ ...validProductionEnv, ...githubLifecycleEnv, ...env }),
+    ).toThrow(message);
+  });
+
+  it("accepts the full lifecycle stack without a client ID", () => {
+    const config = getRuntimeConfig({ ...validProductionEnv, ...githubLifecycleEnv });
+
+    expect(config.githubWebhookEnabled).toBe(true);
+    expect(config.githubScanLifecycleEnabled).toBe(true);
+    expect(config.GITHUB_CLIENT_ID).toBeUndefined();
+  });
+
+  it("normalizes an escaped private key to real newlines", () => {
+    const config = getRuntimeConfig({ ...validProductionEnv, ...githubLifecycleEnv });
+
+    expect(config.GITHUB_PRIVATE_KEY).toBe(syntheticPrivateKeyPem(false));
+  });
+
+  it("leaves an already-normalized private key untouched", () => {
+    const key = syntheticPrivateKeyPem(false);
+    const config = getRuntimeConfig({
+      ...validProductionEnv,
+      ...githubLifecycleEnv,
+      GITHUB_PRIVATE_KEY: key,
+    });
+
+    expect(config.GITHUB_PRIVATE_KEY).toBe(key);
+  });
+
+  it("normalizes CRLF line endings and surrounding whitespace in the private key", () => {
+    const config = getRuntimeConfig({
+      ...validProductionEnv,
+      ...githubLifecycleEnv,
+      GITHUB_PRIVATE_KEY: `  -----BEGIN PRIVATE KEY-----\r\n${SYNTHETIC_KEY_BODY}\r\n-----END PRIVATE KEY-----  `,
+    });
+
+    expect(config.GITHUB_PRIVATE_KEY).toBe(syntheticPrivateKeyPem(false));
+  });
+
+  it("accepts materialization on top of the full lifecycle stack", () => {
+    const config = getRuntimeConfig({
+      ...validProductionEnv,
+      ...githubLifecycleEnv,
+      GITHUB_MATERIALIZATION_ENABLED: "true",
+    });
+
+    expect(config.githubScanLifecycleEnabled).toBe(true);
+    expect(config.githubMaterializationEnabled).toBe(true);
+  });
+
+  it("accepts Checks publishing with a dashboard URL for advertised links", () => {
+    const config = getRuntimeConfig({
+      ...validProductionEnv,
+      ...githubLifecycleEnv,
+      GITHUB_CHECKS_ENABLED: "true",
+      DASHBOARD_PUBLIC_URL: "https://dashboard.example.com",
+    });
+
+    expect(config.githubChecksEnabled).toBe(true);
+    expect(config.DASHBOARD_PUBLIC_URL).toBe("https://dashboard.example.com");
+  });
+
+  it("ignores GitHub credential values when every GitHub capability is disabled", () => {
+    const config = getRuntimeConfig({
+      ...validProductionEnv,
+      GITHUB_APP_ID: "unused-junk",
+      GITHUB_PRIVATE_KEY: "unused-junk",
+    });
+
+    expect(config.githubWebhookEnabled).toBe(false);
+    expect(config.githubScanLifecycleEnabled).toBe(false);
+    expect(config.githubMaterializationEnabled).toBe(false);
+    expect(config.githubChecksEnabled).toBe(false);
+  });
+});
+
+describe("configuration error redaction", () => {
+  it("never echoes the private key in validation errors", () => {
+    let message = "";
+    try {
+      getRuntimeConfig({
+        ...validProductionEnv,
+        ...githubLifecycleEnv,
+        GITHUB_PRIVATE_KEY: "MARKER-LEAK-PROBE-not-a-pem-key",
+      });
+    } catch (error) {
+      message = error instanceof Error ? error.message : "";
+    }
+
+    expect(message).toContain("GITHUB_PRIVATE_KEY must be a PEM-encoded private key");
+    expect(message).not.toContain("MARKER-LEAK-PROBE");
+  });
+
+  it("never echoes the App ID in validation errors", () => {
+    let message = "";
+    try {
+      getRuntimeConfig({
+        ...validProductionEnv,
+        ...githubLifecycleEnv,
+        GITHUB_APP_ID: "MARKER-LEAK-PROBE-ID",
+      });
+    } catch (error) {
+      message = error instanceof Error ? error.message : "";
+    }
+
+    expect(message).toContain("GITHUB_APP_ID must be a numeric GitHub App ID");
+    expect(message).not.toContain("MARKER-LEAK-PROBE");
+  });
+
+  it("aggregates missing App credentials without echoing the webhook secret", () => {
+    let message = "";
+    try {
+      getRuntimeConfig({
+        ...validProductionEnv,
+        GITHUB_WEBHOOK_ENABLED: "true",
+        GITHUB_WEBHOOK_SECRET: "[SECURITY_DATA]",
+        GITHUB_SCAN_LIFECYCLE_ENABLED: "true",
+        GITHUB_SCAN_POLICY_BUNDLE_VERSION: "test-bundle-1.0.0",
+      });
+    } catch (error) {
+      message = error instanceof Error ? error.message : "";
+    }
+
+    expect(message).toContain("GITHUB_APP_ID is required");
+    expect(message).toContain("GITHUB_PRIVATE_KEY is required");
+    expect(message).not.toContain("MARKER-LEAK-PROBE");
+  });
+});
