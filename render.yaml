@@ -95,7 +95,7 @@ envVarGroups:
         value: "false"
       - key: GITHUB_SCAN_LIFECYCLE_ENABLED
         value: "false"
-      - key: GITHUB_REPOSITORY_MATERIALIZATION_ENABLED
+      - key: GITHUB_MATERIALIZATION_ENABLED
         value: "false"
       - key: GITHUB_CHECKS_ENABLED
         value: "false"
@@ -105,14 +105,11 @@ envVarGroups:
         sync: false
       - key: GITHUB_WEBHOOK_SECRET
         sync: false
-      - key: GITHUB_POLICY_BUNDLE_VERSION
+      - key: GITHUB_SCAN_POLICY_BUNDLE_VERSION
         sync: false
       - key: DASHBOARD_PUBLIC_URL
         sync: false
-      - key: OSV_ENRICHMENT_ENABLED
-        value: "false"
-      # Optional local Ed25519 receipt signing. Production signing custody must
-      # be configured according to the security operations runbook.
+      # Receipt signing is optional until production signing custody is chosen.
       - key: RECEIPT_SIGNING_KEY_ID
         sync: false
       - key: RECEIPT_SIGNING_PRIVATE_KEY
