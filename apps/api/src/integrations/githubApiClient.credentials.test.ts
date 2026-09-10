@@ -60,13 +60,15 @@ describe("FetchGitHubAppClient credential validation", () => {
 describe("FetchGitHubAppClient repository pagination", () => {
   it("collects repositories across multiple pages", async () => {
     let requests = 0;
-    const fetchImpl: typeof fetch = async () => {
+    const fetchImpl: typeof fetch = () => {
       requests += 1;
       const payload = requests === 1 ? repositoryPage(1, 100) : repositoryPage(101, 50);
-      return new Response(JSON.stringify(payload), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
+      return Promise.resolve(
+        new Response(JSON.stringify(payload), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
     };
     const client = new FetchGitHubAppClient(appConfig("unused"), { fetchImpl });
 
@@ -76,12 +78,14 @@ describe("FetchGitHubAppClient repository pagination", () => {
 
   it("fails closed instead of silently truncating an oversized installation", async () => {
     let requests = 0;
-    const fetchImpl: typeof fetch = async () => {
+    const fetchImpl: typeof fetch = () => {
       requests += 1;
-      return new Response(JSON.stringify(repositoryPage(requests * 100, 100)), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
+      return Promise.resolve(
+        new Response(JSON.stringify(repositoryPage(requests * 100, 100)), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
     };
     const client = new FetchGitHubAppClient(appConfig("unused"), { fetchImpl });
 
