@@ -5,7 +5,9 @@ import {
   createRepositoryScanSchema,
   sanitizeText,
   scanJobPayloadSchema,
+  scanTriggerSchema,
   type CreateRepositoryScan,
+  type ScanTrigger,
 } from "@agentshield/schemas";
 
 import { prisma } from "../db/prisma.js";
@@ -18,6 +20,15 @@ const RETRY_MAX_MS = 60_000;
 
 export const SCAN_LEASE_MS = STALE_LOCK_MS;
 export const SCAN_HEARTBEAT_MS = Math.max(1_000, Math.floor(SCAN_LEASE_MS / 3));
+
+export interface ScanProvenance {
+  trigger?: ScanTrigger;
+  webhook?: {
+    deliveryId: string;
+    eventName: string;
+    action?: string;
+  };
+}
 
 export function calculateRetryDelayMs(attempt: number, random = Math.random): number {
   const exponent = Math.max(0, Math.min(10, Math.floor(attempt) - 1));
@@ -32,8 +43,10 @@ export async function enqueueRepositoryScan(
   organizationId: string,
   requester: string,
   correlationId: string,
+  provenance: ScanProvenance = {},
 ): Promise<{ id: string; scanId: string; status: ScanStatus }> {
   const request = createRepositoryScanSchema.parse(input);
+  const trigger = scanTriggerSchema.parse(provenance.trigger ?? "MANUAL");
   const scopedIdempotencyKey = `${organizationId}:${idempotencyKey}`;
   const existing = await prisma.scanJob.findUnique({
     where: { idempotencyKey: scopedIdempotencyKey },
@@ -44,58 +57,90 @@ export async function enqueueRepositoryScan(
   return prisma.$transaction(async (tx) => {
     const repository = await tx.repository.findFirst({
       where: { id: request.repositoryId, organizationId },
-      select: { id: true, provider: true, fullName: true, defaultBranch: true },
+      select: {
+        id: true,
+        provider: true,
+        fullName: true,
+        defaultBranch: true,
+        githubInstallation: { select: { installationId: true } },
+      },
     });
     if (repository == null) throw new Error("Repository is not registered for this organization.");
     const provider = repository.provider.toUpperCase();
     if (provider !== "GITHUB" && provider !== "LOCAL") {
       throw new Error("Repository provider is not supported.");
     }
-    const scan = await tx.scan.create({
-      data: {
-        repositoryName: repository.fullName,
-        repositoryUrl: provider === "GITHUB" ? `https://github.com/${repository.fullName}` : null,
-        branch: request.ref || repository.defaultBranch,
-        ...(request.commitSha == null ? {} : { commitSha: request.commitSha }),
-        status: ScanStatus.QUEUED,
-        organizationId,
-        repositoryId: repository.id,
-        metadata: {
-          source: "MANUAL",
-          triggeredBy: requester,
-          correlationId,
-          provider,
-          ref: request.ref,
-          policyBundleVersion: request.policyBundleVersion,
-        },
-      },
-    });
-    const payload = {
+    if (provider === "GITHUB" && repository.githubInstallation == null) {
+      throw new Error("GitHub repository is not bound to an active installation.");
+    }
+
+    const github =
+      provider === "GITHUB"
+        ? {
+            installationId: repository.githubInstallation!.installationId,
+            repositoryFullName: repository.fullName,
+            ...(provenance.webhook == null
+              ? {}
+              : {
+                  deliveryId: provenance.webhook.deliveryId,
+                  eventName: provenance.webhook.eventName,
+                  ...(provenance.webhook.action == null
+                    ? {}
+                    : { action: provenance.webhook.action }),
+                }),
+          }
+        : undefined;
+
+    const payload = scanJobPayloadSchema.parse({
       organizationId,
+      ...(github == null ? {} : { integrationId: String(github.installationId), github }),
       repositoryId: repository.id,
       provider,
       repositoryName: repository.fullName,
       ...(provider === "GITHUB"
         ? { repositoryUrl: `https://github.com/${repository.fullName}` }
         : {}),
-      ref: request.ref,
+      ref: request.ref || repository.defaultBranch,
       ...(request.commitSha == null ? {} : { commitSha: request.commitSha }),
       policyBundleVersion: request.policyBundleVersion,
-      trigger: "MANUAL" as const,
+      trigger,
       requester,
       correlationId,
       options: request.options,
-    };
+    });
+
+    const scan = await tx.scan.create({
+      data: {
+        repositoryName: repository.fullName,
+        repositoryUrl: provider === "GITHUB" ? `https://github.com/${repository.fullName}` : null,
+        branch: payload.ref,
+        ...(payload.commitSha == null ? {} : { commitSha: payload.commitSha }),
+        status: ScanStatus.QUEUED,
+        organizationId,
+        repositoryId: repository.id,
+        metadata: {
+          source: trigger,
+          triggeredBy: requester,
+          correlationId,
+          provider,
+          ref: payload.ref,
+          policyBundleVersion: request.policyBundleVersion,
+          ...(github?.deliveryId == null ? {} : { deliveryId: github.deliveryId }),
+          ...(github?.eventName == null ? {} : { eventName: github.eventName }),
+          ...(github?.action == null ? {} : { action: github.action }),
+        },
+      },
+    });
     const job = await tx.scanJob.create({
       data: {
         scanId: scan.id,
         idempotencyKey: scopedIdempotencyKey,
         status: ScanStatus.QUEUED,
         provider,
-        repositoryRef: request.ref,
-        ...(request.commitSha == null ? {} : { commitSha: request.commitSha }),
+        repositoryRef: payload.ref,
+        ...(payload.commitSha == null ? {} : { commitSha: payload.commitSha }),
         policyBundleVersion: request.policyBundleVersion,
-        trigger: "MANUAL",
+        trigger,
         requester,
         correlationId,
         payload,
@@ -327,7 +372,7 @@ export async function processNextScanJob(
     }, payload.options.timeoutMs);
     await executor.execute({
       scanId: candidate.scanId,
-      payload: candidate.payload,
+      payload: latest.payload,
       signal: abortController.signal,
     });
     if (leaseLost) throw new Error("WORKER_LEASE_LOST");
