@@ -13,6 +13,11 @@ function appConfig(privateKey: string): GitHubAppConfig {
   };
 }
 
+function rsaPem(): string {
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  return privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+}
+
 function repositoryPage(start: number, count: number) {
   return {
     repositories: Array.from({ length: count }, (_, index) => ({
@@ -27,10 +32,7 @@ function repositoryPage(start: number, count: number) {
 
 describe("FetchGitHubAppClient credential validation", () => {
   it("accepts a real RSA private key by signing an RS256 JWT locally", async () => {
-    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
-    const pem = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
-
-    await expect(new FetchGitHubAppClient(appConfig(pem)).validateAppCredentials()).resolves.toBe(
+    await expect(new FetchGitHubAppClient(appConfig(rsaPem())).validateAppCredentials()).resolves.toBe(
       undefined,
     );
   });
@@ -53,6 +55,58 @@ describe("FetchGitHubAppClient credential validation", () => {
 
     await expect(new FetchGitHubAppClient(appConfig(pem)).validateAppCredentials()).rejects.toThrow(
       "GitHub App private key must be an RSA private key",
+    );
+  });
+});
+
+describe("FetchGitHubAppClient installation verification", () => {
+  it("loads canonical installation identity using an App JWT", async () => {
+    const requestedUrls: string[] = [];
+    const fetchImpl: typeof fetch = (input, init) => {
+      requestedUrls.push(String(input));
+      const authorization = new Headers(init?.headers).get("authorization");
+      expect(authorization).toMatch(/^Bearer [^.]+\.[^.]+\.[^.]+$/);
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: 42,
+            account: { login: "verified-org", type: "Organization" },
+            permissions: { checks: "write", contents: "read", invalid: 123 },
+            suspended_at: null,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    };
+    const client = new FetchGitHubAppClient(appConfig(rsaPem()), { fetchImpl });
+
+    await expect(client.getInstallation(42)).resolves.toEqual({
+      installationId: 42,
+      accountLogin: "verified-org",
+      accountType: "Organization",
+      permissions: { checks: "write", contents: "read" },
+      suspended: false,
+    });
+    expect(requestedUrls).toEqual(["https://api.github.com/app/installations/42"]);
+  });
+
+  it("rejects inconsistent installation identity returned by GitHub", async () => {
+    const fetchImpl: typeof fetch = () =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: 99,
+            account: { login: "verified-org", type: "Organization" },
+            permissions: {},
+            suspended_at: null,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    const client = new FetchGitHubAppClient(appConfig(rsaPem()), { fetchImpl });
+
+    await expect(client.getInstallation(42)).rejects.toThrow(
+      "GitHub returned invalid installation metadata",
     );
   });
 });
