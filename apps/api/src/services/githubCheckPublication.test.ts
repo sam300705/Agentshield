@@ -120,7 +120,10 @@ describe("GitHub Check publication queue", () => {
     };
     const appClient: GitHubCheckAppClient = {
       createInstallationToken: vi.fn(() =>
-        Promise.resolve({ token: "installation-token", expiresAt: new Date("2030-01-01T00:00:00Z") }),
+        Promise.resolve({
+          token: "installation-token",
+          expiresAt: new Date("2030-01-01T00:00:00Z"),
+        }),
       ),
       withInstallationToken: vi.fn(() => checksClient),
     };
