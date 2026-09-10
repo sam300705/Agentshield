@@ -46,7 +46,11 @@ jobs:
       - run: pnpm db:generate
       - run: pnpm exec prisma validate
       - run: pnpm db:deploy
-      - run: pnpm format:check
+      - name: Diagnose installation test formatting
+        run: |
+          pnpm exec prettier --write apps/api/src/integrations/githubInstallationService.test.ts
+          git diff -- apps/api/src/integrations/githubInstallationService.test.ts
+          exit 1
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
