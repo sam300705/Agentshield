@@ -1,4 +1,6 @@
-import { importPKCS8, SignJWT } from "jose";
+import { createPrivateKey, type KeyObject } from "node:crypto";
+
+import { SignJWT } from "jose";
 
 import type { GitHubAppClient, GitHubAppConfig, GitHubRepository } from "./githubApp.js";
 import type { GitHubCheckRunRequest, GitHubChecksClient } from "./githubChecks.js";
@@ -78,14 +80,35 @@ export class FetchGitHubAppClient
     });
   }
 
+  private loadPrivateKey(): KeyObject {
+    let key: KeyObject;
+    try {
+      key = createPrivateKey(this.config.privateKey);
+    } catch {
+      throw new Error("GitHub App private key is not a valid RSA private key.");
+    }
+    if (key.type !== "private" || key.asymmetricKeyType !== "rsa") {
+      throw new Error("GitHub App private key must be an RSA private key.");
+    }
+    return key;
+  }
+
   private async createAppJwt(): Promise<string> {
     const issuedAt = Math.floor(this.now() / 1_000) - 60;
-    const key = await importPKCS8(this.config.privateKey, "RS256");
-    return new SignJWT({ iss: this.config.appId })
-      .setProtectedHeader({ alg: "RS256", typ: "JWT" })
-      .setIssuedAt(issuedAt)
-      .setExpirationTime(issuedAt + 9 * 60)
-      .sign(key);
+    const key = this.loadPrivateKey();
+    try {
+      return await new SignJWT({ iss: this.config.appId })
+        .setProtectedHeader({ alg: "RS256", typ: "JWT" })
+        .setIssuedAt(issuedAt)
+        .setExpirationTime(issuedAt + 9 * 60)
+        .sign(key);
+    } catch {
+      throw new Error("GitHub App private key could not sign an RS256 JWT.");
+    }
+  }
+
+  async validateAppCredentials(): Promise<void> {
+    await this.createAppJwt();
   }
 
   private async request<T>(
