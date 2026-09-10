@@ -15,12 +15,14 @@ export interface GitHubWebhookLifecycleClient {
         organizationId: true;
         accountLogin: true;
         installationId: true;
+        status: true;
       };
     }): Promise<{
       id: string;
       organizationId: string;
       accountLogin: string;
       installationId: number;
+      status: string;
     } | null>;
   };
   repository: {
@@ -116,9 +118,19 @@ export async function processGitHubWebhookDelivery(
 
   const installation = await options.client.gitHubInstallation.findUnique({
     where: { installationId: webhook.installationId },
-    select: { id: true, organizationId: true, accountLogin: true, installationId: true },
+    select: {
+      id: true,
+      organizationId: true,
+      accountLogin: true,
+      installationId: true,
+      status: true,
+    },
   });
-  if (installation == null || installation.organizationId !== organizationId) {
+  if (
+    installation == null ||
+    installation.organizationId !== organizationId ||
+    installation.status !== "ACTIVE"
+  ) {
     await options.deliveryStore.markIgnored(
       organizationId,
       webhook.deliveryId,
