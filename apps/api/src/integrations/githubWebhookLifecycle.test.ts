@@ -55,11 +55,13 @@ function makeClient(
     organizationId: string;
     accountLogin: string;
     installationId: number;
+    status?: string;
   } | null = {
     id: "installation-row",
     organizationId: "org-test",
     accountLogin: "octo-org",
     installationId: 42,
+    status: "ACTIVE",
   },
   repository: { id: string; fullName: string; defaultBranch: string } | null = {
     id: "repository-row",
@@ -68,9 +70,11 @@ function makeClient(
   },
 ): TestLifecycleClient {
   const repositoryFindFirst = vi.fn(() => Promise.resolve(repository));
+  const installationRecord =
+    installation == null ? null : { ...installation, status: installation.status ?? "ACTIVE" };
   return {
     gitHubInstallation: {
-      findUnique: vi.fn(() => Promise.resolve(installation)),
+      findUnique: vi.fn(() => Promise.resolve(installationRecord)),
     },
     repository: {
       findFirst: repositoryFindFirst,
@@ -175,6 +179,17 @@ describe("processGitHubWebhookDelivery", () => {
         organizationId: "other-org",
         accountLogin: "octo-org",
         installationId: 42,
+      }),
+      "UNKNOWN_INSTALLATION",
+    ],
+    [
+      "inactive installation",
+      makeClient({
+        id: "installation-row",
+        organizationId: "org-test",
+        accountLogin: "octo-org",
+        installationId: 42,
+        status: "SUSPENDED",
       }),
       "UNKNOWN_INSTALLATION",
     ],
