@@ -90,21 +90,14 @@ describe("enqueueRepositoryScan trusted lineage", () => {
   });
 
   it("persists webhook provenance and never rewrites PUSH to MANUAL", async () => {
-    await enqueueRepositoryScan(
-      request(),
-      "push-key-1",
-      "org-1",
-      "github:webhook",
-      "corr-2",
-      {
-        trigger: "PUSH",
-        webhook: {
-          deliveryId: "delivery-1",
-          eventName: "push",
-          action: "synchronize",
-        },
+    await enqueueRepositoryScan(request(), "push-key-1", "org-1", "github:webhook", "corr-2", {
+      trigger: "PUSH",
+      webhook: {
+        deliveryId: "delivery-1",
+        eventName: "push",
+        action: "synchronize",
       },
-    );
+    });
 
     const createCall = fake.scanJobCreate.mock.calls[0]?.[0] as {
       data?: { trigger?: string; payload?: unknown };
