@@ -23,6 +23,15 @@ export interface GitHubCheckAppClient {
   withInstallationToken(token: string): GitHubChecksClient;
 }
 
+export type AbandonedGitHubCheckDisposition = "DEAD_LETTER" | "RETRY";
+
+export function classifyAbandonedGitHubCheckPublication(input: {
+  attempts: number;
+  maxAttempts: number;
+}): AbandonedGitHubCheckDisposition {
+  return input.attempts >= input.maxAttempts ? "DEAD_LETTER" : "RETRY";
+}
+
 export function calculateGitHubCheckRetryDelayMs(attempt: number, random = Math.random): number {
   const exponent = Math.max(0, Math.min(10, Math.floor(attempt) - 1));
   const base = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** exponent);
@@ -127,21 +136,57 @@ export async function recoverAbandonedGitHubCheckPublications(
   client: PrismaClient,
   now = new Date(),
 ): Promise<number> {
-  const result = await client.gitHubCheckPublication.updateMany({
+  const stale = await client.gitHubCheckPublication.findMany({
     where: {
       status: "RUNNING",
       leaseExpiresAt: { lt: now },
     },
-    data: {
-      status: "FAILED",
-      lockedAt: null,
-      lockedBy: null,
-      leaseExpiresAt: null,
-      failureMessage: "GitHub Check publisher lease expired; publication is eligible for retry.",
-      nextAttemptAt: now,
-    },
+    select: { id: true, status: true, attempts: true, maxAttempts: true },
+    take: CLAIM_BATCH_SIZE,
   });
-  return result.count;
+  const abandoned = stale.filter((item) => item.status === "RUNNING");
+  if (abandoned.length === 0) return 0;
+
+  const retryableIds = abandoned
+    .filter((item) => classifyAbandonedGitHubCheckPublication(item) === "RETRY")
+    .map((item) => item.id);
+  const exhaustedIds = abandoned
+    .filter((item) => classifyAbandonedGitHubCheckPublication(item) === "DEAD_LETTER")
+    .map((item) => item.id);
+  let recovered = 0;
+
+  if (retryableIds.length > 0) {
+    const result = await client.gitHubCheckPublication.updateMany({
+      where: { id: { in: retryableIds }, status: "RUNNING" },
+      data: {
+        status: "FAILED",
+        lockedAt: null,
+        lockedBy: null,
+        leaseExpiresAt: null,
+        failureMessage: "GitHub Check publisher lease expired; publication is eligible for retry.",
+        nextAttemptAt: now,
+      },
+    });
+    recovered += result.count;
+  }
+
+  if (exhaustedIds.length > 0) {
+    const result = await client.gitHubCheckPublication.updateMany({
+      where: { id: { in: exhaustedIds }, status: "RUNNING" },
+      data: {
+        status: "DEAD_LETTER",
+        lockedAt: null,
+        lockedBy: null,
+        leaseExpiresAt: null,
+        failureMessage: "GitHub Check publisher lease expired on the final allowed attempt.",
+        deadLetteredAt: now,
+        nextAttemptAt: null,
+      },
+    });
+    recovered += result.count;
+  }
+
+  return recovered;
 }
 
 async function claimPublication(client: PrismaClient, workerId: string, now: Date) {
@@ -163,6 +208,7 @@ async function claimPublication(client: PrismaClient, workerId: string, now: Dat
       id: candidate.id,
       status: candidate.status,
       attempts: candidate.attempts,
+      deadLetteredAt: null,
       lockedAt: null,
     },
     data: {
