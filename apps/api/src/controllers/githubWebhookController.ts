@@ -2,10 +2,12 @@ import type { Request, Response } from "express";
 
 import { getRuntimeConfig } from "../config.js";
 import { prisma } from "../db/prisma.js";
-import { getCorrelationId } from "../security/auth.js";
+import { FetchGitHubAppClient } from "../integrations/githubApiClient.js";
 import { parseVerifiedGitHubWebhook } from "../integrations/githubApp.js";
 import { PrismaGitHubDeliveryStore } from "../integrations/githubDeliveryStore.js";
+import { bindAndSynchronizeGitHubInstallation } from "../integrations/githubInstallationBindingService.js";
 import { processGitHubWebhookDelivery } from "../integrations/githubWebhookLifecycle.js";
+import { getCorrelationId } from "../security/auth.js";
 
 function sendWebhookError(response: Response, status: number, code: string, message: string): void {
   response.status(status).json({
@@ -78,6 +80,19 @@ export async function githubWebhookController(request: Request, response: Respon
     return;
   }
 
+  const canSynchronizeInstallation =
+    config.GITHUB_APP_ID != null &&
+    config.GITHUB_PRIVATE_KEY != null &&
+    config.GITHUB_WEBHOOK_SECRET != null;
+  const githubClient = canSynchronizeInstallation
+    ? new FetchGitHubAppClient({
+        appId: config.GITHUB_APP_ID!,
+        privateKey: config.GITHUB_PRIVATE_KEY!,
+        webhookSecret: config.GITHUB_WEBHOOK_SECRET,
+        ...(config.GITHUB_CLIENT_ID == null ? {} : { clientId: config.GITHUB_CLIENT_ID }),
+      })
+    : null;
+
   const lifecycle = await processGitHubWebhookDelivery(
     installation.organizationId,
     webhook,
@@ -89,6 +104,17 @@ export async function githubWebhookController(request: Request, response: Respon
       ...(config.GITHUB_SCAN_POLICY_BUNDLE_VERSION == null
         ? {}
         : { policyBundleVersion: config.GITHUB_SCAN_POLICY_BUNDLE_VERSION }),
+      ...(githubClient == null
+        ? {}
+        : {
+            synchronizeInstallation: async (organizationId, installationId) => {
+              await bindAndSynchronizeGitHubInstallation(prisma, githubClient, {
+                organizationId,
+                installationId,
+                requireChecksWrite: config.githubChecksEnabled,
+              });
+            },
+          }),
     },
   );
   response.status(lifecycle.status === "FAILED" ? 503 : 202).json({
