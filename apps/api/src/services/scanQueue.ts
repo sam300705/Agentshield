@@ -429,11 +429,7 @@ export async function processNextScanJob(
       await tx.scan.update({
         where: { id: candidate.scanId },
         data: {
-          status: cancelled
-            ? ScanStatus.CANCELLED
-            : exhausted
-              ? ScanStatus.DEAD_LETTER
-              : ScanStatus.FAILED,
+          status: cancelled ? ScanStatus.CANCELLED : ScanStatus.FAILED,
           ...(cancelled || exhausted ? { completedAt: new Date() } : {}),
         },
       });
