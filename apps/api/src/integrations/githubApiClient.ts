@@ -251,7 +251,11 @@ export class FetchGitHubAppClient
           await this.sleep(this.retryDelay(null, attempt));
           continue;
         }
-        throw new GitHubApiError("GitHub API request failed before receiving a response.", null, null);
+        throw new GitHubApiError(
+          "GitHub API request failed before receiving a response.",
+          null,
+          null,
+        );
       }
 
       if (!response.ok) {
@@ -275,7 +279,11 @@ export class FetchGitHubAppClient
       }
       const parsed = schema.safeParse(value);
       if (!parsed.success) {
-        throw new GitHubApiError("GitHub API returned an invalid response shape.", response.status, null);
+        throw new GitHubApiError(
+          "GitHub API returned an invalid response shape.",
+          response.status,
+          null,
+        );
       }
       return { data: parsed.data, headers: response.headers };
     }
