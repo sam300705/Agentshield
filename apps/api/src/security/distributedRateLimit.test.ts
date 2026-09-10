@@ -30,7 +30,8 @@ function requestUrl(input: Parameters<typeof fetch>[0]): string {
 
 function requestBody(init: RequestInit | undefined): unknown[] {
   const body = init?.body;
-  if (typeof body !== "string") throw new Error("Expected Redis REST request body to be JSON text.");
+  if (typeof body !== "string")
+    throw new Error("Expected Redis REST request body to be JSON text.");
   const parsed: unknown = JSON.parse(body);
   if (!Array.isArray(parsed)) throw new Error("Expected Redis REST command body to be an array.");
   return parsed;
