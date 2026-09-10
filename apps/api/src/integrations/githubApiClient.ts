@@ -304,7 +304,7 @@ export class FetchGitHubAppClient
       throw new Error("GitHub returned invalid installation metadata.");
     }
     const permissions = Object.fromEntries(
-      Object.entries(data.permissions).filter(
+      Object.entries(data.permissions ?? {}).filter(
         (entry): entry is [string, string] =>
           entry[0].length > 0 &&
           entry[0].length <= 128 &&
