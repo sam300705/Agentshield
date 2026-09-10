@@ -52,6 +52,10 @@ const baseSchema = z.object({
   RATE_LIMIT_ENABLED: booleanFromEnv.optional(),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().max(100_000).default(120),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().max(86_400_000).default(60_000),
+  RATE_LIMIT_BACKEND: z.enum(["memory", "redis-rest"]).default("memory"),
+  RATE_LIMIT_REDIS_REST_URL: optionalUrl,
+  RATE_LIMIT_REDIS_REST_TOKEN: optionalString,
+  RATE_LIMIT_REDIS_TIMEOUT_MS: z.coerce.number().int().positive().max(30_000).default(2_000),
   GITHUB_APP_ID: optionalString,
   GITHUB_CLIENT_ID: optionalString,
   GITHUB_WEBHOOK_SECRET: optionalString,
@@ -91,6 +95,7 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
   const isProduction = value.NODE_ENV === "production";
   const demoEnabled = value.DEMO_AUTH_ENABLED === true;
   const corsOrigin = value.CORS_ORIGIN ?? (isProduction ? undefined : "http://localhost:5173");
+  const rateLimitEnabled = value.RATE_LIMIT_ENABLED ?? isProduction;
 
   if (value.DATABASE_URL == null) issues.push("DATABASE_URL is required");
   if (corsOrigin == null) issues.push("CORS_ORIGIN is required");
@@ -100,6 +105,26 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
   if (isProduction && demoEnabled) {
     issues.push("DEMO_AUTH_ENABLED must be false or unset in production");
   }
+  if (isProduction && !rateLimitEnabled) {
+    issues.push("RATE_LIMIT_ENABLED cannot be disabled in production");
+  }
+  if (isProduction && rateLimitEnabled && value.RATE_LIMIT_BACKEND !== "redis-rest") {
+    issues.push("RATE_LIMIT_BACKEND must be redis-rest in production");
+  }
+  if (rateLimitEnabled && value.RATE_LIMIT_BACKEND === "redis-rest") {
+    if (value.RATE_LIMIT_REDIS_REST_URL == null) {
+      issues.push("RATE_LIMIT_REDIS_REST_URL is required for redis-rest rate limiting");
+    } else if (
+      isProduction &&
+      new URL(value.RATE_LIMIT_REDIS_REST_URL).protocol.toLowerCase() !== "https:"
+    ) {
+      issues.push("RATE_LIMIT_REDIS_REST_URL must use HTTPS in production");
+    }
+    if (value.RATE_LIMIT_REDIS_REST_TOKEN == null) {
+      issues.push("RATE_LIMIT_REDIS_REST_TOKEN is required for redis-rest rate limiting");
+    }
+  }
+
   const localDemoMode = !isProduction && demoEnabled;
   const githubWebhookEnabled = value.GITHUB_WEBHOOK_ENABLED === true;
   const githubScanLifecycleEnabled = value.GITHUB_SCAN_LIFECYCLE_ENABLED === true;
@@ -152,7 +177,7 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
   return {
     ...value,
     corsOrigin: corsOrigin ?? "http://localhost:5173",
-    rateLimitEnabled: value.RATE_LIMIT_ENABLED ?? isProduction,
+    rateLimitEnabled,
     githubWebhookEnabled,
     githubScanLifecycleEnabled,
     githubMaterializationEnabled,
