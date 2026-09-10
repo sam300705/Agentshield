@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { VerifiedGitHubWebhook } from "./githubApp.js";
+import type { GitHubDeliveryStore } from "./githubDeliveryStore.js";
 import {
   processGitHubWebhookDelivery,
   type GitHubWebhookLifecycleClient,
 } from "./githubWebhookLifecycle.js";
-import type { GitHubDeliveryStore } from "./githubDeliveryStore.js";
 
 const commitSha = "0123456789abcdef0123456789abcdef01234567";
 
@@ -13,11 +13,12 @@ function makeWebhook(
   eventName: string,
   payload: Record<string, unknown>,
   repositoryFullName = "octo/example",
+  action: string | null = "opened",
 ): VerifiedGitHubWebhook {
   return {
-    deliveryId: `delivery-${eventName}`,
+    deliveryId: `delivery-${eventName}-${action ?? "none"}`,
     eventName,
-    action: "opened",
+    action,
     installationId: 42,
     organizationLogin: "octo-org",
     repositoryFullName,
@@ -47,6 +48,8 @@ function makeStore(): GitHubDeliveryStore & {
 
 type TestLifecycleClient = GitHubWebhookLifecycleClient & {
   repositoryFindFirst: ReturnType<typeof vi.fn>;
+  repositoryUpdateMany: ReturnType<typeof vi.fn>;
+  installationUpdateMany: ReturnType<typeof vi.fn>;
 };
 
 function makeClient(
@@ -70,16 +73,22 @@ function makeClient(
   },
 ): TestLifecycleClient {
   const repositoryFindFirst = vi.fn(() => Promise.resolve(repository));
+  const repositoryUpdateMany = vi.fn(() => Promise.resolve({ count: 1 }));
+  const installationUpdateMany = vi.fn(() => Promise.resolve({ count: 1 }));
   const installationRecord =
     installation == null ? null : { ...installation, status: installation.status ?? "ACTIVE" };
   return {
     gitHubInstallation: {
       findUnique: vi.fn(() => Promise.resolve(installationRecord)),
+      updateMany: installationUpdateMany,
     },
     repository: {
       findFirst: repositoryFindFirst,
+      updateMany: repositoryUpdateMany,
     },
     repositoryFindFirst,
+    repositoryUpdateMany,
+    installationUpdateMany,
   };
 }
 
@@ -116,14 +125,14 @@ describe("processGitHubWebhookDelivery", () => {
         commitSha,
         policyBundleVersion: "policy-v1",
       }),
-      "github:delivery-push",
+      "github:delivery-push-opened",
       "org-test",
       "github:webhook",
       "corr-test",
       {
         trigger: "PUSH",
         webhook: {
-          deliveryId: "delivery-push",
+          deliveryId: "delivery-push-opened",
           eventName: "push",
           action: "opened",
         },
@@ -162,12 +171,89 @@ describe("processGitHubWebhookDelivery", () => {
       {
         trigger: "PULL_REQUEST",
         webhook: {
-          deliveryId: "delivery-pull_request",
+          deliveryId: "delivery-pull_request-opened",
           eventName: "pull_request",
           action: "opened",
         },
       },
     );
+  });
+
+  it("immediately revokes a suspended installation and detaches its repositories", async () => {
+    const store = makeStore();
+    const client = makeClient();
+    const result = await processGitHubWebhookDelivery(
+      "org-test",
+      makeWebhook("installation", {}, null as unknown as string, "suspend"),
+      "corr-suspend",
+      {
+        client,
+        deliveryStore: store,
+        scanLifecycleEnabled: false,
+      },
+    );
+
+    expect(result).toEqual({ status: "PROCESSED", scanQueued: false });
+    expect(client.installationUpdateMany).toHaveBeenCalledWith({
+      where: {
+        id: "installation-row",
+        organizationId: "org-test",
+        installationId: 42,
+      },
+      data: { status: "SUSPENDED" },
+    });
+    expect(client.repositoryUpdateMany).toHaveBeenCalledWith({
+      where: { organizationId: "org-test", githubInstallationId: "installation-row" },
+      data: { githubInstallationId: null },
+    });
+    expect(store.calls.at(-1)?.method).toBe("markProcessed");
+  });
+
+  it("canonically resynchronizes signed repository-access changes", async () => {
+    const store = makeStore();
+    const synchronizeInstallation = vi.fn(() => Promise.resolve());
+    const result = await processGitHubWebhookDelivery(
+      "org-test",
+      makeWebhook("installation_repositories", {}, "octo/example", "added"),
+      "corr-repositories",
+      {
+        client: makeClient(),
+        deliveryStore: store,
+        scanLifecycleEnabled: false,
+        synchronizeInstallation,
+      },
+    );
+
+    expect(result).toEqual({ status: "PROCESSED", scanQueued: false });
+    expect(synchronizeInstallation).toHaveBeenCalledWith("org-test", 42);
+    expect(store.calls.at(-1)?.method).toBe("markProcessed");
+  });
+
+  it("can recover a previously suspended installation only through canonical resync", async () => {
+    const store = makeStore();
+    const synchronizeInstallation = vi.fn(() => Promise.resolve());
+    const client = makeClient({
+      id: "installation-row",
+      organizationId: "org-test",
+      accountLogin: "octo-org",
+      installationId: 42,
+      status: "SUSPENDED",
+    });
+    const result = await processGitHubWebhookDelivery(
+      "org-test",
+      makeWebhook("installation", {}, "octo/example", "unsuspend"),
+      "corr-unsuspend",
+      {
+        client,
+        deliveryStore: store,
+        scanLifecycleEnabled: true,
+        policyBundleVersion: "policy-v1",
+        synchronizeInstallation,
+      },
+    );
+
+    expect(result).toEqual({ status: "PROCESSED", scanQueued: false });
+    expect(synchronizeInstallation).toHaveBeenCalledWith("org-test", 42);
   });
 
   it.each([
@@ -276,7 +362,7 @@ describe("processGitHubWebhookDelivery", () => {
     expect(enqueueScan).not.toHaveBeenCalled();
   });
 
-  it("ignores unsupported events and disabled lifecycle without creating jobs", async () => {
+  it("ignores unsupported events and disables scan events without creating jobs", async () => {
     const store = makeStore();
     const enqueueScan = vi.fn();
     const base = {
@@ -286,7 +372,7 @@ describe("processGitHubWebhookDelivery", () => {
       enqueueScan,
     };
     await expect(
-      processGitHubWebhookDelivery("org-test", makeWebhook("installation", {}), "corr-install", {
+      processGitHubWebhookDelivery("org-test", makeWebhook("issues", {}), "corr-issues", {
         ...base,
         scanLifecycleEnabled: true,
         policyBundleVersion: "policy-v1",
@@ -321,7 +407,7 @@ describe("processGitHubWebhookDelivery", () => {
     expect(result).toEqual({ status: "FAILED", reason: "QUEUE_FAILED", scanQueued: false });
     expect(store.calls.at(-1)).toEqual({
       method: "markFailed",
-      args: ["org-test", "delivery-push", "QUEUE_FAILED"],
+      args: ["org-test", "delivery-push-opened", "QUEUE_FAILED"],
     });
   });
 });
