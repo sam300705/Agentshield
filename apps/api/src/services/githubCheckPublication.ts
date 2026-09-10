@@ -105,22 +105,17 @@ export async function discoverGitHubCheckPublications(client: PrismaClient): Pro
     take: DISCOVERY_BATCH_SIZE,
     select: { id: true, organizationId: true },
   });
-
-  let created = 0;
-  for (const scan of scans) {
-    if (scan.organizationId == null) continue;
-    const result = await client.gitHubCheckPublication.upsert({
-      where: { scanId: scan.id },
-      update: {},
-      create: {
-        scanId: scan.id,
-        organizationId: scan.organizationId,
-      },
-      select: { createdAt: true, updatedAt: true },
-    });
-    if (result.createdAt.getTime() === result.updatedAt.getTime()) created += 1;
-  }
-  return created;
+  const data = scans.flatMap((scan) =>
+    scan.organizationId == null
+      ? []
+      : [{ scanId: scan.id, organizationId: scan.organizationId }],
+  );
+  if (data.length === 0) return 0;
+  const result = await client.gitHubCheckPublication.createMany({
+    data,
+    skipDuplicates: true,
+  });
+  return result.count;
 }
 
 export async function recoverAbandonedGitHubCheckPublications(
@@ -195,6 +190,7 @@ export async function processNextGitHubCheckPublication(
       where: { id: publication.scanId },
       select: {
         id: true,
+        status: true,
         organizationId: true,
         commitSha: true,
         startedAt: true,
@@ -223,7 +219,7 @@ export async function processNextGitHubCheckPublication(
       },
     });
     if (
-      scan.status === undefined ||
+      scan.status !== ScanStatus.COMPLETED ||
       scan.organizationId == null ||
       scan.organizationId !== publication.organizationId ||
       scan.repository == null ||
@@ -253,6 +249,7 @@ export async function processNextGitHubCheckPublication(
     const externalId = `agentshield:scan:${scan.id}`;
     const counts = findingCounts(scan.receipt.findingCounts);
     const outcome = scan.receipt.gateResult as AgentShieldOutcome;
+    const scanDetailsUrl = detailsUrl(dashboardPublicUrl, scan.id);
     const request = {
       owner,
       repository,
@@ -261,13 +258,13 @@ export async function processNextGitHubCheckPublication(
       externalId,
       status: "completed" as const,
       conclusion: mapOutcomeToGitHubConclusion(outcome),
-      detailsUrl: detailsUrl(dashboardPublicUrl, scan.id),
+      detailsUrl: scanDetailsUrl,
       output: buildGitHubCheckOutput({
         outcome,
         findingCounts: counts,
         highestSeverity: highestSeverity(counts),
         policyVersion: scan.receipt.policyBundleVersion,
-        scanUrl: detailsUrl(dashboardPublicUrl, scan.id),
+        scanUrl: scanDetailsUrl,
       }),
       startedAt: scan.startedAt,
       completedAt: scan.completedAt ?? new Date(),
