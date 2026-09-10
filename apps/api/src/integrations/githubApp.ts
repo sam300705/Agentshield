@@ -13,6 +13,14 @@ export interface GitHubInstallationBinding {
   accountLogin: string;
 }
 
+export interface GitHubInstallationMetadata {
+  installationId: number;
+  accountLogin: string;
+  accountType: string;
+  permissions: Record<string, string>;
+  suspended: boolean;
+}
+
 export interface VerifiedGitHubWebhook {
   deliveryId: string;
   eventName: string;
@@ -32,6 +40,7 @@ export interface GitHubRepository {
 }
 
 export interface GitHubAppClient {
+  getInstallation(installationId: number): Promise<GitHubInstallationMetadata>;
   createInstallationToken(installationId: number): Promise<{ token: string; expiresAt: Date }>;
   listInstallationRepositories(installationId: number, token: string): Promise<GitHubRepository[]>;
 }
