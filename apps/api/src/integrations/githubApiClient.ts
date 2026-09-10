@@ -2,7 +2,12 @@ import { createPrivateKey, type KeyObject } from "node:crypto";
 
 import { SignJWT } from "jose";
 
-import type { GitHubAppClient, GitHubAppConfig, GitHubRepository } from "./githubApp.js";
+import type {
+  GitHubAppClient,
+  GitHubAppConfig,
+  GitHubInstallationMetadata,
+  GitHubRepository,
+} from "./githubApp.js";
 import type { GitHubCheckRunRequest, GitHubChecksClient } from "./githubChecks.js";
 
 const DEFAULT_API_BASE_URL = "https://api.github.com";
@@ -14,6 +19,13 @@ type FetchLike = typeof fetch;
 interface InstallationTokenResponse {
   token: string;
   expires_at: string;
+}
+
+interface InstallationResponse {
+  id: number;
+  account?: { login?: string; type?: string } | null;
+  permissions?: Record<string, unknown>;
+  suspended_at?: string | null;
 }
 
 interface RepositoryListResponse {
@@ -133,6 +145,44 @@ export class FetchGitHubAppClient
     }
 
     return { data: (await response.json()) as T, headers: response.headers };
+  }
+
+  async getInstallation(installationId: number): Promise<GitHubInstallationMetadata> {
+    const jwt = await this.createAppJwt();
+    const { data } = await this.request<InstallationResponse>(
+      "GET",
+      `/app/installations/${installationId}`,
+      jwt,
+    );
+    const accountLogin = data.account?.login;
+    const accountType = data.account?.type;
+    if (
+      data.id !== installationId ||
+      typeof accountLogin !== "string" ||
+      accountLogin.length === 0 ||
+      accountLogin.length > 128 ||
+      typeof accountType !== "string" ||
+      accountType.length === 0 ||
+      accountType.length > 64
+    ) {
+      throw new Error("GitHub returned invalid installation metadata.");
+    }
+    const permissions = Object.fromEntries(
+      Object.entries(data.permissions ?? {}).filter(
+        (entry): entry is [string, string] =>
+          entry[0].length > 0 &&
+          entry[0].length <= 128 &&
+          typeof entry[1] === "string" &&
+          entry[1].length <= 64,
+      ),
+    );
+    return {
+      installationId: data.id,
+      accountLogin,
+      accountType,
+      permissions,
+      suspended: data.suspended_at != null,
+    };
   }
 
   async downloadRepositoryArchive(
