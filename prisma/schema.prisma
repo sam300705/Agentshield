@@ -136,31 +136,32 @@ enum EdgeConfidence {
 }
 
 model Scan {
-  id             String             @id @default(cuid())
-  repositoryName String
-  repositoryUrl  String?
-  branch         String
-  commitSha      String?
-  status         ScanStatus         @default(QUEUED)
-  metadata       Json               @default("{}")
-  startedAt      DateTime           @default(now())
-  completedAt    DateTime?
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
-  findings       Finding[]
-  dependencies   Dependency[]
-  auditEvents    AuditEvent[]
-  organizationId String?
-  organization   Organization?      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  repositoryId   String?
-  repository     Repository?        @relation(fields: [repositoryId], references: [id], onDelete: SetNull)
-  sessionId      String?
-  session        AgentSession?      @relation(fields: [sessionId], references: [id], onDelete: SetNull)
-  job            ScanJob?
-  simulations    PolicySimulation[]
-  receipt        SecurityReceipt?
-  advisories     Advisory[]
-  githubDeliveries GitHubWebhookDelivery[]
+  id                     String                  @id @default(cuid())
+  repositoryName         String
+  repositoryUrl          String?
+  branch                 String
+  commitSha              String?
+  status                 ScanStatus              @default(QUEUED)
+  metadata               Json                    @default("{}")
+  startedAt              DateTime                @default(now())
+  completedAt            DateTime?
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  findings               Finding[]
+  dependencies           Dependency[]
+  auditEvents            AuditEvent[]
+  organizationId         String?
+  organization           Organization?           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  repositoryId           String?
+  repository             Repository?             @relation(fields: [repositoryId], references: [id], onDelete: SetNull)
+  sessionId              String?
+  session                AgentSession?           @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  job                    ScanJob?
+  simulations            PolicySimulation[]
+  receipt                SecurityReceipt?
+  advisories             Advisory[]
+  githubDeliveries       GitHubWebhookDelivery[]
+  githubCheckPublication GitHubCheckPublication?
 
   @@index([status])
   @@index([repositoryName])
@@ -494,20 +495,20 @@ model PolicyBundleVersion {
 }
 
 model PolicySimulation {
-  id              String               @id @default(cuid())
+  id              String              @id @default(cuid())
   organizationId  String
-  organization    Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization    Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   sourceScanId    String?
-  sourceScan      Scan?                @relation(fields: [sourceScanId], references: [id], onDelete: Restrict)
+  sourceScan      Scan?               @relation(fields: [sourceScanId], references: [id], onDelete: Restrict)
   sourceSessionId String?
-  sourceSession   AgentSession?        @relation(fields: [sourceSessionId], references: [id], onDelete: Restrict)
+  sourceSession   AgentSession?       @relation(fields: [sourceSessionId], references: [id], onDelete: Restrict)
   bundleVersionId String
-  bundleVersion   PolicyBundleVersion  @relation(fields: [bundleVersionId], references: [id], onDelete: Restrict)
-  status          SimulationStatus     @default(QUEUED)
+  bundleVersion   PolicyBundleVersion @relation(fields: [bundleVersionId], references: [id], onDelete: Restrict)
+  status          SimulationStatus    @default(QUEUED)
   createdBy       String
-  createdAt       DateTime             @default(now())
+  createdAt       DateTime            @default(now())
   completedAt     DateTime?
-  summary         Json                 @default("{}")
+  summary         Json                @default("{}")
   decisions       SimulationDecision[]
 
   @@index([organizationId, createdAt])
@@ -649,6 +650,31 @@ model GitHubWebhookDelivery {
   @@index([installationId, receivedAt])
   @@index([correlationId])
   @@index([organizationId, scanId])
+}
+
+model GitHubCheckPublication {
+  id             String   @id @default(cuid())
+  scanId         String   @unique
+  scan           Scan     @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  organizationId String
+  status         String   @default("PENDING")
+  attempts       Int      @default(0)
+  maxAttempts    Int      @default(6)
+  nextAttemptAt  DateTime?
+  lockedAt       DateTime?
+  lockedBy       String?
+  leaseExpiresAt DateTime?
+  failureMessage String?
+  deadLetteredAt DateTime?
+  checkRunId     String?
+  publishedAt    DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([status, nextAttemptAt])
+  @@index([organizationId, status])
+  @@index([leaseExpiresAt])
+  @@index([deadLetteredAt])
 }
 
 model Advisory {
