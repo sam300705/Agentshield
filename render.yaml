@@ -3,12 +3,15 @@
 # This file defines the API and durable worker only. Neon remains the managed
 # PostgreSQL provider; its pooled and direct connection strings are entered as
 # secret values in the Render Dashboard when the Blueprint is created.
+#
+# The Blueprint follows main only after the stabilization PR has been reviewed
+# and merged. Do not point production services at temporary agent/arena branches.
 services:
   - type: web
     name: agentshield-api
     runtime: node
     repo: https://github.com/sam300705/Agentshield
-    branch: agent/production-hardening
+    branch: main
     rootDir: .
     plan: starter
     autoDeployTrigger: checksPass
@@ -33,7 +36,7 @@ services:
     name: agentshield-worker
     runtime: node
     repo: https://github.com/sam300705/Agentshield
-    branch: agent/production-hardening
+    branch: main
     rootDir: .
     plan: starter
     autoDeployTrigger: checksPass
@@ -75,3 +78,42 @@ envVarGroups:
         sync: false
       - key: OIDC_ROLE_CLAIM
         value: roles
+      # Production request protection is fail-closed and requires a shared store.
+      - key: RATE_LIMIT_ENABLED
+        value: "true"
+      - key: RATE_LIMIT_BACKEND
+        value: redis-rest
+      - key: RATE_LIMIT_REDIS_REST_URL
+        sync: false
+      - key: RATE_LIMIT_REDIS_REST_TOKEN
+        sync: false
+      - key: RATE_LIMIT_REDIS_TIMEOUT_MS
+        value: "2000"
+      # GitHub lifecycle capabilities remain disabled until the owner supplies
+      # and verifies the GitHub App credentials and policy configuration below.
+      - key: GITHUB_WEBHOOK_ENABLED
+        value: "false"
+      - key: GITHUB_SCAN_LIFECYCLE_ENABLED
+        value: "false"
+      - key: GITHUB_REPOSITORY_MATERIALIZATION_ENABLED
+        value: "false"
+      - key: GITHUB_CHECKS_ENABLED
+        value: "false"
+      - key: GITHUB_APP_ID
+        sync: false
+      - key: GITHUB_PRIVATE_KEY
+        sync: false
+      - key: GITHUB_WEBHOOK_SECRET
+        sync: false
+      - key: GITHUB_POLICY_BUNDLE_VERSION
+        sync: false
+      - key: DASHBOARD_PUBLIC_URL
+        sync: false
+      - key: OSV_ENRICHMENT_ENABLED
+        value: "false"
+      # Optional local Ed25519 receipt signing. Production signing custody must
+      # be configured according to the security operations runbook.
+      - key: RECEIPT_SIGNING_KEY_ID
+        sync: false
+      - key: RECEIPT_SIGNING_PRIVATE_KEY
+        sync: false
