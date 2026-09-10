@@ -64,9 +64,9 @@ describe("GitHub App webhook boundary", () => {
         "synthetic-secret",
       ),
     ).toBe(false);
-    expect(() =>
-      parseVerifiedGitHubWebhook(invalidHeaders, body, "synthetic-secret"),
-    ).toThrow("Invalid GitHub webhook signature");
+    expect(() => parseVerifiedGitHubWebhook(invalidHeaders, body, "synthetic-secret")).toThrow(
+      "Invalid GitHub webhook signature",
+    );
 
     const guard = new WebhookReplayGuard();
     expect(guard.accept("delivery-1", 1_000)).toBe(true);
