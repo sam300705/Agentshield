@@ -24,19 +24,21 @@ function payload(): Buffer {
   );
 }
 
+function headers(body: Buffer, event: string, delivery: string) {
+  return {
+    "x-hub-signature-256": signature(body, "synthetic-secret"),
+    "x-github-delivery": delivery,
+    "x-github-event": event,
+  };
+}
+
 describe("GitHub App webhook boundary", () => {
   it("verifies a raw payload and normalizes its tenant context", () => {
     const body = payload();
-    const guard = new WebhookReplayGuard();
     const webhook = parseVerifiedGitHubWebhook(
+      headers(body, "installation", "delivery-1"),
       body,
-      {
-        signature: signature(body, "synthetic-secret"),
-        delivery: "delivery-1",
-        event: "installation",
-      },
       "synthetic-secret",
-      guard,
     );
 
     expect(webhook).toMatchObject({
@@ -48,38 +50,36 @@ describe("GitHub App webhook boundary", () => {
     });
   });
 
-  it("rejects invalid signatures and replayed deliveries", () => {
+  it("rejects invalid signatures and keeps replay tracking as a separate boundary", () => {
     const body = payload();
-    const guard = new WebhookReplayGuard();
-    const headers = {
-      signature: signature(body, "wrong-secret"),
-      delivery: "delivery-1",
-      event: "push",
+    const invalidHeaders = {
+      ...headers(body, "push", "delivery-1"),
+      "x-hub-signature-256": signature(body, "wrong-secret"),
     };
 
-    expect(verifyGitHubWebhookSignature(body, headers.signature, "synthetic-secret")).toBe(false);
-    expect(() => parseVerifiedGitHubWebhook(body, headers, "synthetic-secret", guard)).toThrow(
-      "signature verification failed",
-    );
+    expect(
+      verifyGitHubWebhookSignature(
+        body,
+        invalidHeaders["x-hub-signature-256"],
+        "synthetic-secret",
+      ),
+    ).toBe(false);
+    expect(() =>
+      parseVerifiedGitHubWebhook(invalidHeaders, body, "synthetic-secret"),
+    ).toThrow("Invalid GitHub webhook signature");
 
-    const validHeaders = { ...headers, signature: signature(body, "synthetic-secret") };
-    parseVerifiedGitHubWebhook(body, validHeaders, "synthetic-secret", guard);
-    expect(() => parseVerifiedGitHubWebhook(body, validHeaders, "synthetic-secret", guard)).toThrow(
-      "already been processed",
-    );
+    const guard = new WebhookReplayGuard();
+    expect(guard.accept("delivery-1", 1_000)).toBe(true);
+    expect(guard.accept("delivery-1", 1_001)).toBe(false);
+    expect(guard.accept("delivery-1", 1_000 + 15 * 60_000 + 1)).toBe(true);
   });
 
   it("denies cross-organization installation context", () => {
     const body = payload();
     const webhook = parseVerifiedGitHubWebhook(
+      headers(body, "installation", "delivery-2"),
       body,
-      {
-        signature: signature(body, "synthetic-secret"),
-        delivery: "delivery-2",
-        event: "installation",
-      },
       "synthetic-secret",
-      new WebhookReplayGuard(),
     );
 
     expect(() =>
@@ -87,17 +87,16 @@ describe("GitHub App webhook boundary", () => {
         { organizationId: "org-b", installationId: 123, accountLogin: "other-org" },
         webhook,
       ),
-    ).toThrow("does not belong to the organization context");
+    ).toThrow("GitHub webhook organization does not match the registered installation");
   });
 
   it("rejects webhook payloads without installation context", () => {
     const body = Buffer.from(JSON.stringify({ action: "push" }));
     expect(() =>
       parseVerifiedGitHubWebhook(
+        headers(body, "push", "delivery-3"),
         body,
-        { signature: signature(body, "synthetic-secret"), delivery: "delivery-3", event: "push" },
         "synthetic-secret",
-        new WebhookReplayGuard(),
       ),
     ).toThrow("installation context is required");
   });
