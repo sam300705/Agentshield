@@ -48,9 +48,7 @@ export function createGitHubCheckAppClient(config: RuntimeConfig): GitHubCheckAp
 }
 
 function jsonRecord(value: Prisma.JsonValue): Record<string, unknown> {
-  return typeof value === "object" && value != null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
+  return typeof value === "object" && value != null && !Array.isArray(value) ? value : {};
 }
 
 function findingCounts(value: Prisma.JsonValue): Record<string, number> {
@@ -60,6 +58,18 @@ function findingCounts(value: Prisma.JsonValue): Record<string, number> {
         typeof entry[1] === "number" && Number.isFinite(entry[1]) && entry[1] >= 0,
     ),
   );
+}
+
+function parseAgentShieldOutcome(value: string): AgentShieldOutcome {
+  switch (value) {
+    case "ALLOW":
+    case "WARN":
+    case "REQUIRE_APPROVAL":
+    case "BLOCK":
+      return value;
+    default:
+      throw new Error("GITHUB_CHECK_GATE_RESULT_INVALID");
+  }
 }
 
 function highestSeverity(counts: Record<string, number>): string | undefined {
@@ -243,7 +253,7 @@ export async function processNextGitHubCheckPublication(
     const checksClient = appClient.withInstallationToken(token.token);
     const externalId = `agentshield:scan:${scan.id}`;
     const counts = findingCounts(scan.receipt.findingCounts);
-    const outcome = scan.receipt.gateResult as AgentShieldOutcome;
+    const outcome = parseAgentShieldOutcome(scan.receipt.gateResult);
     const scanDetailsUrl = detailsUrl(dashboardPublicUrl, scan.id);
     const request = {
       owner,
