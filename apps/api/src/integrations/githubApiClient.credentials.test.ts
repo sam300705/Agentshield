@@ -13,6 +13,18 @@ function appConfig(privateKey: string): GitHubAppConfig {
   };
 }
 
+function repositoryPage(start: number, count: number) {
+  return {
+    repositories: Array.from({ length: count }, (_, index) => ({
+      id: start + index,
+      full_name: `acme/repository-${start + index}`,
+      private: true,
+      default_branch: "main",
+      permissions: { admin: true, push: true, pull: true },
+    })),
+  };
+}
+
 describe("FetchGitHubAppClient credential validation", () => {
   it("accepts a real RSA private key by signing an RS256 JWT locally", async () => {
     const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -42,5 +54,40 @@ describe("FetchGitHubAppClient credential validation", () => {
     await expect(new FetchGitHubAppClient(appConfig(pem)).validateAppCredentials()).rejects.toThrow(
       "GitHub App private key must be an RSA private key",
     );
+  });
+});
+
+describe("FetchGitHubAppClient repository pagination", () => {
+  it("collects repositories across multiple pages", async () => {
+    let requests = 0;
+    const fetchImpl: typeof fetch = async () => {
+      requests += 1;
+      const payload = requests === 1 ? repositoryPage(1, 100) : repositoryPage(101, 50);
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    };
+    const client = new FetchGitHubAppClient(appConfig("unused"), { fetchImpl });
+
+    await expect(client.listInstallationRepositories(42, "x")).resolves.toHaveLength(150);
+    expect(requests).toBe(2);
+  });
+
+  it("fails closed instead of silently truncating an oversized installation", async () => {
+    let requests = 0;
+    const fetchImpl: typeof fetch = async () => {
+      requests += 1;
+      return new Response(JSON.stringify(repositoryPage(requests * 100, 100)), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    };
+    const client = new FetchGitHubAppClient(appConfig("unused"), { fetchImpl });
+
+    await expect(client.listInstallationRepositories(42, "x")).rejects.toThrow(
+      "repository list exceeded the synchronization safety limit",
+    );
+    expect(requests).toBe(100);
   });
 });
