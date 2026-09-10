@@ -77,6 +77,10 @@ jobs:
             --ignore packages/remediation/src/templates.ts \
             > agentshield-source.sarif
           node --import tsx scripts/validate-sarif.ts agentshield-source.sarif
+      - name: Audit dependencies
+        run: pnpm audit --audit-level high
+      - name: Audit production dependencies
+        run: pnpm --prod audit --audit-level high
       - name: Job summary
         run: |
           echo "## AgentShield security gate" >> "$GITHUB_STEP_SUMMARY"
