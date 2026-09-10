@@ -36,7 +36,7 @@ function githubLifecycleConfig(overrides: NodeJS.ProcessEnv = {}): RuntimeConfig
 function fakeGitHubClient() {
   const validateAppCredentials = vi.fn(() => Promise.resolve());
   const createInstallationToken = vi.fn(() =>
-    Promise.resolve({ token: "installation-token", expiresAt: new Date("2030-01-01T00:00:00Z") }),
+    Promise.resolve({ token: "test", expiresAt: new Date("2030-01-01T00:00:00Z") }),
   );
   const downloadRepositoryArchive = vi.fn(() =>
     Promise.reject(new Error("archive download should not run during composition")),
