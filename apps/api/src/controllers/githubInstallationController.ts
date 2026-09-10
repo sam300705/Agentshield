@@ -48,6 +48,7 @@ export async function synchronizeGitHubInstallationController(
     const result = await bindAndSynchronizeGitHubInstallation(prisma, githubClient, {
       organizationId: actor.organizationId,
       installationId,
+      requireChecksWrite: config.githubChecksEnabled,
     });
     response.status(200).json({
       data: result,
@@ -60,6 +61,22 @@ export async function synchronizeGitHubInstallationController(
         error: {
           code: "GITHUB_INSTALLATION_SUSPENDED",
           message: "The GitHub App installation is suspended and cannot be synchronized.",
+          correlationId: getCorrelationId(response),
+        },
+      });
+      return;
+    }
+    if (
+      message === "GITHUB_CONTENTS_READ_PERMISSION_REQUIRED" ||
+      message === "GITHUB_CHECKS_WRITE_PERMISSION_REQUIRED"
+    ) {
+      response.status(409).json({
+        error: {
+          code: "GITHUB_INSTALLATION_PERMISSIONS_INSUFFICIENT",
+          message:
+            message === "GITHUB_CHECKS_WRITE_PERMISSION_REQUIRED"
+              ? "The GitHub App installation must grant Checks write permission."
+              : "The GitHub App installation must grant Contents read permission.",
           correlationId: getCorrelationId(response),
         },
       });
