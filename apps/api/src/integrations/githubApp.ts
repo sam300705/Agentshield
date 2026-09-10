@@ -133,10 +133,14 @@ export function parseVerifiedGitHubWebhook(
 
   const repository = readObject(body.repository);
   const repositoryFullName = readString(repository?.full_name, 256);
+  const installationAccount = readObject(installation?.account);
   const organization = readObject(body.organization);
   const sender = readObject(body.sender);
   const organizationLogin =
-    readString(organization?.login, 128) ?? readString(sender?.login, 128) ?? null;
+    readString(installationAccount?.login, 128) ??
+    readString(organization?.login, 128) ??
+    readString(sender?.login, 128) ??
+    null;
 
   return {
     deliveryId,
