@@ -8,7 +8,11 @@ import type {
   GitHubInstallationMetadata,
   GitHubRepository,
 } from "./githubApp.js";
-import type { GitHubCheckRunRequest, GitHubChecksClient } from "./githubChecks.js";
+import type {
+  GitHubCheckRunIdentity,
+  GitHubCheckRunRequest,
+  GitHubChecksClient,
+} from "./githubChecks.js";
 
 const DEFAULT_API_BASE_URL = "https://api.github.com";
 const DEFAULT_API_VERSION = "2026-03-10";
@@ -41,6 +45,14 @@ interface RepositoryListResponse {
 interface CheckRunResponse {
   id: number;
   html_url?: string;
+}
+
+interface CheckRunsResponse {
+  check_runs: Array<{
+    id: number;
+    external_id?: string | null;
+    html_url?: string;
+  }>;
 }
 
 export interface GitHubArchiveClient {
@@ -331,6 +343,29 @@ export class FetchGitHubAppClient
       this.checkBody(request),
     );
     return { id: data.id, ...(data.html_url == null ? {} : { htmlUrl: data.html_url }) };
+  }
+
+  async findCheckRunByExternalId(
+    owner: string,
+    repository: string,
+    headSha: string,
+    externalId: string,
+  ): Promise<GitHubCheckRunIdentity | null> {
+    const { data } = await this.request<CheckRunsResponse>(
+      "GET",
+      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}/commits/${encodeURIComponent(headSha)}/check-runs?check_name=AgentShield&filter=latest&per_page=100`,
+      this.requireInstallationToken(),
+    );
+    const match = data.check_runs.find((checkRun) => checkRun.external_id === externalId);
+    if (match == null) return null;
+    if (!Number.isSafeInteger(match.id) || match.id <= 0) {
+      throw new Error("GitHub returned an invalid Check run identity.");
+    }
+    return {
+      id: match.id,
+      externalId: match.external_id ?? null,
+      ...(match.html_url == null ? {} : { htmlUrl: match.html_url }),
+    };
   }
 
   private requireInstallationToken(): string {
