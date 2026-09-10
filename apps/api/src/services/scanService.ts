@@ -4,7 +4,12 @@ import {
   signSecurityReceipt,
 } from "@agentshield/policy-engine";
 import { generateRemediation } from "@agentshield/remediation";
-import { enrichDependencies, runScan, type DependencyAdvisoryResult } from "@agentshield/scanner";
+import {
+  enrichDependencies,
+  runScan,
+  SCANNER_RELEASE,
+  type DependencyAdvisoryResult,
+} from "@agentshield/scanner";
 import {
   type Dependency,
   type Finding,
@@ -351,7 +356,7 @@ async function persistSecurityReceipt(
     repository: options.repositoryName,
     branch: options.branch,
     commitSha: options.commitSha ?? "unresolved",
-    scannerVersion: "agentshield-scanner@0.1.0",
+    scannerVersion: SCANNER_RELEASE,
     policyBundleVersion: options.policyBundleVersion,
     findingCounts: { ...findingCounts },
     decisionCounts,

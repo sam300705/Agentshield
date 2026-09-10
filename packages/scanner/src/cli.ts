@@ -10,8 +10,7 @@ import { parseArgs } from "node:util";
 import { enrichDependencies } from "./vulnerabilityEnricher.js";
 import { runScan } from "./scanRunner.js";
 import { gateResult } from "./cliGate.js";
-
-const CLI_VERSION = "0.2.0";
+import { SCANNER_VERSION as CLI_VERSION } from "./version.js";
 const EXIT_CODES: Record<PolicyDecisionType | "INTERNAL_FAILURE", number> = {
   ALLOW: 0,
   WARN: 1,
