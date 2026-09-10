@@ -21,15 +21,15 @@ describe("scan queue retry and lease policy", () => {
   });
 
   it("marks an abandoned final attempt for dead-letter instead of retry", () => {
-    expect(
-      classifyAbandonedJob({ attempts: 3, maxAttempts: 3, cancelRequestedAt: null }),
-    ).toBe("DEAD_LETTER");
+    expect(classifyAbandonedJob({ attempts: 3, maxAttempts: 3, cancelRequestedAt: null })).toBe(
+      "DEAD_LETTER",
+    );
   });
 
   it("keeps retryable abandoned work below its attempt budget", () => {
-    expect(
-      classifyAbandonedJob({ attempts: 2, maxAttempts: 3, cancelRequestedAt: null }),
-    ).toBe("RETRY");
+    expect(classifyAbandonedJob({ attempts: 2, maxAttempts: 3, cancelRequestedAt: null })).toBe(
+      "RETRY",
+    );
   });
 
   it("prioritizes cancellation over retry or dead-letter recovery", () => {
