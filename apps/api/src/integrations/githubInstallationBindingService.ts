@@ -9,6 +9,11 @@ import {
 export interface BindGitHubInstallationInput {
   organizationId: string;
   installationId: number;
+  requireChecksWrite?: boolean;
+}
+
+function canReadContents(permission: string | undefined): boolean {
+  return permission === "read" || permission === "write";
 }
 
 export async function bindAndSynchronizeGitHubInstallation(
@@ -27,6 +32,12 @@ export async function bindAndSynchronizeGitHubInstallation(
   }
   if (metadata.suspended) {
     throw new Error("GITHUB_INSTALLATION_SUSPENDED");
+  }
+  if (!canReadContents(metadata.permissions.contents)) {
+    throw new Error("GITHUB_CONTENTS_READ_PERMISSION_REQUIRED");
+  }
+  if (input.requireChecksWrite === true && metadata.permissions.checks !== "write") {
+    throw new Error("GITHUB_CHECKS_WRITE_PERMISSION_REQUIRED");
   }
 
   const registration = {
