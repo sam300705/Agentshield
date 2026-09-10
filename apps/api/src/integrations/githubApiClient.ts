@@ -7,7 +7,7 @@ import type { GitHubCheckRunRequest, GitHubChecksClient } from "./githubChecks.j
 
 const DEFAULT_API_BASE_URL = "https://api.github.com";
 const DEFAULT_API_VERSION = "2026-03-10";
-const MAX_REPOSITORY_PAGES = 10;
+const MAX_REPOSITORY_PAGES = 100;
 
 type FetchLike = typeof fetch;
 
@@ -202,9 +202,11 @@ export class FetchGitHubAppClient
         },
       }));
       repositories.push(...pageItems);
-      if (pageItems.length < 100) break;
+      if (pageItems.length < 100) return repositories;
     }
-    return repositories;
+    throw new Error(
+      `GitHub installation ${installationId} repository list exceeded the synchronization safety limit.`,
+    );
   }
 
   async getRepository(owner: string, repository: string, token: string): Promise<GitHubRepository> {
@@ -263,25 +265,27 @@ export class FetchGitHubAppClient
       this.requireInstallationToken(),
       this.checkBody(request),
     );
-    return data.html_url == null ? { id: data.id } : { id: data.id, htmlUrl: data.html_url };
+    return { id: data.id, ...(data.html_url == null ? {} : { htmlUrl: data.html_url }) };
   }
 
   async updateCheckRun(
+    owner: string,
+    repository: string,
     checkRunId: number,
     request: GitHubCheckRunRequest,
   ): Promise<{ id: number; htmlUrl?: string }> {
     const { data } = await this.request<CheckRunResponse>(
       "PATCH",
-      `/repos/${encodeURIComponent(request.owner)}/${encodeURIComponent(request.repository)}/check-runs/${checkRunId}`,
+      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}/check-runs/${checkRunId}`,
       this.requireInstallationToken(),
       this.checkBody(request),
     );
-    return data.html_url == null ? { id: data.id } : { id: data.id, htmlUrl: data.html_url };
+    return { id: data.id, ...(data.html_url == null ? {} : { htmlUrl: data.html_url }) };
   }
 
   private requireInstallationToken(): string {
-    if (this.installationToken == null) {
-      throw new Error("GitHub Checks require an installation-scoped client.");
+    if (this.installationToken == null || this.installationToken.length === 0) {
+      throw new Error("GitHub installation token is required for Checks API operations.");
     }
     return this.installationToken;
   }
