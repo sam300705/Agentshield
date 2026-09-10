@@ -93,9 +93,7 @@ export class GitHubRepositoryMaterializer implements RepositoryMaterializer {
     const payload = scanJobPayloadSchema.parse(rawPayload);
     if (!this.options.enabled) throw new Error("GITHUB_MATERIALIZATION_DISABLED");
     if (payload.provider !== "GITHUB") throw new Error("GITHUB_MATERIALIZER_PROVIDER_MISMATCH");
-    if (payload.integrationId == null || !/^\d+$/.test(payload.integrationId)) {
-      throw new Error("GITHUB_INSTALLATION_REQUIRED");
-    }
+    if (payload.github == null) throw new Error("GITHUB_INSTALLATION_REQUIRED");
     if (payload.commitSha == null || !/^[a-f0-9]{40}$/i.test(payload.commitSha)) {
       throw new Error("GITHUB_COMMIT_SHA_REQUIRED");
     }
@@ -110,7 +108,7 @@ export class GitHubRepositoryMaterializer implements RepositoryMaterializer {
       binding.organizationId !== payload.organizationId ||
       binding.repositoryId !== payload.repositoryId ||
       binding.fullName !== payload.repositoryName ||
-      binding.installationId !== Number(payload.integrationId)
+      binding.installationId !== payload.github.installationId
     ) {
       throw new Error("GITHUB_REPOSITORY_MAPPING_INVALID");
     }
