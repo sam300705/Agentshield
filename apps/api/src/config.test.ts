@@ -11,14 +11,18 @@ const validProductionEnv = {
   OIDC_AUDIENCE: "agentshield-api",
   OIDC_JWKS_URL: "https://issuer.example.com/.well-known/jwks.json",
   OIDC_ROLE_CLAIM: "roles",
+  RATE_LIMIT_BACKEND: "redis-rest",
+  RATE_LIMIT_REDIS_REST_URL: "https://redis.example.com",
+  RATE_LIMIT_REDIS_REST_TOKEN: "synthetic-rate-limit-token",
 };
 
 describe("runtime configuration", () => {
-  it("accepts complete production OIDC configuration", () => {
+  it("accepts complete production OIDC and distributed rate-limit configuration", () => {
     const config = getRuntimeConfig(validProductionEnv);
 
     expect(config.corsOrigin).toBe("https://dashboard.example.com");
     expect(config.rateLimitEnabled).toBe(true);
+    expect(config.RATE_LIMIT_BACKEND).toBe("redis-rest");
   });
 
   it("rejects production without an exact CORS origin", () => {
@@ -33,17 +37,58 @@ describe("runtime configuration", () => {
     );
   });
 
-  it("allows explicitly enabled local demo mode without OIDC values", () => {
+  it("rejects disabling rate limiting in production", () => {
+    expect(() => getRuntimeConfig({ ...validProductionEnv, RATE_LIMIT_ENABLED: "false" })).toThrow(
+      "RATE_LIMIT_ENABLED cannot be disabled in production",
+    );
+  });
+
+  it("rejects a per-process memory limiter in production", () => {
+    expect(() =>
+      getRuntimeConfig({
+        ...validProductionEnv,
+        RATE_LIMIT_BACKEND: "memory",
+        RATE_LIMIT_REDIS_REST_URL: undefined,
+        RATE_LIMIT_REDIS_REST_TOKEN: undefined,
+      }),
+    ).toThrow("RATE_LIMIT_BACKEND must be redis-rest in production");
+  });
+
+  it("rejects redis-rest limiting without a URL", () => {
+    expect(() =>
+      getRuntimeConfig({ ...validProductionEnv, RATE_LIMIT_REDIS_REST_URL: undefined }),
+    ).toThrow("RATE_LIMIT_REDIS_REST_URL is required");
+  });
+
+  it("rejects redis-rest limiting without a token", () => {
+    expect(() =>
+      getRuntimeConfig({ ...validProductionEnv, RATE_LIMIT_REDIS_REST_TOKEN: undefined }),
+    ).toThrow("RATE_LIMIT_REDIS_REST_TOKEN is required");
+  });
+
+  it("rejects an insecure Redis REST URL in production", () => {
+    expect(() =>
+      getRuntimeConfig({
+        ...validProductionEnv,
+        RATE_LIMIT_REDIS_REST_URL: "http://redis.example.com",
+      }),
+    ).toThrow("RATE_LIMIT_REDIS_REST_URL must use HTTPS in production");
+  });
+
+  it("allows explicitly enabled local demo mode with an in-memory limiter and no OIDC values", () => {
     const config = getRuntimeConfig({
       NODE_ENV: "development",
       DATABASE_URL: "postgresql://app:secret@localhost:5432/agentshield",
       CORS_ORIGIN: "http://localhost:5173",
       AUTH_MODE: "oidc",
       DEMO_AUTH_ENABLED: "true",
+      RATE_LIMIT_ENABLED: "true",
+      RATE_LIMIT_BACKEND: "memory",
     });
 
     expect(config.corsOrigin).toBe("http://localhost:5173");
-    expect(config.rateLimitEnabled).toBe(false);
+    expect(config.rateLimitEnabled).toBe(true);
+    expect(config.RATE_LIMIT_BACKEND).toBe("memory");
   });
 
   it("rejects enabled GitHub webhooks without a secret", () => {
@@ -278,6 +323,22 @@ describe("configuration error redaction", () => {
     }
 
     expect(message).toContain("GITHUB_APP_ID must be a numeric GitHub App ID");
+    expect(message).not.toContain("MARKER-LEAK-PROBE");
+  });
+
+  it("never echoes the Redis REST token in validation errors", () => {
+    let message = "";
+    try {
+      getRuntimeConfig({
+        ...validProductionEnv,
+        RATE_LIMIT_REDIS_REST_URL: "http://redis.example.com",
+        RATE_LIMIT_REDIS_REST_TOKEN: "MARKER-LEAK-PROBE-RATE-TOKEN",
+      });
+    } catch (error) {
+      message = error instanceof Error ? error.message : "";
+    }
+
+    expect(message).toContain("RATE_LIMIT_REDIS_REST_URL must use HTTPS in production");
     expect(message).not.toContain("MARKER-LEAK-PROBE");
   });
 
