@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { GitHubChecksClient } from "../integrations/githubChecks.js";
 import {
   calculateGitHubCheckRetryDelayMs,
+  classifyAbandonedGitHubCheckPublication,
   discoverGitHubCheckPublications,
   processNextGitHubCheckPublication,
   type GitHubCheckAppClient,
@@ -91,6 +92,13 @@ describe("GitHub Check publication queue", () => {
     expect(calculateGitHubCheckRetryDelayMs(1, () => 0)).toBe(2_000);
     expect(calculateGitHubCheckRetryDelayMs(2, () => 0)).toBe(4_000);
     expect(calculateGitHubCheckRetryDelayMs(100, () => 0.99)).toBeLessThanOrEqual(300_000);
+  });
+
+  it("dead-letters an abandoned final publication attempt", () => {
+    expect(classifyAbandonedGitHubCheckPublication({ attempts: 6, maxAttempts: 6 })).toBe(
+      "DEAD_LETTER",
+    );
+    expect(classifyAbandonedGitHubCheckPublication({ attempts: 5, maxAttempts: 6 })).toBe("RETRY");
   });
 
   it("creates durable publication rows only for eligible completed scans", async () => {
