@@ -14,7 +14,9 @@ import { TemporaryRepositoryWorkspaceProvider } from "./repositoryWorkspace.js";
 
 export interface WorkerGitHubClient extends GitHubArchiveClient {
   validateAppCredentials(): Promise<void>;
-  createInstallationToken(installationId: number): Promise<{ token: string; expiresAt: Date }>;
+  createInstallationToken(
+    installationId: number,
+  ): Promise<{ token: string; expiresAt: Date }>;
 }
 
 export interface WorkerCompositionDependencies {
