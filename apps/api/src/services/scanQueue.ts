@@ -30,6 +30,18 @@ export interface ScanProvenance {
   };
 }
 
+export type AbandonedJobDisposition = "CANCEL" | "DEAD_LETTER" | "RETRY";
+
+export function classifyAbandonedJob(input: {
+  attempts: number;
+  maxAttempts: number;
+  cancelRequestedAt: Date | null;
+}): AbandonedJobDisposition {
+  if (input.cancelRequestedAt != null) return "CANCEL";
+  if (input.attempts >= input.maxAttempts) return "DEAD_LETTER";
+  return "RETRY";
+}
+
 export function calculateRetryDelayMs(attempt: number, random = Math.random): number {
   const exponent = Math.max(0, Math.min(10, Math.floor(attempt) - 1));
   const base = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** exponent);
@@ -62,7 +74,7 @@ export async function enqueueRepositoryScan(
         provider: true,
         fullName: true,
         defaultBranch: true,
-        githubInstallation: { select: { installationId: true } },
+        githubInstallation: { select: { installationId: true, status: true } },
       },
     });
     if (repository == null) throw new Error("Repository is not registered for this organization.");
@@ -70,7 +82,10 @@ export async function enqueueRepositoryScan(
     if (provider !== "GITHUB" && provider !== "LOCAL") {
       throw new Error("Repository provider is not supported.");
     }
-    if (provider === "GITHUB" && repository.githubInstallation == null) {
+    if (
+      provider === "GITHUB" &&
+      (repository.githubInstallation == null || repository.githubInstallation.status !== "ACTIVE")
+    ) {
       throw new Error("GitHub repository is not bound to an active installation.");
     }
 
@@ -234,6 +249,7 @@ export async function requestJobCancellation(
     where: {
       id: jobId,
       scan: { organizationId },
+      deadLetteredAt: null,
       status: { in: [ScanStatus.QUEUED, ScanStatus.RUNNING, ScanStatus.FAILED] },
     },
     data: { cancelRequestedAt: new Date() },
@@ -251,35 +267,85 @@ export async function recoverAbandonedJobs(now = new Date()): Promise<number> {
         { leaseExpiresAt: null, lockedAt: { lt: staleBefore } },
       ],
     },
-    select: { id: true, scanId: true },
+    select: {
+      id: true,
+      scanId: true,
+      attempts: true,
+      maxAttempts: true,
+      cancelRequestedAt: true,
+    },
   });
   if (staleJobs.length === 0) return 0;
 
-  await prisma.$transaction([
-    prisma.scanJob.updateMany({
-      where: {
-        id: { in: staleJobs.map((job: { id: string; scanId: string }) => job.id) },
-        status: ScanStatus.RUNNING,
-      },
-      data: {
-        status: ScanStatus.FAILED,
-        lockedAt: null,
-        lockedBy: null,
-        leaseExpiresAt: null,
-        lastHeartbeatAt: now,
-        nextAttemptAt: now,
-        failureCode: "WORKER_ABANDONED",
-        failureMessage: "The previous worker stopped responding; the job is eligible for retry.",
-      },
-    }),
-    prisma.scan.updateMany({
-      where: {
-        id: { in: staleJobs.map((job: { id: string; scanId: string }) => job.scanId) },
-        status: ScanStatus.RUNNING,
-      },
-      data: { status: ScanStatus.FAILED },
-    }),
-  ]);
+  const retryable = staleJobs.filter((job) => classifyAbandonedJob(job) === "RETRY");
+  const exhausted = staleJobs.filter((job) => classifyAbandonedJob(job) === "DEAD_LETTER");
+  const cancelled = staleJobs.filter((job) => classifyAbandonedJob(job) === "CANCEL");
+
+  await prisma.$transaction(async (tx) => {
+    if (retryable.length > 0) {
+      const retryIds = retryable.map((job) => job.id);
+      await tx.scanJob.updateMany({
+        where: { id: { in: retryIds }, status: ScanStatus.RUNNING },
+        data: {
+          status: ScanStatus.FAILED,
+          lockedAt: null,
+          lockedBy: null,
+          leaseExpiresAt: null,
+          lastHeartbeatAt: now,
+          nextAttemptAt: now,
+          failureCode: "WORKER_ABANDONED",
+          failureMessage: "The previous worker stopped responding; the job is eligible for retry.",
+        },
+      });
+      await tx.scan.updateMany({
+        where: { id: { in: retryable.map((job) => job.scanId) }, status: ScanStatus.RUNNING },
+        data: { status: ScanStatus.FAILED },
+      });
+    }
+
+    if (exhausted.length > 0) {
+      const exhaustedIds = exhausted.map((job) => job.id);
+      await tx.scanJob.updateMany({
+        where: { id: { in: exhaustedIds }, status: ScanStatus.RUNNING },
+        data: {
+          status: ScanStatus.FAILED,
+          lockedAt: null,
+          lockedBy: null,
+          leaseExpiresAt: null,
+          lastHeartbeatAt: now,
+          nextAttemptAt: null,
+          deadLetteredAt: now,
+          failureCode: "RETRIES_EXHAUSTED",
+          failureMessage: "The final allowed worker attempt stopped responding.",
+        },
+      });
+      await tx.scan.updateMany({
+        where: { id: { in: exhausted.map((job) => job.scanId) }, status: ScanStatus.RUNNING },
+        data: { status: ScanStatus.FAILED, completedAt: now },
+      });
+    }
+
+    if (cancelled.length > 0) {
+      const cancelledIds = cancelled.map((job) => job.id);
+      await tx.scanJob.updateMany({
+        where: { id: { in: cancelledIds }, status: ScanStatus.RUNNING },
+        data: {
+          status: ScanStatus.CANCELLED,
+          lockedAt: null,
+          lockedBy: null,
+          leaseExpiresAt: null,
+          lastHeartbeatAt: now,
+          nextAttemptAt: null,
+          failureCode: "CANCELLED",
+          failureMessage: "Cancellation was requested while the previous worker was unavailable.",
+        },
+      });
+      await tx.scan.updateMany({
+        where: { id: { in: cancelled.map((job) => job.scanId) }, status: ScanStatus.RUNNING },
+        data: { status: ScanStatus.CANCELLED, completedAt: now },
+      });
+    }
+  });
   return staleJobs.length;
 }
 
@@ -290,7 +356,12 @@ export async function renewScanJobLease(
   leaseMs = SCAN_LEASE_MS,
 ): Promise<boolean> {
   const updated = await prisma.scanJob.updateMany({
-    where: { id: jobId, status: ScanStatus.RUNNING, lockedBy: workerId },
+    where: {
+      id: jobId,
+      status: ScanStatus.RUNNING,
+      lockedBy: workerId,
+      deadLetteredAt: null,
+    },
     data: {
       lockedAt: now,
       leaseExpiresAt: new Date(now.getTime() + leaseMs),
@@ -298,6 +369,42 @@ export async function renewScanJobLease(
     },
   });
   return updated.count === 1;
+}
+
+async function deadLetterExhaustedCandidate(input: {
+  id: string;
+  scanId: string;
+  status: ScanStatus;
+  attempts: number;
+  maxAttempts: number;
+}): Promise<boolean> {
+  if (input.attempts < input.maxAttempts) return false;
+  const now = new Date();
+  await prisma.$transaction(async (tx) => {
+    const transitioned = await tx.scanJob.updateMany({
+      where: {
+        id: input.id,
+        status: input.status,
+        attempts: input.attempts,
+        deadLetteredAt: null,
+        lockedAt: null,
+      },
+      data: {
+        status: ScanStatus.FAILED,
+        deadLetteredAt: now,
+        nextAttemptAt: null,
+        failureCode: "RETRIES_EXHAUSTED",
+        failureMessage: "Retry budget was already exhausted before automatic processing.",
+      },
+    });
+    if (transitioned.count === 1) {
+      await tx.scan.updateMany({
+        where: { id: input.scanId, status: { in: [ScanStatus.QUEUED, ScanStatus.FAILED] } },
+        data: { status: ScanStatus.FAILED, completedAt: now },
+      });
+    }
+  });
+  return true;
 }
 
 export async function processNextScanJob(
@@ -311,6 +418,7 @@ export async function processNextScanJob(
     where: {
       status: { in: [ScanStatus.QUEUED, ScanStatus.FAILED] },
       cancelRequestedAt: null,
+      deadLetteredAt: null,
       lockedAt: null,
       OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: new Date() } }],
     },
@@ -318,9 +426,17 @@ export async function processNextScanJob(
     include: { scan: { select: { organizationId: true } } },
   });
   if (candidate == null) return false;
+  if (await deadLetterExhaustedCandidate(candidate)) return true;
 
   const claimed = await prisma.scanJob.updateMany({
-    where: { id: candidate.id, status: candidate.status, lockedAt: null },
+    where: {
+      id: candidate.id,
+      status: candidate.status,
+      attempts: candidate.attempts,
+      cancelRequestedAt: null,
+      deadLetteredAt: null,
+      lockedAt: null,
+    },
     data: {
       status: ScanStatus.RUNNING,
       lockedAt: new Date(),
@@ -378,7 +494,12 @@ export async function processNextScanJob(
     if (leaseLost) throw new Error("WORKER_LEASE_LOST");
     if (abortController.signal.aborted) throw new Error("CANCEL_REQUESTED");
     const completed = await prisma.scanJob.updateMany({
-      where: { id: candidate.id, lockedBy: workerId, status: ScanStatus.RUNNING },
+      where: {
+        id: candidate.id,
+        lockedBy: workerId,
+        status: ScanStatus.RUNNING,
+        deadLetteredAt: null,
+      },
       data: {
         status: ScanStatus.COMPLETED,
         progress: 100,
