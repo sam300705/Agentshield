@@ -79,12 +79,11 @@ describe("GitHub installation ownership", () => {
       organizationId: "org-1",
       installationId: 42,
     });
-    expect(update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: "installation-1" },
-        data: expect.objectContaining({ status: "ACTIVE", accountLogin: "acme" }),
-      }),
-    );
+    expect(update).toHaveBeenCalledWith({
+      where: { id: "installation-1" },
+      data: { accountLogin: "acme", status: "ACTIVE" },
+      select: { id: true, organizationId: true, installationId: true },
+    });
   });
 });
 
