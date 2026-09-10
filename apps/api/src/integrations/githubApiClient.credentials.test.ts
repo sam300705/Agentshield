@@ -18,6 +18,12 @@ function rsaPem(): string {
   return privateKey.export({ type: "pkcs8", format: "pem" }).toString();
 }
 
+function requestUrl(input: Parameters<typeof fetch>[0]): string {
+  if (typeof input === "string") return input;
+  if (input instanceof URL) return input.toString();
+  return input.url;
+}
+
 function repositoryPage(start: number, count: number) {
   return {
     repositories: Array.from({ length: count }, (_, index) => ({
@@ -63,7 +69,7 @@ describe("FetchGitHubAppClient installation verification", () => {
   it("loads canonical installation identity using an App JWT", async () => {
     const requestedUrls: string[] = [];
     const fetchImpl: typeof fetch = (input, init) => {
-      requestedUrls.push(String(input));
+      requestedUrls.push(requestUrl(input));
       const authorization = new Headers(init?.headers).get("authorization");
       expect(authorization).toMatch(/^Bearer [^.]+\.[^.]+\.[^.]+$/);
       return Promise.resolve(
