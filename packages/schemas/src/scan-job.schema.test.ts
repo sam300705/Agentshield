@@ -98,24 +98,21 @@ describe("scan job payload schema", () => {
     ).toThrow("GitHub webhook event does not match the trusted scan trigger");
   });
 
-  it.each(["MANUAL", "API"] as const)(
-    "rejects webhook provenance on %s scans",
-    (trigger) => {
-      expect(() =>
-        scanJobPayloadSchema.parse(
-          githubPayload({
-            trigger,
-            github: {
-              installationId: 42,
-              repositoryFullName: "acme/project",
-              deliveryId: "delivery-1",
-              eventName: "push",
-            },
-          }),
-        ),
-      ).toThrow("Manual/API scans cannot claim webhook delivery provenance");
-    },
-  );
+  it.each(["MANUAL", "API"] as const)("rejects webhook provenance on %s scans", (trigger) => {
+    expect(() =>
+      scanJobPayloadSchema.parse(
+        githubPayload({
+          trigger,
+          github: {
+            installationId: 42,
+            repositoryFullName: "acme/project",
+            deliveryId: "delivery-1",
+            eventName: "push",
+          },
+        }),
+      ),
+    ).toThrow("Manual/API scans cannot claim webhook delivery provenance");
+  });
 
   it("rejects GitHub scans without target lineage", () => {
     expect(() =>
