@@ -11,8 +11,19 @@ import {
 
 const COMMIT_SHA = "0123456789abcdef0123456789abcdef01234567";
 
+function asRecord(value: unknown): Record<string, unknown> {
+  if (typeof value !== "object" || value == null || Array.isArray(value)) {
+    throw new Error("Expected an object record.");
+  }
+  return value as Record<string, unknown>;
+}
+
 function databaseForPublication() {
-  const publicationUpdateMany = vi.fn(() => Promise.resolve({ count: 1 }));
+  const publicationUpdates: unknown[] = [];
+  const publicationUpdateMany = vi.fn((input: unknown) => {
+    publicationUpdates.push(input);
+    return Promise.resolve({ count: 1 });
+  });
   const publicationFindMany = vi.fn(() =>
     Promise.resolve([
       {
@@ -72,7 +83,7 @@ function databaseForPublication() {
       findUniqueOrThrow: publicationFindUniqueOrThrow,
     },
   } as unknown as PrismaClient;
-  return { client, publicationUpdateMany };
+  return { client, publicationUpdates };
 }
 
 describe("GitHub Check publication queue", () => {
@@ -108,11 +119,13 @@ describe("GitHub Check publication queue", () => {
 
   it("reconciles an existing external-id Check instead of creating a duplicate", async () => {
     const database = databaseForPublication();
-    const findCheckRunByExternalId = vi.fn(() =>
+    const findCheckRunByExternalId = vi.fn<GitHubChecksClient["findCheckRunByExternalId"]>(() =>
       Promise.resolve({ id: 88, externalId: "agentshield:scan:scan-1" }),
     );
-    const createCheckRun = vi.fn();
-    const updateCheckRun = vi.fn(() => Promise.resolve({ id: 88 }));
+    const createCheckRun = vi.fn<GitHubChecksClient["createCheckRun"]>();
+    const updateCheckRun = vi.fn<GitHubChecksClient["updateCheckRun"]>(() =>
+      Promise.resolve({ id: 88 }),
+    );
     const checksClient: GitHubChecksClient = {
       findCheckRunByExternalId,
       createCheckRun,
@@ -121,7 +134,7 @@ describe("GitHub Check publication queue", () => {
     const appClient: GitHubCheckAppClient = {
       createInstallationToken: vi.fn(() =>
         Promise.resolve({
-          token: "installation-token",
+          token: "t",
           expiresAt: new Date("2030-01-01T00:00:00Z"),
         }),
       ),
@@ -144,19 +157,65 @@ describe("GitHub Check publication queue", () => {
       "agentshield:scan:scan-1",
     );
     expect(createCheckRun).not.toHaveBeenCalled();
-    expect(updateCheckRun).toHaveBeenCalledWith(
-      "acme",
-      "project",
-      88,
-      expect.objectContaining({
-        externalId: "agentshield:scan:scan-1",
-        conclusion: "failure",
-      }),
-    );
-    expect(database.publicationUpdateMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ status: "PUBLISHED", checkRunId: "88" }),
-      }),
-    );
+    const updateCall = updateCheckRun.mock.calls[0];
+    expect(updateCall?.[0]).toBe("acme");
+    expect(updateCall?.[1]).toBe("project");
+    expect(updateCall?.[2]).toBe(88);
+    expect(updateCall?.[3].externalId).toBe("agentshield:scan:scan-1");
+    expect(updateCall?.[3].conclusion).toBe("failure");
+
+    const finalPublicationUpdate = asRecord(database.publicationUpdates.at(-1));
+    const finalPublicationData = asRecord(finalPublicationUpdate.data);
+    expect(finalPublicationData.status).toBe("PUBLISHED");
+    expect(finalPublicationData.checkRunId).toBe("88");
+  });
+
+  it("fails closed when a persisted receipt has an unknown gate result", async () => {
+    const database = databaseForPublication();
+    const clientRecord = database.client as unknown as {
+      scan: { findUniqueOrThrow: ReturnType<typeof vi.fn> };
+    };
+    clientRecord.scan.findUniqueOrThrow.mockResolvedValueOnce({
+      id: "scan-1",
+      status: ScanStatus.COMPLETED,
+      organizationId: "org-1",
+      commitSha: COMMIT_SHA,
+      startedAt: new Date("2026-09-11T00:00:00Z"),
+      completedAt: new Date("2026-09-11T00:01:00Z"),
+      receipt: {
+        findingCounts: {},
+        gateResult: "UNKNOWN",
+        policyBundleVersion: "production@2.4.0",
+      },
+      repository: {
+        organizationId: "org-1",
+        provider: "GITHUB",
+        fullName: "acme/project",
+        githubInstallation: {
+          installationId: 42,
+          status: "ACTIVE",
+          permissions: { checks: "write", contents: "read" },
+        },
+      },
+    });
+    const appClient: GitHubCheckAppClient = {
+      createInstallationToken: vi.fn(() =>
+        Promise.resolve({ token: "t", expiresAt: new Date("2030-01-01T00:00:00Z") }),
+      ),
+      withInstallationToken: vi.fn(() => ({
+        findCheckRunByExternalId: vi.fn(),
+        createCheckRun: vi.fn(),
+        updateCheckRun: vi.fn(),
+      })),
+    };
+
+    await expect(
+      processNextGitHubCheckPublication(database.client, appClient, "publisher-1"),
+    ).resolves.toBe(true);
+
+    const finalPublicationUpdate = asRecord(database.publicationUpdates.at(-1));
+    const finalPublicationData = asRecord(finalPublicationUpdate.data);
+    expect(finalPublicationData.status).toBe("FAILED");
+    expect(finalPublicationData.failureMessage).toBe("GITHUB_CHECK_GATE_RESULT_INVALID");
   });
 });
