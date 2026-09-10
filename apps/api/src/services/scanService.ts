@@ -1,7 +1,7 @@
 import {
   createSecurityReceipt,
   evaluateFindings,
-  signSecurityReceipt,
+  type SignedSecurityReceipt,
 } from "@agentshield/policy-engine";
 import { generateRemediation } from "@agentshield/remediation";
 import {
@@ -20,12 +20,14 @@ import {
   type PolicyDecisionType,
   type Remediation,
   type ScanOptions,
+  type SecurityReceipt,
 } from "@agentshield/schemas";
 import { AuditAction, Prisma, ScanStatus, type PrismaClient } from "@prisma/client";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { prisma } from "../db/prisma.js";
+import { createConfiguredReceiptSigner } from "./receiptSigner.js";
 
 const SYSTEM_ACTOR = "System";
 const DEMO_TARGET_PATH = "../../examples/vulnerable-repo";
@@ -338,8 +340,7 @@ async function persistAdvisories(
   return count;
 }
 
-async function persistSecurityReceipt(
-  tx: Prisma.TransactionClient,
+function buildSecurityReceipt(
   options: ScanRunOptions,
   scanId: string,
   scanStartedAt: Date,
@@ -349,8 +350,8 @@ async function persistSecurityReceipt(
   decisionCounts: Record<PolicyDecisionType, number>,
   decisions: PolicyDecision[],
   approvalCount: number,
-): Promise<void> {
-  const receipt = createSecurityReceipt({
+): SecurityReceipt {
+  return createSecurityReceipt({
     id: `receipt:${scanId}`,
     scanId,
     repository: options.repositoryName,
@@ -370,17 +371,15 @@ async function persistSecurityReceipt(
     completedAt,
     gateResult: gateResultForDecisions(decisions),
   });
-  const privateKey = process.env.RECEIPT_SIGNING_PRIVATE_KEY;
-  const keyId = process.env.RECEIPT_SIGNING_KEY_ID;
-  if ((privateKey == null) !== (keyId == null)) {
-    throw new Error("Receipt signing requires both private key and key ID.");
-  }
-  const signed =
-    privateKey != null && keyId != null
-      ? signSecurityReceipt(receipt, { keyId, privateKey })
-      : null;
+}
+
+async function persistSecurityReceipt(
+  tx: Prisma.TransactionClient,
+  receipt: SecurityReceipt,
+  signed: SignedSecurityReceipt | null,
+): Promise<void> {
   await tx.securityReceipt.upsert({
-    where: { scanId },
+    where: { scanId: receipt.scanId },
     update: {
       schemaVersion: "1",
       scannerVersion: receipt.scannerVersion,
@@ -399,7 +398,7 @@ async function persistSecurityReceipt(
       receiptHash: receipt.receiptHash,
     },
     create: {
-      scanId,
+      scanId: receipt.scanId,
       schemaVersion: "1",
       scannerVersion: receipt.scannerVersion,
       policyBundleVersion: receipt.policyBundleVersion,
@@ -571,6 +570,19 @@ export async function runConfiguredScan(
       policyBundleVersion: options.policyBundleVersion,
     });
     const completedAt = new Date();
+    const receipt = buildSecurityReceipt(
+      options,
+      scan.id,
+      scan.startedAt,
+      completedAt,
+      scanResult.findings,
+      findingCounts,
+      decisionCounts,
+      policyDecisions,
+      approvalFindingIds.length,
+    );
+    const receiptSigner = createConfiguredReceiptSigner();
+    const signedReceipt = receiptSigner == null ? null : await receiptSigner.sign(receipt);
 
     await prisma.$transaction(
       async (tx) => {
@@ -608,18 +620,7 @@ export async function runConfiguredScan(
             metadata,
           },
         });
-        await persistSecurityReceipt(
-          tx,
-          options,
-          scan.id,
-          scan.startedAt,
-          completedAt,
-          scanResult.findings,
-          findingCounts,
-          decisionCounts,
-          policyDecisions,
-          approvalFindingIds.length,
-        );
+        await persistSecurityReceipt(tx, receipt, signedReceipt);
         await tx.scan.update({
           where: { id: scan.id },
           data: { status: ScanStatus.COMPLETED, completedAt, metadata },
