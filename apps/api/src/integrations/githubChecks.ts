@@ -43,6 +43,8 @@ export interface GitHubCheckRunRequest {
 export interface GitHubChecksClient {
   createCheckRun(request: GitHubCheckRunRequest): Promise<{ id: number; htmlUrl?: string }>;
   updateCheckRun(
+    owner: string,
+    repository: string,
     checkRunId: number,
     request: GitHubCheckRunRequest,
   ): Promise<{ id: number; htmlUrl?: string }>;
