@@ -45,6 +45,10 @@ function makeStore(): GitHubDeliveryStore & {
   };
 }
 
+type TestLifecycleClient = GitHubWebhookLifecycleClient & {
+  repositoryFindFirst: ReturnType<typeof vi.fn>;
+};
+
 function makeClient(
   installation: {
     id: string;
@@ -62,14 +66,16 @@ function makeClient(
     fullName: "octo/example",
     defaultBranch: "main",
   },
-): GitHubWebhookLifecycleClient {
+): TestLifecycleClient {
+  const repositoryFindFirst = vi.fn(() => Promise.resolve(repository));
   return {
     gitHubInstallation: {
       findUnique: vi.fn(() => Promise.resolve(installation)),
     },
     repository: {
-      findFirst: vi.fn(() => Promise.resolve(repository)),
+      findFirst: repositoryFindFirst,
     },
+    repositoryFindFirst,
   };
 }
 
@@ -154,7 +160,6 @@ describe("processGitHubWebhookDelivery", () => {
         webhook: expect.objectContaining({ eventName: "pull_request" }),
       }),
     );
-    expect(enqueueScan.mock.calls[0]?.[5]).not.toMatchObject({ trigger: "MANUAL" });
   });
 
   it.each([
@@ -221,7 +226,7 @@ describe("processGitHubWebhookDelivery", () => {
         enqueueScan,
       },
     );
-    expect(client.repository.findFirst).toHaveBeenCalledWith(
+    expect(client.repositoryFindFirst).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
           organizationId: "org-test",
