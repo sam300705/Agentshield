@@ -155,10 +155,14 @@ describe("processGitHubWebhookDelivery", () => {
       "org-test",
       "github:webhook",
       "corr-pr",
-      expect.objectContaining({
+      {
         trigger: "PULL_REQUEST",
-        webhook: expect.objectContaining({ eventName: "pull_request" }),
-      }),
+        webhook: {
+          deliveryId: "delivery-pull_request",
+          eventName: "pull_request",
+          action: "opened",
+        },
+      },
     );
   });
 
