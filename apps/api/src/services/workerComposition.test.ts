@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { GitHubAppConfig } from "../integrations/githubApp.js";
 import { getRuntimeConfig, type RuntimeConfig } from "../config.js";
 import { ConfiguredScanJobExecutor } from "./scanJobExecutor.js";
 import { createWorkerScanExecutor, type WorkerGitHubClient } from "./workerComposition.js";
@@ -69,7 +68,7 @@ describe("createWorkerScanExecutor", () => {
 
   it("validates GitHub App credentials before returning a configured executor", async () => {
     const fake = fakeGitHubClient();
-    const githubClientFactory = vi.fn((_config: GitHubAppConfig) => fake.client);
+    const githubClientFactory = vi.fn(() => fake.client);
 
     await expect(
       createWorkerScanExecutor(githubLifecycleConfig(), {
