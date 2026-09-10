@@ -23,10 +23,7 @@ export interface GitHubCheckAppClient {
   withInstallationToken(token: string): GitHubChecksClient;
 }
 
-export function calculateGitHubCheckRetryDelayMs(
-  attempt: number,
-  random = Math.random,
-): number {
+export function calculateGitHubCheckRetryDelayMs(attempt: number, random = Math.random): number {
   const exponent = Math.max(0, Math.min(10, Math.floor(attempt) - 1));
   const base = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** exponent);
   const jitter = Math.floor(random() * Math.min(2_000, Math.max(1, Math.floor(base / 4))));
@@ -106,9 +103,7 @@ export async function discoverGitHubCheckPublications(client: PrismaClient): Pro
     select: { id: true, organizationId: true },
   });
   const data = scans.flatMap((scan) =>
-    scan.organizationId == null
-      ? []
-      : [{ scanId: scan.id, organizationId: scan.organizationId }],
+    scan.organizationId == null ? [] : [{ scanId: scan.id, organizationId: scan.organizationId }],
   );
   if (data.length === 0) return 0;
   const result = await client.gitHubCheckPublication.createMany({
