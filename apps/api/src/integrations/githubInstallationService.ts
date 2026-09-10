@@ -28,25 +28,37 @@ export async function registerGitHubInstallation(
   client: PrismaClient,
   input: GitHubInstallationRegistration,
 ): Promise<{ id: string; organizationId: string; installationId: number }> {
-  const installation = await client.gitHubInstallation.upsert({
+  const existing = await client.gitHubInstallation.findUnique({
     where: { installationId: input.installationId },
-    update: {
-      organizationId: input.organizationId,
+    select: { id: true, organizationId: true },
+  });
+  if (existing != null && existing.organizationId !== input.organizationId) {
+    throw new Error("GitHub installation is already owned by another organization.");
+  }
+
+  if (existing == null) {
+    return client.gitHubInstallation.create({
+      data: {
+        organizationId: input.organizationId,
+        installationId: input.installationId,
+        accountLogin: input.accountLogin,
+        ...(input.accountType == null ? {} : { accountType: input.accountType }),
+        ...(input.permissions == null ? {} : { permissions: input.permissions }),
+      },
+      select: { id: true, organizationId: true, installationId: true },
+    });
+  }
+
+  return client.gitHubInstallation.update({
+    where: { id: existing.id },
+    data: {
       accountLogin: input.accountLogin,
       ...(input.accountType == null ? {} : { accountType: input.accountType }),
       ...(input.permissions == null ? {} : { permissions: input.permissions }),
       status: "ACTIVE",
     },
-    create: {
-      organizationId: input.organizationId,
-      installationId: input.installationId,
-      accountLogin: input.accountLogin,
-      ...(input.accountType == null ? {} : { accountType: input.accountType }),
-      ...(input.permissions == null ? {} : { permissions: input.permissions }),
-    },
     select: { id: true, organizationId: true, installationId: true },
   });
-  return installation;
 }
 
 export async function synchronizeGitHubRepositories(
@@ -54,18 +66,23 @@ export async function synchronizeGitHubRepositories(
   githubClient: GitHubAppClient,
   registration: GitHubInstallationRegistration,
 ): Promise<number> {
+  const installation = await client.gitHubInstallation.findUniqueOrThrow({
+    where: { installationId: registration.installationId },
+    select: { id: true, organizationId: true, status: true },
+  });
+  if (installation.organizationId !== registration.organizationId) {
+    throw new Error("GitHub installation organization ownership mismatch.");
+  }
+  if (installation.status !== "ACTIVE") {
+    throw new Error("GitHub installation is not active.");
+  }
+
   const token = await githubClient.createInstallationToken(registration.installationId);
   const repositories = await githubClient.listInstallationRepositories(
     registration.installationId,
     token.token,
   );
-  const installation = await client.gitHubInstallation.findUniqueOrThrow({
-    where: { installationId: registration.installationId },
-    select: { id: true, organizationId: true },
-  });
-  if (installation.organizationId !== registration.organizationId) {
-    throw new Error("GitHub installation organization ownership mismatch.");
-  }
+  const externalIds = repositories.map((repository) => String(repository.id));
 
   await client.$transaction(async (tx) => {
     for (const repository of repositories) {
@@ -93,6 +110,16 @@ export async function synchronizeGitHubRepositories(
         },
       });
     }
+
+    await tx.repository.updateMany({
+      where: {
+        organizationId: registration.organizationId,
+        provider: "GITHUB",
+        githubInstallationId: installation.id,
+        ...(externalIds.length === 0 ? {} : { externalId: { notIn: externalIds } }),
+      },
+      data: { githubInstallationId: null },
+    });
     await tx.gitHubInstallation.update({
       where: { id: installation.id },
       data: { lastSyncedAt: new Date() },
