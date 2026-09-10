@@ -32,9 +32,9 @@ function repositoryPage(start: number, count: number) {
 
 describe("FetchGitHubAppClient credential validation", () => {
   it("accepts a real RSA private key by signing an RS256 JWT locally", async () => {
-    await expect(new FetchGitHubAppClient(appConfig(rsaPem())).validateAppCredentials()).resolves.toBe(
-      undefined,
-    );
+    await expect(
+      new FetchGitHubAppClient(appConfig(rsaPem())).validateAppCredentials(),
+    ).resolves.toBe(undefined);
   });
 
   it("rejects a syntactically PEM-looking value that is not a usable private key", async () => {
