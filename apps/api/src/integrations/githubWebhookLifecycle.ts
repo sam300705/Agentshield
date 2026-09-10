@@ -170,12 +170,21 @@ export async function processGitHubWebhookDelivery(
     options: {},
   });
   try {
+    const trigger = webhook.eventName === "push" ? "PUSH" : "PULL_REQUEST";
     const job = await (options.enqueueScan ?? enqueueRepositoryScan)(
       request,
       `github:${webhook.deliveryId}`,
       organizationId,
       "github:webhook",
       correlationId,
+      {
+        trigger,
+        webhook: {
+          deliveryId: webhook.deliveryId,
+          eventName: webhook.eventName,
+          ...(webhook.action == null ? {} : { action: webhook.action }),
+        },
+      },
     );
     await options.deliveryStore.markQueued(organizationId, webhook.deliveryId, job.scanId);
     return { status: "QUEUED", scanQueued: true, scanId: job.scanId, jobId: job.id };
