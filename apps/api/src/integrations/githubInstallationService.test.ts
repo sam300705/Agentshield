@@ -47,7 +47,9 @@ describe("GitHub repository normalization", () => {
 
 describe("GitHub installation ownership", () => {
   it("rejects attempts to reassign an installation to another organization", async () => {
-    const findUnique = vi.fn(() => Promise.resolve({ id: "installation-1", organizationId: "org-2" }));
+    const findUnique = vi.fn(() =>
+      Promise.resolve({ id: "installation-1", organizationId: "org-2" }),
+    );
     const create = vi.fn();
     const update = vi.fn();
     const client = {
@@ -62,7 +64,9 @@ describe("GitHub installation ownership", () => {
   });
 
   it("reactivates an installation only inside its existing organization", async () => {
-    const findUnique = vi.fn(() => Promise.resolve({ id: "installation-1", organizationId: "org-1" }));
+    const findUnique = vi.fn(() =>
+      Promise.resolve({ id: "installation-1", organizationId: "org-1" }),
+    );
     const update = vi.fn(() =>
       Promise.resolve({ id: "installation-1", organizationId: "org-1", installationId: 42 }),
     );
@@ -152,7 +156,9 @@ describe("GitHub repository synchronization", () => {
       ),
     } as unknown as GitHubAppClient;
 
-    await expect(synchronizeGitHubRepositories(client, githubClient, registration())).resolves.toBe(2);
+    await expect(
+      synchronizeGitHubRepositories(client, githubClient, registration()),
+    ).resolves.toBe(2);
     expect(repositoryUpsert).toHaveBeenCalledTimes(2);
     expect(repositoryUpdateMany).toHaveBeenCalledWith({
       where: {
