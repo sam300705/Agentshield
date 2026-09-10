@@ -54,9 +54,6 @@ export const createRepositoryScanSchema = z
 export const scanJobPayloadSchema = z
   .object({
     organizationId: boundedString(128),
-    // Transitional compatibility field for the current materializer. Writers must
-    // derive it server-side and it must equal github.installationId.
-    integrationId: boundedString(128).optional(),
     repositoryId: boundedString(128),
     provider: scanProviderSchema,
     repositoryName: boundedString(256),
@@ -98,15 +95,7 @@ export const scanJobPayloadSchema = z
           message: "GitHub lineage repository must match the registered repository name",
         });
       }
-      const expectedIntegrationId = String(payload.github.installationId);
-      if (payload.integrationId == null || payload.integrationId !== expectedIntegrationId) {
-        context.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["integrationId"],
-          message: "GitHub integration identity must match trusted installation lineage",
-        });
-      }
-    } else if (payload.github != null || payload.integrationId != null) {
+    } else if (payload.github != null) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["github"],
