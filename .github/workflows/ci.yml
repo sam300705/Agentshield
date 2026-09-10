@@ -46,11 +46,7 @@ jobs:
       - run: pnpm db:generate
       - run: pnpm exec prisma validate
       - run: pnpm db:deploy
-      - name: Diagnose formatting
-        run: |
-          pnpm exec prettier --write apps/api/src/services/scanQueue.lineage.test.ts packages/schemas/src/scan-job.schema.test.ts
-          git diff -- apps/api/src/services/scanQueue.lineage.test.ts packages/schemas/src/scan-job.schema.test.ts
-          exit 1
+      - run: pnpm format:check
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
