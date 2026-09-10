@@ -115,6 +115,63 @@ describe("FetchGitHubAppClient installation verification", () => {
       "GitHub returned invalid installation metadata",
     );
   });
+
+  it("rejects malformed successful GitHub response bodies", async () => {
+    const fetchImpl: typeof fetch = () =>
+      Promise.resolve(
+        new Response(JSON.stringify({ id: 42, account: null }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    const client = new FetchGitHubAppClient(appConfig(rsaPem()), { fetchImpl });
+
+    await expect(client.getInstallation(42)).rejects.toThrow("invalid response shape");
+  });
+
+  it("retries safe GET requests on transient GitHub failures", async () => {
+    let requests = 0;
+    const fetchImpl: typeof fetch = () => {
+      requests += 1;
+      if (requests === 1) {
+        return Promise.resolve(new Response("temporary", { status: 503 }));
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: 42,
+            account: { login: "verified-org", type: "Organization" },
+            permissions: { contents: "read" },
+            suspended_at: null,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    };
+    const client = new FetchGitHubAppClient(appConfig(rsaPem()), {
+      fetchImpl,
+      sleep: () => Promise.resolve(),
+      random: () => 0,
+    });
+
+    await expect(client.getInstallation(42)).resolves.toMatchObject({ installationId: 42 });
+    expect(requests).toBe(2);
+  });
+
+  it("does not blindly retry non-idempotent installation-token POST requests", async () => {
+    let requests = 0;
+    const fetchImpl: typeof fetch = () => {
+      requests += 1;
+      return Promise.resolve(new Response("temporary", { status: 503 }));
+    };
+    const client = new FetchGitHubAppClient(appConfig(rsaPem()), {
+      fetchImpl,
+      sleep: () => Promise.resolve(),
+    });
+
+    await expect(client.createInstallationToken(42)).rejects.toThrow("status 503");
+    expect(requests).toBe(1);
+  });
 });
 
 describe("FetchGitHubAppClient repository pagination", () => {
