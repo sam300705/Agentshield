@@ -93,7 +93,7 @@ export async function enqueueRepositoryScan(
 
     const payload = scanJobPayloadSchema.parse({
       organizationId,
-      ...(github == null ? {} : { integrationId: String(github.installationId), github }),
+      ...(github == null ? {} : { github }),
       repositoryId: repository.id,
       provider,
       repositoryName: repository.fullName,
@@ -423,19 +423,25 @@ export async function processNextScanJob(
           nextAttemptAt: cancelled || exhausted ? null : new Date(Date.now() + retryDelayMs),
         },
       });
-      if (transitioned.count !== 1) return;
+      if (transitioned.count !== 1) {
+        throw new Error("WORKER_LEASE_LOST");
+      }
       await tx.scan.update({
         where: { id: candidate.scanId },
         data: {
-          status: cancelled ? ScanStatus.CANCELLED : ScanStatus.FAILED,
-          completedAt: cancelled || exhausted ? new Date() : null,
+          status: cancelled
+            ? ScanStatus.CANCELLED
+            : exhausted
+              ? ScanStatus.DEAD_LETTER
+              : ScanStatus.FAILED,
+          ...(cancelled || exhausted ? { completedAt: new Date() } : {}),
         },
       });
     });
   } finally {
-    clearInterval(cancellationPoll);
-    clearInterval(heartbeat);
     if (timeoutHandle != null) clearTimeout(timeoutHandle);
+    clearInterval(heartbeat);
+    clearInterval(cancellationPoll);
     shutdownSignal?.removeEventListener("abort", shutdownHandler);
   }
   return true;
