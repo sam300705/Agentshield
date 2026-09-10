@@ -58,11 +58,7 @@ describe("GitHub App webhook boundary", () => {
     };
 
     expect(
-      verifyGitHubWebhookSignature(
-        body,
-        invalidHeaders["x-hub-signature-256"],
-        "synthetic-secret",
-      ),
+      verifyGitHubWebhookSignature(body, invalidHeaders["x-hub-signature-256"], "synthetic-secret"),
     ).toBe(false);
     expect(() => parseVerifiedGitHubWebhook(invalidHeaders, body, "synthetic-secret")).toThrow(
       "Invalid GitHub webhook signature",
@@ -93,11 +89,7 @@ describe("GitHub App webhook boundary", () => {
   it("rejects webhook payloads without installation context", () => {
     const body = Buffer.from(JSON.stringify({ action: "push" }));
     expect(() =>
-      parseVerifiedGitHubWebhook(
-        headers(body, "push", "delivery-3"),
-        body,
-        "synthetic-secret",
-      ),
+      parseVerifiedGitHubWebhook(headers(body, "push", "delivery-3"), body, "synthetic-secret"),
     ).toThrow("installation context is required");
   });
 });
