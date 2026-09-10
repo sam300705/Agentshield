@@ -17,6 +17,65 @@ export interface RedisLikeRateLimitClient {
   pTtl(key: string): Promise<number>;
 }
 
+interface RedisRestResponse {
+  result?: unknown;
+  error?: unknown;
+}
+
+export class RedisRestRateLimitClient implements RedisLikeRateLimitClient {
+  private readonly baseUrl: string;
+
+  constructor(
+    baseUrl: string,
+    private readonly token: string,
+    private readonly fetchImpl: typeof fetch = fetch,
+    private readonly timeoutMs = 2_000,
+  ) {
+    this.baseUrl = baseUrl.replace(/\/$/, "");
+    if (this.baseUrl.length === 0 || token.length === 0) {
+      throw new Error("Redis REST rate-limit configuration is incomplete.");
+    }
+  }
+
+  private async command(command: string, ...args: Array<string | number>): Promise<unknown> {
+    const response = await this.fetchImpl(this.baseUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify([command, ...args]),
+      signal: AbortSignal.timeout(this.timeoutMs),
+    });
+    if (!response.ok) {
+      throw new Error(`Redis REST rate-limit request failed with status ${response.status}.`);
+    }
+    const payload = (await response.json()) as RedisRestResponse;
+    if (payload.error != null) throw new Error("Redis REST rate-limit command failed.");
+    return payload.result;
+  }
+
+  async incr(key: string): Promise<number> {
+    const result = await this.command("INCR", key);
+    if (typeof result !== "number" || !Number.isSafeInteger(result) || result < 1) {
+      throw new Error("Redis REST returned an invalid INCR result.");
+    }
+    return result;
+  }
+
+  async pExpire(key: string, milliseconds: number): Promise<unknown> {
+    return this.command("PEXPIRE", key, milliseconds);
+  }
+
+  async pTtl(key: string): Promise<number> {
+    const result = await this.command("PTTL", key);
+    if (typeof result !== "number" || !Number.isSafeInteger(result)) {
+      throw new Error("Redis REST returned an invalid PTTL result.");
+    }
+    return result;
+  }
+}
+
 export class InMemoryRateLimitStore implements RateLimitStore {
   private readonly buckets = new Map<string, RateLimitDecision>();
 
@@ -45,7 +104,10 @@ export class RedisRateLimitStore implements RateLimitStore {
     const count = await this.client.incr(key);
     if (count === 1) await this.client.pExpire(key, windowMs);
     const ttl = await this.client.pTtl(key);
-    return { count, resetAt: Date.now() + Math.max(0, ttl) };
+    if (ttl < 0) {
+      throw new Error("Redis rate-limit bucket has no expiry.");
+    }
+    return { count, resetAt: Date.now() + ttl };
   }
 }
 
