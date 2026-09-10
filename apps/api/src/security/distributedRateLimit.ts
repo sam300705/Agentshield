@@ -12,15 +12,20 @@ export interface RateLimitStore {
 }
 
 export interface RedisLikeRateLimitClient {
-  incr(key: string): Promise<number>;
-  pExpire(key: string, milliseconds: number): Promise<unknown>;
-  pTtl(key: string): Promise<number>;
+  incrementWindow(key: string, windowMs: number): Promise<RateLimitDecision>;
 }
 
 interface RedisRestResponse {
   result?: unknown;
   error?: unknown;
 }
+
+const ATOMIC_RATE_LIMIT_SCRIPT = [
+  "local count = redis.call('INCR', KEYS[1])",
+  "if count == 1 then redis.call('PEXPIRE', KEYS[1], ARGV[1]) end",
+  "local ttl = redis.call('PTTL', KEYS[1])",
+  "return {count, ttl}",
+].join("\n");
 
 export class RedisRestRateLimitClient implements RedisLikeRateLimitClient {
   private readonly baseUrl: string;
@@ -55,24 +60,24 @@ export class RedisRestRateLimitClient implements RedisLikeRateLimitClient {
     return payload.result;
   }
 
-  async incr(key: string): Promise<number> {
-    const result = await this.command("INCR", key);
-    if (typeof result !== "number" || !Number.isSafeInteger(result) || result < 1) {
-      throw new Error("Redis REST returned an invalid INCR result.");
+  async incrementWindow(key: string, windowMs: number): Promise<RateLimitDecision> {
+    if (!Number.isSafeInteger(windowMs) || windowMs <= 0) {
+      throw new Error("Redis rate-limit window must be a positive integer.");
     }
-    return result;
-  }
-
-  async pExpire(key: string, milliseconds: number): Promise<unknown> {
-    return this.command("PEXPIRE", key, milliseconds);
-  }
-
-  async pTtl(key: string): Promise<number> {
-    const result = await this.command("PTTL", key);
-    if (typeof result !== "number" || !Number.isSafeInteger(result)) {
-      throw new Error("Redis REST returned an invalid PTTL result.");
+    const result = await this.command("EVAL", ATOMIC_RATE_LIMIT_SCRIPT, 1, key, windowMs);
+    if (
+      !Array.isArray(result) ||
+      result.length !== 2 ||
+      typeof result[0] !== "number" ||
+      !Number.isSafeInteger(result[0]) ||
+      result[0] < 1 ||
+      typeof result[1] !== "number" ||
+      !Number.isSafeInteger(result[1]) ||
+      result[1] <= 0
+    ) {
+      throw new Error("Redis REST returned an invalid atomic rate-limit result.");
     }
-    return result;
+    return { count: result[0], resetAt: Date.now() + result[1] };
   }
 }
 
@@ -100,14 +105,8 @@ export class InMemoryRateLimitStore implements RateLimitStore {
 export class RedisRateLimitStore implements RateLimitStore {
   constructor(private readonly client: RedisLikeRateLimitClient) {}
 
-  async increment(key: string, windowMs: number): Promise<RateLimitDecision> {
-    const count = await this.client.incr(key);
-    if (count === 1) await this.client.pExpire(key, windowMs);
-    const ttl = await this.client.pTtl(key);
-    if (ttl < 0) {
-      throw new Error("Redis rate-limit bucket has no expiry.");
-    }
-    return { count, resetAt: Date.now() + ttl };
+  increment(key: string, windowMs: number): Promise<RateLimitDecision> {
+    return this.client.incrementWindow(key, windowMs);
   }
 }
 
