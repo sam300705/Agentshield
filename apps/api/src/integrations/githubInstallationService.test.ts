@@ -156,9 +156,9 @@ describe("GitHub repository synchronization", () => {
       ),
     } as unknown as GitHubAppClient;
 
-    await expect(
-      synchronizeGitHubRepositories(client, githubClient, registration()),
-    ).resolves.toBe(2);
+    await expect(synchronizeGitHubRepositories(client, githubClient, registration())).resolves.toBe(
+      2,
+    );
     expect(repositoryUpsert).toHaveBeenCalledTimes(2);
     expect(repositoryUpdateMany).toHaveBeenCalledWith({
       where: {
