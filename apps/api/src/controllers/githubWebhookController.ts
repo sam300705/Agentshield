@@ -36,11 +36,11 @@ export async function githubWebhookController(request: Request, response: Respon
     const delivery = request.header("x-github-delivery");
     const event = request.header("x-github-event");
     const headers = {
-      ...(signature == null ? {} : { signature }),
-      ...(delivery == null ? {} : { delivery }),
-      ...(event == null ? {} : { event }),
+      ...(signature == null ? {} : { "x-hub-signature-256": signature }),
+      ...(delivery == null ? {} : { "x-github-delivery": delivery }),
+      ...(event == null ? {} : { "x-github-event": event }),
     };
-    webhook = parseVerifiedGitHubWebhook(request.body, headers, config.GITHUB_WEBHOOK_SECRET);
+    webhook = parseVerifiedGitHubWebhook(headers, request.body, config.GITHUB_WEBHOOK_SECRET);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Invalid GitHub webhook.";
     const status = message.includes("signature") ? 401 : 400;
@@ -78,7 +78,6 @@ export async function githubWebhookController(request: Request, response: Respon
     return;
   }
 
-  const lifecycleConfig = getRuntimeConfig();
   const lifecycle = await processGitHubWebhookDelivery(
     installation.organizationId,
     webhook,
@@ -86,10 +85,10 @@ export async function githubWebhookController(request: Request, response: Respon
     {
       client: prisma,
       deliveryStore: store,
-      scanLifecycleEnabled: lifecycleConfig.githubScanLifecycleEnabled,
-      ...(lifecycleConfig.GITHUB_SCAN_POLICY_BUNDLE_VERSION == null
+      scanLifecycleEnabled: config.githubScanLifecycleEnabled,
+      ...(config.GITHUB_SCAN_POLICY_BUNDLE_VERSION == null
         ? {}
-        : { policyBundleVersion: lifecycleConfig.GITHUB_SCAN_POLICY_BUNDLE_VERSION }),
+        : { policyBundleVersion: config.GITHUB_SCAN_POLICY_BUNDLE_VERSION }),
     },
   );
   response.status(lifecycle.status === "FAILED" ? 503 : 202).json({
