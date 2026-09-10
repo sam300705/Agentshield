@@ -212,7 +212,10 @@ export async function recoverAbandonedJobs(now = new Date()): Promise<number> {
 
   await prisma.$transaction([
     prisma.scanJob.updateMany({
-      where: { id: { in: staleJobs.map((job) => job.id) }, status: ScanStatus.RUNNING },
+      where: {
+        id: { in: staleJobs.map((job: { id: string; scanId: string }) => job.id) },
+        status: ScanStatus.RUNNING,
+      },
       data: {
         status: ScanStatus.FAILED,
         lockedAt: null,
@@ -225,7 +228,10 @@ export async function recoverAbandonedJobs(now = new Date()): Promise<number> {
       },
     }),
     prisma.scan.updateMany({
-      where: { id: { in: staleJobs.map((job) => job.scanId) }, status: ScanStatus.RUNNING },
+      where: {
+        id: { in: staleJobs.map((job: { id: string; scanId: string }) => job.scanId) },
+        status: ScanStatus.RUNNING,
+      },
       data: { status: ScanStatus.FAILED },
     }),
   ]);
