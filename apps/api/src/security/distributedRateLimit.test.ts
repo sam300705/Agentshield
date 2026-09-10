@@ -22,6 +22,20 @@ async function start(app: express.Express): Promise<{ origin: string }> {
   return { origin: `http://127.0.0.1:${address.port}` };
 }
 
+function requestUrl(input: Parameters<typeof fetch>[0]): string {
+  if (typeof input === "string") return input;
+  if (input instanceof URL) return input.toString();
+  return input.url;
+}
+
+function requestBody(init: RequestInit | undefined): unknown[] {
+  const body = init?.body;
+  if (typeof body !== "string") throw new Error("Expected Redis REST request body to be JSON text.");
+  const parsed: unknown = JSON.parse(body);
+  if (!Array.isArray(parsed)) throw new Error("Expected Redis REST command body to be an array.");
+  return parsed;
+}
+
 afterEach(async () => {
   await Promise.all(
     servers
@@ -65,10 +79,11 @@ describe("distributed rate limiter", () => {
   it("executes authenticated Redis REST commands without exposing the token in the URL", async () => {
     const responses = [3, 42_000];
     const fetchImpl = vi.fn<typeof fetch>((input, init) => {
-      expect(String(input)).toBe("https://redis.example.test");
+      const url = requestUrl(input);
+      expect(url).toBe("https://redis.example.test");
       expect(new Headers(init?.headers).get("authorization")).toBe("Bearer private-token");
-      expect(String(input)).not.toContain("private-token");
-      const command = JSON.parse(String(init?.body)) as unknown[];
+      expect(url).not.toContain("private-token");
+      const command = requestBody(init);
       const expected = command[0] === "INCR" ? responses[0] : responses[1];
       return Promise.resolve(
         new Response(JSON.stringify({ result: expected }), {
