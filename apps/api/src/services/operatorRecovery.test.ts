@@ -14,9 +14,8 @@ vi.mock("../db/prisma.js", () => ({
   prisma: { $transaction: fake.transaction },
 }));
 
-const { retryDeadLetteredGitHubCheckPublication, retryDeadLetteredScan } = await import(
-  "./operatorRecovery.js"
-);
+const { retryDeadLetteredGitHubCheckPublication, retryDeadLetteredScan } =
+  await import("./operatorRecovery.js");
 
 beforeEach(() => {
   vi.clearAllMocks();
