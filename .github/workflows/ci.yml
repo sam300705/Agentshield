@@ -46,8 +46,83 @@ jobs:
       - run: pnpm db:generate
       - run: pnpm exec prisma validate
       - run: pnpm db:deploy
-      - name: Diagnose operator recovery formatting
+      - run: pnpm format:check
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm test:docs
+      - run: pnpm build
+      - run: pnpm test:integration
+      - run: pnpm test:gateway
+      - name: Build production API image
+        run: docker build --pull --tag agentshield-api:ci .
+      - name: Verify production API image
         run: |
-          pnpm exec prettier apps/api/src/services/operatorRecovery.test.ts --write
-          git --no-pager diff -- apps/api/src/services/operatorRecovery.test.ts
+          set -euo pipefail
+          test "$(docker image inspect --format '{{.Config.User}}' agentshield-api:ci)" = "node"
+          docker run --rm --entrypoint sh agentshield-api:ci -c 'test ! -d /app/src && test -f /app/dist/index.js'
+          container_id="$(docker run -d --network host \
+            -e NODE_ENV=development \
+            -e PORT=3101 \
+            -e DATABASE_URL="$DATABASE_URL" \
+            -e CORS_ORIGIN=http://localhost:5173 \
+            -e AUTH_MODE=oidc \
+            -e DEMO_AUTH_ENABLED=true \
+            -e RATE_LIMIT_ENABLED=false \
+            agentshield-api:ci)"
+          trap 'docker logs "$container_id" || true; docker rm -f "$container_id" >/dev/null 2>&1 || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error http://127.0.0.1:3101/health >/tmp/agentshield-health.json; then
+              grep -q '"status":"ok"' /tmp/agentshield-health.json
+              exit 0
+            fi
+            if ! docker inspect --format '{{.State.Running}}' "$container_id" | grep -q true; then
+              docker logs "$container_id"
+              exit 1
+            fi
+            sleep 1
+          done
+          echo "AgentShield API container did not become healthy" >&2
+          docker logs "$container_id"
           exit 1
+      - name: Install Playwright browser
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Browser E2E
+        run: pnpm test:e2e
+      - name: Scan deterministic fixture
+        id: scan
+        run: |
+          set +e
+          node packages/scanner/dist/cli.js --path examples/vulnerable-repo --format sarif > agentshield-fixture.sarif
+          exit_code=$?
+          set -e
+          echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
+          test "$exit_code" -eq 3
+          node --import tsx scripts/validate-sarif.ts agentshield-fixture.sarif
+      - name: Gate repository source
+        # Exclude only synthetic examples and intentionally illustrative remediation/controller content.
+        run: |
+          node packages/scanner/dist/cli.js --path . --format sarif \
+            --ignore examples \
+            --ignore apps/api/src/controllers/controlPlaneController.ts \
+            --ignore packages/remediation/src/templates.ts \
+            > agentshield-source.sarif
+          node --import tsx scripts/validate-sarif.ts agentshield-source.sarif
+      - name: Audit dependencies
+        run: pnpm audit --audit-level high
+      - name: Audit production dependencies
+        run: pnpm --prod audit --audit-level high
+      - name: Job summary
+        run: |
+          echo "## AgentShield security gate" >> "$GITHUB_STEP_SUMMARY"
+          echo "Deterministic scanner exit code: ${{ steps.scan.outputs.exit_code }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Production API image: built, non-root, smoke-tested." >> "$GITHUB_STEP_SUMMARY"
+          echo "No raw evidence is written to this summary." >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agentshield-sarif
+          path: agentshield-fixture.sarif
+      - uses: github/codeql-action/upload-sarif@v4
+        if: always() && hashFiles('agentshield-source.sarif') != ''
+        with:
+          sarif_file: agentshield-source.sarif
