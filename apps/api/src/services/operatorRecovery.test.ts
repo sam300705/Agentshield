@@ -1,13 +1,46 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+type CountResult = { count: number };
+type UpdateManyArgs = {
+  where: Record<string, unknown>;
+  data: Record<string, unknown>;
+};
+type AuditCreateArgs = {
+  data: {
+    actor: string;
+    entityType: string;
+    organizationId: string;
+    metadata: Record<string, unknown>;
+    [key: string]: unknown;
+  };
+};
+type ScanJobRecord = {
+  id: string;
+  scanId: string;
+  attempts: number;
+  maxAttempts: number;
+  failureCode: string | null;
+  failureMessage: string | null;
+  deadLetteredAt: Date;
+};
+type CheckPublicationRecord = {
+  id: string;
+  scanId: string;
+  attempts: number;
+  maxAttempts: number;
+  failureMessage: string | null;
+  deadLetteredAt: Date;
+  checkRunId: string | null;
+};
+
 const fake = vi.hoisted(() => ({
-  transaction: vi.fn(),
-  scanJobFindFirst: vi.fn(),
-  scanJobUpdateMany: vi.fn(),
-  scanUpdateMany: vi.fn(),
-  checkFindFirst: vi.fn(),
-  checkUpdateMany: vi.fn(),
-  auditCreate: vi.fn(),
+  transaction: vi.fn<(callback: (client: unknown) => Promise<unknown>) => Promise<unknown>>(),
+  scanJobFindFirst: vi.fn<(args: unknown) => Promise<ScanJobRecord | null>>(),
+  scanJobUpdateMany: vi.fn<(args: UpdateManyArgs) => Promise<CountResult>>(),
+  scanUpdateMany: vi.fn<(args: UpdateManyArgs) => Promise<CountResult>>(),
+  checkFindFirst: vi.fn<(args: unknown) => Promise<CheckPublicationRecord | null>>(),
+  checkUpdateMany: vi.fn<(args: UpdateManyArgs) => Promise<CountResult>>(),
+  auditCreate: vi.fn<(args: AuditCreateArgs) => Promise<{ id: string }>>(),
 }));
 
 vi.mock("../db/prisma.js", () => ({
@@ -19,7 +52,7 @@ const { retryDeadLetteredGitHubCheckPublication, retryDeadLetteredScan } =
 
 beforeEach(() => {
   vi.clearAllMocks();
-  fake.transaction.mockImplementation((callback: (client: unknown) => Promise<unknown>) =>
+  fake.transaction.mockImplementation((callback) =>
     callback({
       scanJob: {
         findFirst: fake.scanJobFindFirst,
@@ -57,24 +90,23 @@ describe("operator dead-letter recovery", () => {
       scanId: "scan-1",
       status: "QUEUED",
     });
-    expect(fake.scanJobUpdateMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({ id: "job-1", deadLetteredAt }),
-        data: expect.objectContaining({ attempts: 0, deadLetteredAt: null, status: "QUEUED" }),
-      }),
-    );
-    expect(fake.auditCreate).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        actor: "admin-1",
-        entityType: "ScanJob",
-        organizationId: "org-1",
-        metadata: expect.objectContaining({
-          operation: "SCAN_RETRY_REQUESTED",
-          previousAttempts: 3,
-          previousFailureCode: "RETRIES_EXHAUSTED",
-        }),
-      }),
-    });
+
+    const scanJobUpdate = fake.scanJobUpdateMany.mock.calls.at(0)?.[0];
+    expect(scanJobUpdate).toBeDefined();
+    expect(scanJobUpdate?.where.id).toBe("job-1");
+    expect(scanJobUpdate?.where.deadLetteredAt).toBe(deadLetteredAt);
+    expect(scanJobUpdate?.data.status).toBe("QUEUED");
+    expect(scanJobUpdate?.data.attempts).toBe(0);
+    expect(scanJobUpdate?.data.deadLetteredAt).toBeNull();
+
+    const audit = fake.auditCreate.mock.calls.at(0)?.[0];
+    expect(audit).toBeDefined();
+    expect(audit?.data.actor).toBe("admin-1");
+    expect(audit?.data.entityType).toBe("ScanJob");
+    expect(audit?.data.organizationId).toBe("org-1");
+    expect(audit?.data.metadata.operation).toBe("SCAN_RETRY_REQUESTED");
+    expect(audit?.data.metadata.previousAttempts).toBe(3);
+    expect(audit?.data.metadata.previousFailureCode).toBe("RETRIES_EXHAUSTED");
   });
 
   it("does not revive a scan that is not explicitly dead-lettered", async () => {
@@ -99,20 +131,20 @@ describe("operator dead-letter recovery", () => {
     await expect(
       retryDeadLetteredGitHubCheckPublication("scan-1", "org-1", "admin-1", "corr-3"),
     ).resolves.toEqual({ id: "publication-1", scanId: "scan-1", status: "PENDING" });
-    expect(fake.checkUpdateMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({ id: "publication-1", deadLetteredAt }),
-        data: expect.not.objectContaining({ checkRunId: null }),
-      }),
-    );
-    expect(fake.auditCreate).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        entityType: "GitHubCheckPublication",
-        metadata: expect.objectContaining({
-          operation: "GITHUB_CHECK_PUBLICATION_RETRY_REQUESTED",
-          reconcilesCheckRunId: "987654",
-        }),
-      }),
-    });
+
+    const checkUpdate = fake.checkUpdateMany.mock.calls.at(0)?.[0];
+    expect(checkUpdate).toBeDefined();
+    expect(checkUpdate?.where.id).toBe("publication-1");
+    expect(checkUpdate?.where.deadLetteredAt).toBe(deadLetteredAt);
+    expect(checkUpdate?.data.status).toBe("PENDING");
+    expect(checkUpdate?.data.attempts).toBe(0);
+    expect(checkUpdate?.data.deadLetteredAt).toBeNull();
+    expect(Object.hasOwn(checkUpdate?.data ?? {}, "checkRunId")).toBe(false);
+
+    const audit = fake.auditCreate.mock.calls.at(0)?.[0];
+    expect(audit).toBeDefined();
+    expect(audit?.data.entityType).toBe("GitHubCheckPublication");
+    expect(audit?.data.metadata.operation).toBe("GITHUB_CHECK_PUBLICATION_RETRY_REQUESTED");
+    expect(audit?.data.metadata.reconcilesCheckRunId).toBe("987654");
   });
 });
