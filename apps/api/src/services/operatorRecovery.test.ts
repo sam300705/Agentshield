@@ -52,9 +52,11 @@ describe("operator dead-letter recovery", () => {
       deadLetteredAt,
     });
 
-    await expect(
-      retryDeadLetteredScan("scan-1", "org-1", "admin-1", "corr-1"),
-    ).resolves.toEqual({ id: "job-1", scanId: "scan-1", status: "QUEUED" });
+    await expect(retryDeadLetteredScan("scan-1", "org-1", "admin-1", "corr-1")).resolves.toEqual({
+      id: "job-1",
+      scanId: "scan-1",
+      status: "QUEUED",
+    });
     expect(fake.scanJobUpdateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({ id: "job-1", deadLetteredAt }),
@@ -77,9 +79,7 @@ describe("operator dead-letter recovery", () => {
 
   it("does not revive a scan that is not explicitly dead-lettered", async () => {
     fake.scanJobFindFirst.mockResolvedValue(null);
-    await expect(
-      retryDeadLetteredScan("scan-1", "org-1", "admin-1", "corr-2"),
-    ).resolves.toBeNull();
+    await expect(retryDeadLetteredScan("scan-1", "org-1", "admin-1", "corr-2")).resolves.toBeNull();
     expect(fake.scanJobUpdateMany).not.toHaveBeenCalled();
     expect(fake.auditCreate).not.toHaveBeenCalled();
   });
