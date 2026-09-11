@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest";
 import { createConfiguredReceiptSigner } from "./receiptSigner.js";
 
 const receipt: SecurityReceipt = {
-  schemaVersion: "1.0",
   id: "receipt:test",
   scanId: "scan-test",
   repository: "acme/project",
@@ -40,8 +39,8 @@ describe("receipt signer configuration", () => {
       RECEIPT_SIGNING_KEY_ID: keys.keyId,
       RECEIPT_SIGNING_PRIVATE_KEY: keys.privateKeyPem,
     });
-    expect(signer).not.toBeNull();
-    const signed = await signer!.sign(receipt);
+    if (signer == null) throw new Error("Expected configured receipt signer.");
+    const signed = await signer.sign(receipt);
     expect(verifySignedSecurityReceipt(signed, { [keys.keyId]: keys.publicKeyPem })).toBe(true);
   });
 
