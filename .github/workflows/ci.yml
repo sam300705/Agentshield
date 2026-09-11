@@ -46,11 +46,7 @@ jobs:
       - run: pnpm db:generate
       - run: pnpm exec prisma validate
       - run: pnpm db:deploy
-      - name: Diagnose receipt signer formatting
-        run: |
-          pnpm exec prettier apps/api/src/services/receiptSigner.ts --write
-          git --no-pager diff -- apps/api/src/services/receiptSigner.ts
-          exit 1
+      - run: pnpm format:check
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
@@ -104,6 +100,7 @@ jobs:
           test "$exit_code" -eq 3
           node --import tsx scripts/validate-sarif.ts agentshield-fixture.sarif
       - name: Gate repository source
+        # Exclude only synthetic examples and intentionally illustrative remediation/controller content.
         run: |
           node packages/scanner/dist/cli.js --path . --format sarif \
             --ignore examples \
