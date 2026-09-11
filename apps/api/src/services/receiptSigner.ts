@@ -1,7 +1,4 @@
-import {
-  signSecurityReceipt,
-  type SignedSecurityReceipt,
-} from "@agentshield/policy-engine";
+import { signSecurityReceipt, type SignedSecurityReceipt } from "@agentshield/policy-engine";
 import type { SecurityReceipt } from "@agentshield/schemas";
 
 export interface ReceiptSigner {
@@ -36,18 +33,10 @@ export function createConfiguredReceiptSigner(
 ): ReceiptSigner | null {
   const keyId = env.RECEIPT_SIGNING_KEY_ID?.trim();
   const privateKey = env.RECEIPT_SIGNING_PRIVATE_KEY?.trim();
-  if (
-    (keyId == null || keyId.length === 0) !==
-    (privateKey == null || privateKey.length === 0)
-  ) {
+  if ((keyId == null || keyId.length === 0) !== (privateKey == null || privateKey.length === 0)) {
     throw new Error("Receipt signing requires both private key and key ID.");
   }
-  if (
-    keyId == null ||
-    keyId.length === 0 ||
-    privateKey == null ||
-    privateKey.length === 0
-  ) {
+  if (keyId == null || keyId.length === 0 || privateKey == null || privateKey.length === 0) {
     return null;
   }
   return new LocalEd25519ReceiptSigner(keyId, privateKey);
