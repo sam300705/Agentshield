@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 
 import { createConfiguredReceiptSigner } from "./receiptSigner.js";
 
+const VALID_SHA256 = `sha256:${"a".repeat(64)}`;
+
 const receipt: SecurityReceipt = {
   id: "receipt:test",
   scanId: "scan-test",
@@ -15,11 +17,11 @@ const receipt: SecurityReceipt = {
   findingCounts: { total: 0, critical: 0, high: 0, medium: 0, low: 0 },
   decisionCounts: { ALLOW: 0, WARN: 0, REQUIRE_APPROVAL: 0, BLOCK: 0 },
   approvalState: "NONE",
-  evidenceDigest: "sha256:placeholder",
+  evidenceDigest: VALID_SHA256,
   gateResult: "ALLOW",
   startedAt: new Date("2026-09-11T00:00:00Z"),
   completedAt: new Date("2026-09-11T00:00:01Z"),
-  receiptHash: "sha256:placeholder",
+  receiptHash: VALID_SHA256,
 };
 
 describe("receipt signer configuration", () => {
