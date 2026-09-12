@@ -50,7 +50,7 @@ beforeEach(() => {
     provider: "GITHUB",
     fullName: "octo/example",
     defaultBranch: "main",
-    githubInstallation: { installationId: 42 },
+    githubInstallation: { installationId: 42, status: "ACTIVE" },
   });
   fake.scanCreate.mockResolvedValue({ id: "scan-1" });
   fake.scanJobCreate.mockResolvedValue({
