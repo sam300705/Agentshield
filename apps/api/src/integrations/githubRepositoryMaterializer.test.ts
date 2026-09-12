@@ -99,7 +99,6 @@ function makeFixture(options: {
 const githubPayload = (overrides: Record<string, unknown> = {}): ScanJobPayload =>
   scanJobPayloadSchema.parse({
     organizationId: "org-test",
-    integrationId: "42",
     repositoryId: "repo-test",
     provider: "GITHUB",
     repositoryName: "octo/example",
