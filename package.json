@@ -1,6 +1,6 @@
 {
   "name": "agentshield",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Policy-as-Code guardrails for AI coding agents in software supply chains.",
   "packageManager": "pnpm@9.15.4",
@@ -31,7 +31,9 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:push": "prisma db push",
-    "db:seed": "prisma db seed"
+    "db:seed": "prisma db seed",
+    "audit:high": "pnpm audit --audit-level=high",
+    "audit:prod": "pnpm --prod audit --audit-level=high"
   },
   "dependencies": {
     "@prisma/client": "^6.0.0"
@@ -52,5 +54,17 @@
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.19.1"
+  },
+  "pnpm": {
+    "overrides": {
+      "brace-expansion@<2": "1.1.18",
+      "brace-expansion@>=4": "5.0.9",
+      "browserslist": "4.28.7",
+      "js-yaml": "4.3.2",
+      "nanoid@<4": "3.3.18",
+      "qs": "6.16.0",
+      "body-parser": "1.20.6",
+      "deepmerge-ts": "8.0.1"
+    }
   }
 }

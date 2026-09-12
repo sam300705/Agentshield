@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 export interface GitHubAppConfig {
   appId: string;
-  clientId: string;
+  clientId?: string;
   webhookSecret: string;
   privateKey: string;
 }
@@ -11,6 +11,14 @@ export interface GitHubInstallationBinding {
   organizationId: string;
   installationId: number;
   accountLogin: string;
+}
+
+export interface GitHubInstallationMetadata {
+  installationId: number;
+  accountLogin: string;
+  accountType: string;
+  permissions: Record<string, string>;
+  suspended: boolean;
 }
 
 export interface VerifiedGitHubWebhook {
@@ -32,6 +40,7 @@ export interface GitHubRepository {
 }
 
 export interface GitHubAppClient {
+  getInstallation(installationId: number): Promise<GitHubInstallationMetadata>;
   createInstallationToken(installationId: number): Promise<{ token: string; expiresAt: Date }>;
   listInstallationRepositories(installationId: number, token: string): Promise<GitHubRepository[]>;
 }
@@ -85,71 +94,76 @@ export class WebhookReplayGuard {
   }
 }
 
-function readNumber(value: unknown, name: string): number {
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
-    throw new Error(`GitHub webhook ${name} is invalid.`);
-  }
-  return value;
+function readObject(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value != null ? (value as Record<string, unknown>) : null;
 }
 
-function readString(value: unknown): string | null {
-  return typeof value === "string" && value.length > 0 && value.length <= 256 ? value : null;
+function readString(value: unknown, maxLength = 256): string | null {
+  return typeof value === "string" && value.length > 0 && value.length <= maxLength ? value : null;
+}
+
+function readPositiveInteger(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
 }
 
 export function parseVerifiedGitHubWebhook(
-  rawPayload: Buffer,
-  headers: {
-    signature?: string;
-    delivery?: string;
-    event?: string;
-  },
+  headers: Record<string, string | undefined>,
+  rawBody: Buffer,
   webhookSecret: string,
-  replayGuard?: WebhookReplayGuard,
 ): VerifiedGitHubWebhook {
-  if (!verifyGitHubWebhookSignature(rawPayload, headers.signature, webhookSecret)) {
-    throw new Error("GitHub webhook signature verification failed.");
+  const signature = headers["x-hub-signature-256"];
+  if (!verifyGitHubWebhookSignature(rawBody, signature, webhookSecret)) {
+    throw new Error("Invalid GitHub webhook signature.");
   }
-  const deliveryId = safeHeader(headers.delivery, "delivery");
-  if (replayGuard != null && !replayGuard.accept(deliveryId))
-    throw new Error("GitHub webhook delivery has already been processed.");
-  const eventName = safeHeader(headers.event, "event");
-  const parsed = JSON.parse(rawPayload.toString("utf8")) as Record<string, unknown>;
-  const installation = parsed.installation;
-  const installationId =
-    typeof installation === "object" && installation != null
-      ? readNumber((installation as { id?: unknown }).id, "installation.id")
-      : null;
+
+  const deliveryId = safeHeader(headers["x-github-delivery"], "delivery");
+  const eventName = safeHeader(headers["x-github-event"], "event");
+  let payload: unknown;
+  try {
+    payload = JSON.parse(rawBody.toString("utf8")) as unknown;
+  } catch {
+    throw new Error("Invalid GitHub webhook JSON payload.");
+  }
+  const body = readObject(payload);
+  if (body == null) throw new Error("Invalid GitHub webhook payload.");
+
+  const installation = readObject(body.installation);
+  const installationId = readPositiveInteger(installation?.id);
   if (installationId == null) throw new Error("GitHub webhook installation context is required.");
-  const organization = parsed.organization;
+
+  const repository = readObject(body.repository);
+  const repositoryFullName = readString(repository?.full_name, 256);
+  const installationAccount = readObject(installation?.account);
+  const organization = readObject(body.organization);
+  const sender = readObject(body.sender);
   const organizationLogin =
-    typeof organization === "object" && organization != null
-      ? readString((organization as { login?: unknown }).login)
-      : null;
-  const repository = parsed.repository;
-  const repositoryFullName =
-    typeof repository === "object" && repository != null
-      ? readString((repository as { full_name?: unknown }).full_name)
-      : null;
+    readString(installationAccount?.login, 128) ??
+    readString(organization?.login, 128) ??
+    readString(sender?.login, 128) ??
+    null;
+
   return {
     deliveryId,
     eventName,
-    action: readString(parsed.action),
+    action: readString(body.action, 128),
     installationId,
     organizationLogin,
     repositoryFullName,
-    payload: parsed,
+    payload: body,
   };
 }
 
 export function assertInstallationOwnership(
   binding: GitHubInstallationBinding,
-  webhook: Pick<VerifiedGitHubWebhook, "installationId" | "organizationLogin">,
+  webhook: VerifiedGitHubWebhook,
 ): void {
+  if (binding.installationId !== webhook.installationId) {
+    throw new Error("GitHub installation does not match the verified webhook.");
+  }
   if (
-    binding.installationId !== webhook.installationId ||
-    webhook.organizationLogin == null ||
+    webhook.organizationLogin != null &&
     binding.accountLogin.toLowerCase() !== webhook.organizationLogin.toLowerCase()
   ) {
-    throw new Error("GitHub installation does not belong to the organization context.");
+    throw new Error("GitHub webhook organization does not match the registered installation.");
   }
 }

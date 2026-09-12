@@ -69,4 +69,43 @@ describe("GitHub Checks adapter", () => {
       "X-GitHub-Api-Version": "2026-03-10",
     });
   });
+
+  it("reconciles an existing Check by external id after an interrupted publication", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          check_runs: [
+            {
+              id: 88,
+              external_id: "agentshield:scan:scan-1",
+              html_url: "https://github.com/acme/project/runs/88",
+            },
+            { id: 89, external_id: "other" },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+    const client = new FetchGitHubAppClient(
+      { appId: "42", webhookSecret: "webhook", privateKey: "unused" },
+      { fetchImpl, apiBaseUrl: "https://api.example.test" },
+    ).withInstallationToken("installation-token");
+
+    await expect(
+      client.findCheckRunByExternalId(
+        "acme",
+        "project",
+        "0123456789abcdef0123456789abcdef01234567",
+        "agentshield:scan:scan-1",
+      ),
+    ).resolves.toEqual({
+      id: 88,
+      externalId: "agentshield:scan:scan-1",
+      htmlUrl: "https://github.com/acme/project/runs/88",
+    });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://api.example.test/repos/acme/project/commits/0123456789abcdef0123456789abcdef01234567/check-runs?check_name=AgentShield&filter=latest&per_page=100",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
 });

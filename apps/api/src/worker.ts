@@ -6,7 +6,12 @@ import { randomUUID } from "node:crypto";
 import { sanitizeText } from "@agentshield/schemas";
 import { getRuntimeConfig } from "./config.js";
 import { prisma } from "./db/prisma.js";
+import {
+  createGitHubCheckAppClient,
+  processNextGitHubCheckPublication,
+} from "./services/githubCheckPublication.js";
 import { processNextScanJob } from "./services/scanQueue.js";
+import { createWorkerScanExecutor } from "./services/workerComposition.js";
 
 const workerId = `scan-worker-${hostname()}-${process.pid}-${randomUUID()}`;
 const runOnce = process.env.WORKER_MODE === "once";
@@ -14,18 +19,29 @@ const shutdownController = new AbortController();
 let stopping = false;
 
 async function run(): Promise<void> {
-  getRuntimeConfig();
+  const config = getRuntimeConfig();
+  const executor = await createWorkerScanExecutor(config);
+  const githubCheckAppClient = createGitHubCheckAppClient(config);
   console.warn(
     JSON.stringify({
       level: "info",
       service: "agentshield-worker",
       workerId,
+      githubChecksEnabled: githubCheckAppClient != null,
       message: "worker started",
     }),
   );
   try {
     while (!stopping) {
-      const processed = await processNextScanJob(workerId, undefined, shutdownController.signal);
+      const scanProcessed = await processNextScanJob(workerId, executor, shutdownController.signal);
+      if (stopping) break;
+      const checkProcessed = await processNextGitHubCheckPublication(
+        prisma,
+        githubCheckAppClient,
+        workerId,
+        config.DASHBOARD_PUBLIC_URL,
+      );
+      const processed = scanProcessed || checkProcessed;
       if (!processed && runOnce) break;
       if (!processed) await new Promise((resolve) => setTimeout(resolve, 1000));
     }

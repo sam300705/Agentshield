@@ -1,9 +1,27 @@
 import { z } from "zod";
 
 const boundedString = (max: number) => z.string().trim().min(1).max(max);
+const fullCommitSha = z.string().regex(/^[a-f0-9]{40}$/i);
 
 export const scanProviderSchema = z.enum(["LOCAL", "GITHUB"]);
-export const scanTriggerSchema = z.enum(["MANUAL", "PUSH", "PULL_REQUEST", "INSTALLATION"]);
+export const scanTriggerSchema = z.enum([
+  "MANUAL",
+  "PUSH",
+  "PULL_REQUEST",
+  "INSTALLATION",
+  "RETRY",
+  "API",
+]);
+
+export const scanGitHubLineageSchema = z
+  .object({
+    installationId: z.number().int().positive(),
+    repositoryFullName: boundedString(256),
+    deliveryId: boundedString(256).optional(),
+    eventName: boundedString(128).optional(),
+    action: boundedString(128).optional(),
+  })
+  .strict();
 
 export const scanOptionsSchema = z
   .object({
@@ -36,7 +54,6 @@ export const createRepositoryScanSchema = z
 export const scanJobPayloadSchema = z
   .object({
     organizationId: boundedString(128),
-    integrationId: boundedString(128).optional(),
     repositoryId: boundedString(128),
     provider: scanProviderSchema,
     repositoryName: boundedString(256),
@@ -48,11 +65,84 @@ export const scanJobPayloadSchema = z
       .optional(),
     policyBundleVersion: boundedString(128),
     trigger: scanTriggerSchema,
+    github: scanGitHubLineageSchema.optional(),
     requester: boundedString(256),
     correlationId: boundedString(128),
     options: scanOptionsSchema.default({}),
   })
-  .strict();
+  .strict()
+  .superRefine((payload, context) => {
+    if (payload.provider === "GITHUB") {
+      if (payload.github == null) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["github"],
+          message: "GitHub provider scans require trusted GitHub lineage",
+        });
+        return;
+      }
+      if (payload.commitSha == null || !fullCommitSha.safeParse(payload.commitSha).success) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["commitSha"],
+          message: "GitHub provider scans require an immutable 40-character commit SHA",
+        });
+      }
+      if (payload.github.repositoryFullName !== payload.repositoryName) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["github", "repositoryFullName"],
+          message: "GitHub lineage repository must match the registered repository name",
+        });
+      }
+    } else if (payload.github != null) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["github"],
+        message: "Non-GitHub scans cannot carry GitHub lineage",
+      });
+    }
+
+    const webhookTrigger =
+      payload.trigger === "PUSH" ||
+      payload.trigger === "PULL_REQUEST" ||
+      payload.trigger === "INSTALLATION";
+    if (webhookTrigger) {
+      if (payload.github?.deliveryId == null || payload.github.eventName == null) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["github"],
+          message: "Webhook-triggered scans require delivery and event provenance",
+        });
+      }
+      const expectedEvent =
+        payload.trigger === "PUSH"
+          ? "push"
+          : payload.trigger === "PULL_REQUEST"
+            ? "pull_request"
+            : "installation";
+      if (payload.github?.eventName != null && payload.github.eventName !== expectedEvent) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["github", "eventName"],
+          message: "GitHub webhook event does not match the trusted scan trigger",
+        });
+      }
+    }
+
+    if (
+      (payload.trigger === "MANUAL" || payload.trigger === "API") &&
+      (payload.github?.deliveryId != null ||
+        payload.github?.eventName != null ||
+        payload.github?.action != null)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["github"],
+        message: "Manual/API scans cannot claim webhook delivery provenance",
+      });
+    }
+  });
 
 export const scanJobStatusSchema = z.enum([
   "QUEUED",
@@ -65,6 +155,7 @@ export const scanJobStatusSchema = z.enum([
 
 export type ScanProvider = z.infer<typeof scanProviderSchema>;
 export type ScanTrigger = z.infer<typeof scanTriggerSchema>;
+export type ScanGitHubLineage = z.infer<typeof scanGitHubLineageSchema>;
 export type ScanOptions = z.infer<typeof scanOptionsSchema>;
 export type CreateRepositoryScan = z.infer<typeof createRepositoryScanSchema>;
 export type ScanJobPayload = z.infer<typeof scanJobPayloadSchema>;

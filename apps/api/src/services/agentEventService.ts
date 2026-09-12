@@ -110,7 +110,7 @@ function samePayload(event: PersistedAgentEvent, expectedHash: string): boolean 
   return persistedPayloadHash(event) === expectedHash;
 }
 
-async function findExisting(input: ParsedAgentEvent): Promise<PersistedAgentEvent | null> {
+function findExisting(input: ParsedAgentEvent): Promise<PersistedAgentEvent | null> {
   return prisma.agentEvent.findFirst({
     where: {
       sessionId: input.sessionId,

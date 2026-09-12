@@ -20,12 +20,28 @@ type EventRecord = {
   previousHash: string | null;
 };
 
+type AgentEventFindFirstArgs = {
+  where?: {
+    sessionId?: string;
+    idempotencyKey?: string;
+    session?: { organizationId?: string };
+  };
+  orderBy?: { sequence?: "asc" | "desc" };
+  select?: { sequence?: boolean; eventHash?: boolean };
+};
+
+type AgentEventFindUniqueArgs = {
+  where: {
+    sessionId_idempotencyKey: { sessionId: string; idempotencyKey: string };
+  };
+};
+
 type FakeClient = {
   $executeRaw: Mock<(...args: unknown[]) => Promise<number>>;
   agentSession: { findFirst: Mock<() => Promise<{ id: string } | null>> };
   agentEvent: {
-    findUnique: Mock<() => Promise<EventRecord | null>>;
-    findFirst: Mock<() => Promise<EventRecord | null>>;
+    findUnique: Mock<(args: AgentEventFindUniqueArgs) => Promise<EventRecord | null>>;
+    findFirst: Mock<(args: AgentEventFindFirstArgs) => Promise<EventRecord | null>>;
     create: Mock<(args: { data: EventRecord }) => Promise<EventRecord>>;
   };
   auditEvent: { create: Mock<(args: { data: unknown }) => Promise<unknown>> };
@@ -40,18 +56,18 @@ type FakePrisma = FakeClient & {
 const fakePrisma = vi.hoisted(() => {
   const events: EventRecord[] = [];
   let transactionChain = Promise.resolve();
-  const findByIdempotency = (args: unknown): Promise<EventRecord | null> => {
-    const key = (args as { where: { sessionId_idempotencyKey: { idempotencyKey: string } } }).where
-      .sessionId_idempotencyKey.idempotencyKey;
-    return Promise.resolve(events.find((event) => event.idempotencyKey === key) ?? null);
-  };
-  const findFirst = (args: unknown): Promise<EventRecord | null> => {
-    const where = (args as { where?: { idempotencyKey?: string } }).where;
+  const findByIdempotency = (args: AgentEventFindUniqueArgs): Promise<EventRecord | null> => {
+    const key = args.where.sessionId_idempotencyKey;
     return Promise.resolve(
-      where?.idempotencyKey == null
-        ? (events.at(-1) ?? null)
-        : (events.find((event) => event.idempotencyKey === where.idempotencyKey) ?? null),
+      events.find(
+        (event) => event.sessionId === key.sessionId && event.idempotencyKey === key.idempotencyKey,
+      ) ?? null,
     );
+  };
+  const findFirst = (args: AgentEventFindFirstArgs): Promise<EventRecord | null> => {
+    const idempotencyKey = args.where?.idempotencyKey;
+    if (idempotencyKey == null) return Promise.resolve(events.at(-1) ?? null);
+    return Promise.resolve(events.find((event) => event.idempotencyKey === idempotencyKey) ?? null);
   };
   const client: FakeClient = {
     $executeRaw: vi.fn(() => Promise.resolve(1)),

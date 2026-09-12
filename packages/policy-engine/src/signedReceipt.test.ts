@@ -13,7 +13,7 @@ const receipt = createSecurityReceipt({
   repository: "synthetic/example",
   branch: "main",
   commitSha: "abc123",
-  scannerVersion: "0.1.0",
+  scannerVersion: "0.2.0",
   policyBundleVersion: "2.0.0",
   findingCounts: { HIGH: 1 },
   decisionCounts: { BLOCK: 1 },
