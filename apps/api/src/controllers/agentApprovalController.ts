@@ -1,5 +1,7 @@
-import { ApprovalStatus } from "@prisma/client";
+import type { ApprovalStatus as ApprovalStatusType } from "@prisma/client";
 import { agentAuthorizationRequestSchema } from "@agentshield/schemas";
+
+import { ApprovalStatus } from "../db/prismaRuntime.js";
 import type { Request, Response } from "express";
 import { z } from "zod";
 
@@ -92,7 +94,7 @@ export async function getAgentApprovalController(
 async function review(
   request: Request,
   response: Response,
-  status: Extract<ApprovalStatus, "APPROVED" | "REJECTED">,
+  status: Extract<ApprovalStatusType, "APPROVED" | "REJECTED">,
 ): Promise<void> {
   const actor = getActor(response);
   const { approvalId } = approvalParamsSchema.parse(request.params);

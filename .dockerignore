@@ -4,6 +4,8 @@ dist
 **/dist
 build
 **/build
+*.tsbuildinfo
+**/*.tsbuildinfo
 coverage
 .vite
 .turbo

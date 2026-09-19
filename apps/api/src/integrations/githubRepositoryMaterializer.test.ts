@@ -99,7 +99,6 @@ function makeFixture(options: {
 const githubPayload = (overrides: Record<string, unknown> = {}): ScanJobPayload =>
   scanJobPayloadSchema.parse({
     organizationId: "org-test",
-    integrationId: "42",
     repositoryId: "repo-test",
     provider: "GITHUB",
     repositoryName: "octo/example",
@@ -108,6 +107,12 @@ const githubPayload = (overrides: Record<string, unknown> = {}): ScanJobPayload 
     commitSha: COMMIT_SHA,
     policyBundleVersion: "v1",
     trigger: "PUSH",
+    github: {
+      installationId: 42,
+      repositoryFullName: "octo/example",
+      deliveryId: "delivery-push",
+      eventName: "push",
+    },
     requester: "github:webhook",
     correlationId: "corr-test",
     options: {},
@@ -153,13 +158,9 @@ describe("GitHubRepositoryMaterializer", () => {
       await expect(
         disabled.materializer.materialize(githubPayload(), workspace, new AbortController().signal),
       ).rejects.toThrow("GITHUB_MATERIALIZATION_DISABLED");
-      await expect(
-        makeFixture({ archive }).materializer.materialize(
-          githubPayload({ commitSha: "0123456" }),
-          workspace,
-          new AbortController().signal,
-        ),
-      ).rejects.toThrow("GITHUB_COMMIT_SHA_REQUIRED");
+      expect(() => githubPayload({ commitSha: "0123456" })).toThrow(
+        "GitHub provider scans require an immutable 40-character commit SHA",
+      );
       await expect(
         makeFixture({ archive, binding: null }).materializer.materialize(
           githubPayload(),

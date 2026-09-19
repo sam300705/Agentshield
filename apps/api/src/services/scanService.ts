@@ -1,10 +1,15 @@
 import {
   createSecurityReceipt,
   evaluateFindings,
-  signSecurityReceipt,
+  type SignedSecurityReceipt,
 } from "@agentshield/policy-engine";
 import { generateRemediation } from "@agentshield/remediation";
-import { enrichDependencies, runScan, type DependencyAdvisoryResult } from "@agentshield/scanner";
+import {
+  enrichDependencies,
+  runScan,
+  SCANNER_RELEASE,
+  type DependencyAdvisoryResult,
+} from "@agentshield/scanner";
 import {
   type Dependency,
   type Finding,
@@ -15,12 +20,16 @@ import {
   type PolicyDecisionType,
   type Remediation,
   type ScanOptions,
+  type SecurityReceipt,
 } from "@agentshield/schemas";
-import { AuditAction, Prisma, ScanStatus, type PrismaClient } from "@prisma/client";
+import type { Prisma as PrismaTypes, PrismaClient } from "@prisma/client";
+
+import { AuditAction, Prisma, ScanStatus } from "../db/prismaRuntime.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { prisma } from "../db/prisma.js";
+import { createConfiguredReceiptSigner } from "./receiptSigner.js";
 
 const SYSTEM_ACTOR = "System";
 const DEMO_TARGET_PATH = "../../examples/vulnerable-repo";
@@ -34,13 +43,13 @@ interface FindingCounts {
   low: number;
 }
 
-function toInputJson(value: unknown): Prisma.InputJsonValue {
-  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+function toInputJson(value: unknown): PrismaTypes.InputJsonValue {
+  return JSON.parse(JSON.stringify(value)) as PrismaTypes.InputJsonValue;
 }
 
 function toNullableInputJson(
   value: JsonValue | null | undefined,
-): Prisma.InputJsonValue | typeof Prisma.JsonNull {
+): PrismaTypes.InputJsonValue | typeof Prisma.JsonNull {
   return value == null ? Prisma.JsonNull : toInputJson(value);
 }
 
@@ -109,7 +118,7 @@ function createScanMetadata(input: {
   advisoryStatus: "DISABLED" | "ENRICHED" | "UNAVAILABLE";
   advisoryDiagnostic?: string;
   policyBundleVersion: string;
-}): Prisma.InputJsonValue {
+}): PrismaTypes.InputJsonValue {
   return toInputJson({
     source: input.source,
     targetPath: input.targetPath,
@@ -129,7 +138,7 @@ function createScanMetadata(input: {
   });
 }
 
-function createScannerEvidence(finding: Finding): Prisma.InputJsonValue {
+function createScannerEvidence(finding: Finding): PrismaTypes.InputJsonValue {
   const sanitized = sanitizeEvidence(finding.evidence);
   const evidence =
     typeof sanitized === "object" && sanitized != null && !Array.isArray(sanitized)
@@ -203,7 +212,7 @@ async function runAdvisoryEnrichment(
 }
 
 async function persistDependency(
-  tx: Prisma.TransactionClient,
+  tx: PrismaTypes.TransactionClient,
   dependency: Dependency,
 ): Promise<void> {
   await tx.dependency.create({
@@ -225,7 +234,7 @@ async function persistDependency(
 }
 
 async function persistFinding(
-  tx: Prisma.TransactionClient,
+  tx: PrismaTypes.TransactionClient,
   finding: Finding,
   scanId: string,
 ): Promise<void> {
@@ -248,7 +257,7 @@ async function persistFinding(
 }
 
 async function persistPolicyDecision(
-  tx: Prisma.TransactionClient,
+  tx: PrismaTypes.TransactionClient,
   decision: PolicyDecision,
 ): Promise<void> {
   await tx.policyDecision.create({
@@ -266,7 +275,7 @@ async function persistPolicyDecision(
 }
 
 async function persistRemediation(
-  tx: Prisma.TransactionClient,
+  tx: PrismaTypes.TransactionClient,
   remediation: Remediation,
 ): Promise<void> {
   await tx.remediation.create({
@@ -284,7 +293,7 @@ async function persistRemediation(
 }
 
 async function persistAdvisories(
-  tx: Prisma.TransactionClient,
+  tx: PrismaTypes.TransactionClient,
   organizationId: string,
   scanId: string,
   dependencies: Dependency[],
@@ -333,8 +342,7 @@ async function persistAdvisories(
   return count;
 }
 
-async function persistSecurityReceipt(
-  tx: Prisma.TransactionClient,
+function buildSecurityReceipt(
   options: ScanRunOptions,
   scanId: string,
   scanStartedAt: Date,
@@ -344,14 +352,14 @@ async function persistSecurityReceipt(
   decisionCounts: Record<PolicyDecisionType, number>,
   decisions: PolicyDecision[],
   approvalCount: number,
-): Promise<void> {
-  const receipt = createSecurityReceipt({
+): SecurityReceipt {
+  return createSecurityReceipt({
     id: `receipt:${scanId}`,
     scanId,
     repository: options.repositoryName,
     branch: options.branch,
     commitSha: options.commitSha ?? "unresolved",
-    scannerVersion: "agentshield-scanner@0.1.0",
+    scannerVersion: SCANNER_RELEASE,
     policyBundleVersion: options.policyBundleVersion,
     findingCounts: { ...findingCounts },
     decisionCounts,
@@ -365,17 +373,15 @@ async function persistSecurityReceipt(
     completedAt,
     gateResult: gateResultForDecisions(decisions),
   });
-  const privateKey = process.env.RECEIPT_SIGNING_PRIVATE_KEY;
-  const keyId = process.env.RECEIPT_SIGNING_KEY_ID;
-  if ((privateKey == null) !== (keyId == null)) {
-    throw new Error("Receipt signing requires both private key and key ID.");
-  }
-  const signed =
-    privateKey != null && keyId != null
-      ? signSecurityReceipt(receipt, { keyId, privateKey })
-      : null;
+}
+
+async function persistSecurityReceipt(
+  tx: PrismaTypes.TransactionClient,
+  receipt: SecurityReceipt,
+  signed: SignedSecurityReceipt | null,
+): Promise<void> {
   await tx.securityReceipt.upsert({
-    where: { scanId },
+    where: { scanId: receipt.scanId },
     update: {
       schemaVersion: "1",
       scannerVersion: receipt.scannerVersion,
@@ -394,7 +400,7 @@ async function persistSecurityReceipt(
       receiptHash: receipt.receiptHash,
     },
     create: {
-      scanId,
+      scanId: receipt.scanId,
       schemaVersion: "1",
       scannerVersion: receipt.scannerVersion,
       policyBundleVersion: receipt.policyBundleVersion,
@@ -566,6 +572,19 @@ export async function runConfiguredScan(
       policyBundleVersion: options.policyBundleVersion,
     });
     const completedAt = new Date();
+    const receipt = buildSecurityReceipt(
+      options,
+      scan.id,
+      scan.startedAt,
+      completedAt,
+      scanResult.findings,
+      findingCounts,
+      decisionCounts,
+      policyDecisions,
+      approvalFindingIds.length,
+    );
+    const receiptSigner = createConfiguredReceiptSigner();
+    const signedReceipt = receiptSigner == null ? null : await receiptSigner.sign(receipt);
 
     await prisma.$transaction(
       async (tx) => {
@@ -603,18 +622,7 @@ export async function runConfiguredScan(
             metadata,
           },
         });
-        await persistSecurityReceipt(
-          tx,
-          options,
-          scan.id,
-          scan.startedAt,
-          completedAt,
-          scanResult.findings,
-          findingCounts,
-          decisionCounts,
-          policyDecisions,
-          approvalFindingIds.length,
-        );
+        await persistSecurityReceipt(tx, receipt, signedReceipt);
         await tx.scan.update({
           where: { id: scan.id },
           data: { status: ScanStatus.COMPLETED, completedAt, metadata },

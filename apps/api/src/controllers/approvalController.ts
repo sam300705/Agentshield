@@ -1,4 +1,5 @@
-import { ApprovalStatus, AuditAction } from "@prisma/client";
+import type { ApprovalStatus as ApprovalStatusType } from "@prisma/client";
+import { ApprovalStatus, AuditAction } from "../db/prismaRuntime.js";
 import { type Request, type Response } from "express";
 import { z } from "zod";
 
@@ -56,7 +57,7 @@ export async function listPendingApprovalsController(
 
 async function updateApprovalStatus(
   approvalId: string,
-  status: Extract<ApprovalStatus, "APPROVED" | "REJECTED">,
+  status: Extract<ApprovalStatusType, "APPROVED" | "REJECTED">,
   reason: string | undefined,
   actor: RequestActor,
   correlationId: string,

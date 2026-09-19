@@ -13,6 +13,7 @@ import {
 } from "../controllers/approvalController.js";
 import { listAuditEventsController } from "../controllers/auditController.js";
 import { githubWebhookController } from "../controllers/githubWebhookController.js";
+import { synchronizeGitHubInstallationController } from "../controllers/githubInstallationController.js";
 import {
   approveAgentApprovalController,
   createAgentApprovalController,
@@ -26,6 +27,10 @@ import {
 } from "../controllers/agentGatewayController.js";
 import { getDashboardSummaryController } from "../controllers/dashboardController.js";
 import { getDemoControlPlaneController } from "../controllers/controlPlaneController.js";
+import {
+  retryDeadLetteredGitHubCheckController,
+  retryDeadLetteredScanController,
+} from "../controllers/operatorRecoveryController.js";
 import { metricsController, readinessController } from "../controllers/systemController.js";
 import { requirePermission } from "../security/auth.js";
 import {
@@ -65,6 +70,11 @@ router.get("/health/live", (_request, response) =>
 );
 router.get("/health/ready", asyncHandler(readinessController));
 router.post("/api/v1/integrations/github/webhooks", asyncHandler(githubWebhookController));
+router.post(
+  "/api/v1/integrations/github/installations/:installationId/sync",
+  requirePermission("organization:manage"),
+  asyncHandler(synchronizeGitHubInstallationController),
+);
 router.get("/metrics", requirePermission("organization:manage"), asyncHandler(metricsController));
 router.post(
   "/api/v1/agent/authorize",
@@ -137,6 +147,16 @@ router.post(
   "/api/v1/scans/:scanId/cancel",
   requirePermission("scan:run"),
   asyncHandler(cancelScanController),
+);
+router.post(
+  "/api/v1/scans/:scanId/retry",
+  requirePermission("organization:manage"),
+  asyncHandler(retryDeadLetteredScanController),
+);
+router.post(
+  "/api/v1/scans/:scanId/github-check/retry",
+  requirePermission("organization:manage"),
+  asyncHandler(retryDeadLetteredGitHubCheckController),
 );
 router.get(
   "/api/v1/scans/:scanId/findings",

@@ -5,6 +5,7 @@ import {
   createSecurityReceipt,
   type AgentEventInput,
 } from "@agentshield/policy-engine";
+import { SCANNER_VERSION } from "@agentshield/scanner";
 import type { Request, Response } from "express";
 
 import { getCorrelationId } from "../security/auth.js";
@@ -100,7 +101,7 @@ export function getDemoControlPlaneController(_request: Request, response: Respo
     repository: "sam300705/Agentshield",
     branch: "agent/recruiter-demo",
     commitSha: "8d71af0f5e3c",
-    scannerVersion: "0.2.0",
+    scannerVersion: SCANNER_VERSION,
     policyBundleVersion: "2.4.0",
     findingCounts: { CRITICAL: 3, HIGH: 1, MEDIUM: 1 },
     decisionCounts: { BLOCK: 2, REQUIRE_APPROVAL: 1, WARN: 1, ALLOW: 1 },

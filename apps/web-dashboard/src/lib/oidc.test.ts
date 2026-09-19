@@ -1,4 +1,6 @@
-import { webcrypto } from "node:crypto";
+// Node.js 22 exposes WebCrypto as a global, so capture it without importing
+// Node-only modules from this browser-targeted test file.
+const nodeWebcrypto = globalThis.crypto;
 
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -37,7 +39,7 @@ afterEach(() => {
 
 describe("provider-neutral OIDC session", () => {
   it("builds an authorization-code PKCE URL without persisting tokens", async () => {
-    vi.stubGlobal("crypto", webcrypto);
+    vi.stubGlobal("crypto", nodeWebcrypto);
     const client: OidcTokenClient = {
       exchangeCode: vi.fn(),
       refresh: vi.fn(),
@@ -105,7 +107,7 @@ describe("provider-neutral OIDC session", () => {
   });
 
   it("restores a pending transaction after a page reload and removes it after callback", async () => {
-    vi.stubGlobal("crypto", webcrypto);
+    vi.stubGlobal("crypto", nodeWebcrypto);
     const storage = new Map<string, string>();
     const browserStorage = {
       getItem: (key: string) => storage.get(key) ?? null,
@@ -148,7 +150,7 @@ describe("provider-neutral OIDC session", () => {
   });
 
   it("rejects and clears expired persisted transactions", async () => {
-    vi.stubGlobal("crypto", webcrypto);
+    vi.stubGlobal("crypto", nodeWebcrypto);
     const storage = new Map<string, string>();
     const browserStorage = {
       getItem: (key: string) => storage.get(key) ?? null,
@@ -173,7 +175,7 @@ describe("provider-neutral OIDC session", () => {
   });
 
   it("validates callback state and nonce before accepting tokens", async () => {
-    vi.stubGlobal("crypto", webcrypto);
+    vi.stubGlobal("crypto", nodeWebcrypto);
     const client: OidcTokenClient = {
       exchangeCode: vi.fn(() =>
         Promise.resolve({
@@ -216,7 +218,7 @@ describe("provider-neutral OIDC session", () => {
   });
 
   it("refreshes expired access tokens in memory and clears on refresh failure", async () => {
-    vi.stubGlobal("crypto", webcrypto);
+    vi.stubGlobal("crypto", nodeWebcrypto);
     let now = 1_000_000;
     const refreshMock = vi.fn(() =>
       Promise.resolve({

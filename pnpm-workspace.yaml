@@ -1,8 +1,12 @@
 packages:
   - "apps/*"
   - "packages/*"
-allowBuilds:
-  "@prisma/client": set this to true or false
-  "@prisma/engines": set this to true or false
-  esbuild: set this to true or false
-  prisma: set this to true or false
+# pnpm 9 allowlist for dependency lifecycle scripts. Only the toolchain's own
+# trusted scripts may run: esbuild installs its platform binary, and the Prisma
+# packages run install-time checks/generation. Everything else is blocked so a
+# compromised transitive dependency cannot execute code at install time.
+onlyBuiltDependencies:
+  - "@prisma/client"
+  - "@prisma/engines"
+  - esbuild
+  - prisma

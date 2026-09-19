@@ -1,4 +1,4 @@
-import { ApprovalStatus, PolicyDecisionType } from "@prisma/client";
+import { ApprovalStatus, PolicyDecisionType } from "../db/prismaRuntime.js";
 import { type Request, type Response } from "express";
 
 import { prisma } from "../db/prisma.js";

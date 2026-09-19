@@ -15,3 +15,4 @@ export {
   type OsvEnricherOptions,
   type VulnerabilityAdvisory,
 } from "./vulnerabilityEnricher.js";
+export { SCANNER_RELEASE, SCANNER_VERSION } from "./version.js";

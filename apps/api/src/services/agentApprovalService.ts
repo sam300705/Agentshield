@@ -1,4 +1,5 @@
-import { ApprovalStatus, Prisma } from "@prisma/client";
+import type { ApprovalStatus as ApprovalStatusType } from "@prisma/client";
+import { ApprovalStatus, Prisma } from "../db/prismaRuntime.js";
 import { createHash } from "node:crypto";
 
 import { canonicalJson, evaluateAgentAction } from "@agentshield/policy-engine";
@@ -149,7 +150,7 @@ export async function getAgentApproval(
 export async function reviewAgentApproval(
   organizationId: string,
   approvalId: string,
-  status: Extract<ApprovalStatus, "APPROVED" | "REJECTED">,
+  status: Extract<ApprovalStatusType, "APPROVED" | "REJECTED">,
   reviewerId: string,
   reason: string | undefined,
   correlationId: string,

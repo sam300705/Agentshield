@@ -40,12 +40,26 @@ export interface GitHubCheckRunRequest {
   completedAt?: Date;
 }
 
+export interface GitHubCheckRunIdentity {
+  id: number;
+  externalId: string | null;
+  htmlUrl?: string;
+}
+
 export interface GitHubChecksClient {
   createCheckRun(request: GitHubCheckRunRequest): Promise<{ id: number; htmlUrl?: string }>;
   updateCheckRun(
+    owner: string,
+    repository: string,
     checkRunId: number,
     request: GitHubCheckRunRequest,
   ): Promise<{ id: number; htmlUrl?: string }>;
+  findCheckRunByExternalId(
+    owner: string,
+    repository: string,
+    headSha: string,
+    externalId: string,
+  ): Promise<GitHubCheckRunIdentity | null>;
 }
 
 export function mapOutcomeToGitHubConclusion(outcome: AgentShieldOutcome): GitHubCheckConclusion {

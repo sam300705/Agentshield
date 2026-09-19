@@ -7,6 +7,7 @@ import {
   createDistributedRateLimiter,
   InMemoryRateLimitStore,
   RedisRateLimitStore,
+  RedisRestRateLimitClient,
   type RateLimitStore,
 } from "./distributedRateLimit.js";
 
@@ -19,6 +20,21 @@ async function start(app: express.Express): Promise<{ origin: string }> {
   const address = server.address();
   if (address == null || typeof address === "string") throw new Error("Test server did not bind.");
   return { origin: `http://127.0.0.1:${address.port}` };
+}
+
+function requestUrl(input: Parameters<typeof fetch>[0]): string {
+  if (typeof input === "string") return input;
+  if (input instanceof URL) return input.toString();
+  return input.url;
+}
+
+function requestBody(init: RequestInit | undefined): unknown[] {
+  const body = init?.body;
+  if (typeof body !== "string")
+    throw new Error("Expected Redis REST request body to be JSON text.");
+  const parsed: unknown = JSON.parse(body);
+  if (!Array.isArray(parsed)) throw new Error("Expected Redis REST command body to be an array.");
+  return parsed;
 }
 
 afterEach(async () => {
@@ -35,18 +51,60 @@ afterEach(async () => {
 });
 
 describe("distributed rate limiter", () => {
-  it("uses Redis-compatible atomic increment and expiry commands", async () => {
-    const client = {
-      incr: vi.fn().mockResolvedValue(2),
-      pExpire: vi.fn().mockResolvedValue(true),
-      pTtl: vi.fn().mockResolvedValue(30_000),
-    };
-    const store = new RedisRateLimitStore(client);
+  it("delegates each window increment to one atomic Redis operation", async () => {
+    const incrementWindow = vi.fn(() =>
+      Promise.resolve({ count: 2, resetAt: Date.now() + 30_000 }),
+    );
+    const store = new RedisRateLimitStore({ incrementWindow });
 
     await expect(store.increment("org:user", 60_000)).resolves.toMatchObject({ count: 2 });
-    expect(client.incr).toHaveBeenCalledWith("org:user");
-    expect(client.pExpire).not.toHaveBeenCalled();
-    expect(client.pTtl).toHaveBeenCalledWith("org:user");
+    expect(incrementWindow).toHaveBeenCalledTimes(1);
+    expect(incrementWindow).toHaveBeenCalledWith("org:user", 60_000);
+  });
+
+  it("executes one authenticated EVAL command that owns increment and expiry atomically", async () => {
+    const fetchImpl = vi.fn<typeof fetch>((input, init) => {
+      const url = requestUrl(input);
+      expect(url).toBe("https://redis.example.test");
+      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer private-token");
+      expect(url).not.toContain("private-token");
+      const command = requestBody(init);
+      expect(command[0]).toBe("EVAL");
+      expect(typeof command[1]).toBe("string");
+      expect(command[2]).toBe(1);
+      expect(command[3]).toBe("organization:1");
+      expect(command[4]).toBe(60_000);
+      return Promise.resolve(
+        new Response(JSON.stringify({ result: [3, 42_000] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    });
+    const client = new RedisRestRateLimitClient(
+      "https://redis.example.test/",
+      "private-token",
+      fetchImpl,
+    );
+    const store = new RedisRateLimitStore(client);
+
+    await expect(store.increment("organization:1", 60_000)).resolves.toMatchObject({ count: 3 });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed on malformed atomic Redis results", async () => {
+    const fetchImpl: typeof fetch = () =>
+      Promise.resolve(
+        new Response(JSON.stringify({ result: [2, -1] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    const client = new RedisRestRateLimitClient("https://redis.example.test", "t", fetchImpl);
+
+    await expect(client.incrementWindow("organization:1", 60_000)).rejects.toThrow(
+      "invalid atomic rate-limit result",
+    );
   });
 
   it("applies a shared store and standard headers", async () => {

@@ -64,6 +64,16 @@ export default [
     },
   },
   {
+    // The committed `agentshield` bin launcher must exist before `dist/` is
+    // built, so it is plain JavaScript with Node.js runtime globals.
+    files: ["packages/scanner/bin/*.js"],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+      },
+    },
+  },
+  {
     files: ["apps/web-dashboard/**/*.{ts,tsx}"],
     plugins: {
       react,

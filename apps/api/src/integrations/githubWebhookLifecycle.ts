@@ -5,6 +5,7 @@ import type { GitHubDeliveryStore } from "./githubDeliveryStore.js";
 import { enqueueRepositoryScan } from "../services/scanQueue.js";
 
 const FULL_COMMIT_SHA = /^[a-f0-9]{40}$/i;
+const INSTALLATION_EVENTS = new Set(["installation", "installation_repositories"]);
 
 export interface GitHubWebhookLifecycleClient {
   gitHubInstallation: {
@@ -15,13 +16,19 @@ export interface GitHubWebhookLifecycleClient {
         organizationId: true;
         accountLogin: true;
         installationId: true;
+        status: true;
       };
     }): Promise<{
       id: string;
       organizationId: string;
       accountLogin: string;
       installationId: number;
+      status: string;
     } | null>;
+    updateMany(args: {
+      where: { id: string; organizationId: string; installationId: number };
+      data: { status: string };
+    }): Promise<{ count: number }>;
   };
   repository: {
     findFirst(args: {
@@ -33,6 +40,10 @@ export interface GitHubWebhookLifecycleClient {
       };
       select: { id: true; fullName: true; defaultBranch: true };
     }): Promise<{ id: string; fullName: string; defaultBranch: string } | null>;
+    updateMany(args: {
+      where: { organizationId: string; githubInstallationId: string };
+      data: { githubInstallationId: null };
+    }): Promise<{ count: number }>;
   };
 }
 
@@ -42,13 +53,19 @@ export interface GitHubWebhookLifecycleOptions {
   scanLifecycleEnabled: boolean;
   policyBundleVersion?: string;
   enqueueScan?: typeof enqueueRepositoryScan;
+  synchronizeInstallation?: (organizationId: string, installationId: number) => Promise<void>;
 }
 
 export type GitHubWebhookLifecycleResult =
   | { status: "DISABLED"; scanQueued: false }
   | { status: "IGNORED"; reason: string; scanQueued: false }
+  | { status: "PROCESSED"; scanQueued: false }
   | { status: "QUEUED"; scanQueued: true; scanId: string; jobId: string }
-  | { status: "FAILED"; reason: "QUEUE_FAILED"; scanQueued: false };
+  | {
+      status: "FAILED";
+      reason: "QUEUE_FAILED" | "INSTALLATION_CONTROL_FAILED" | "INSTALLATION_SYNC_FAILED";
+      scanQueued: false;
+    };
 
 function readObject(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value != null ? (value as Record<string, unknown>) : null;
@@ -81,12 +98,129 @@ function readCommitContext(
   return null;
 }
 
+async function resolveOwnedInstallation(
+  organizationId: string,
+  webhook: VerifiedGitHubWebhook,
+  options: GitHubWebhookLifecycleOptions,
+) {
+  const installation = await options.client.gitHubInstallation.findUnique({
+    where: { installationId: webhook.installationId },
+    select: {
+      id: true,
+      organizationId: true,
+      accountLogin: true,
+      installationId: true,
+      status: true,
+    },
+  });
+  if (installation == null || installation.organizationId !== organizationId) return null;
+  try {
+    assertInstallationOwnership(installation, webhook);
+  } catch {
+    return null;
+  }
+  return installation;
+}
+
+async function processInstallationControlEvent(
+  organizationId: string,
+  webhook: VerifiedGitHubWebhook,
+  options: GitHubWebhookLifecycleOptions,
+): Promise<GitHubWebhookLifecycleResult> {
+  const installation = await resolveOwnedInstallation(organizationId, webhook, options);
+  if (installation == null) {
+    await options.deliveryStore.markIgnored(
+      organizationId,
+      webhook.deliveryId,
+      "UNKNOWN_INSTALLATION",
+    );
+    return { status: "IGNORED", reason: "UNKNOWN_INSTALLATION", scanQueued: false };
+  }
+
+  if (webhook.eventName === "installation") {
+    if (webhook.action === "suspend" || webhook.action === "deleted") {
+      try {
+        const status = webhook.action === "suspend" ? "SUSPENDED" : "DELETED";
+        const updated = await options.client.gitHubInstallation.updateMany({
+          where: {
+            id: installation.id,
+            organizationId,
+            installationId: installation.installationId,
+          },
+          data: { status },
+        });
+        if (updated.count !== 1) throw new Error("INSTALLATION_STATE_RACE");
+        await options.client.repository.updateMany({
+          where: { organizationId, githubInstallationId: installation.id },
+          data: { githubInstallationId: null },
+        });
+        await options.deliveryStore.markProcessed(organizationId, webhook.deliveryId);
+        return { status: "PROCESSED", scanQueued: false };
+      } catch {
+        await options.deliveryStore.markFailed(
+          organizationId,
+          webhook.deliveryId,
+          "INSTALLATION_CONTROL_FAILED",
+        );
+        return {
+          status: "FAILED",
+          reason: "INSTALLATION_CONTROL_FAILED",
+          scanQueued: false,
+        };
+      }
+    }
+
+    if (
+      webhook.action !== "created" &&
+      webhook.action !== "unsuspend" &&
+      webhook.action !== "new_permissions_accepted"
+    ) {
+      await options.deliveryStore.markIgnored(
+        organizationId,
+        webhook.deliveryId,
+        "UNSUPPORTED_INSTALLATION_ACTION",
+      );
+      return {
+        status: "IGNORED",
+        reason: "UNSUPPORTED_INSTALLATION_ACTION",
+        scanQueued: false,
+      };
+    }
+  }
+
+  if (options.synchronizeInstallation == null) {
+    await options.deliveryStore.markFailed(
+      organizationId,
+      webhook.deliveryId,
+      "INSTALLATION_SYNC_FAILED",
+    );
+    return { status: "FAILED", reason: "INSTALLATION_SYNC_FAILED", scanQueued: false };
+  }
+
+  try {
+    await options.synchronizeInstallation(organizationId, webhook.installationId);
+    await options.deliveryStore.markProcessed(organizationId, webhook.deliveryId);
+    return { status: "PROCESSED", scanQueued: false };
+  } catch {
+    await options.deliveryStore.markFailed(
+      organizationId,
+      webhook.deliveryId,
+      "INSTALLATION_SYNC_FAILED",
+    );
+    return { status: "FAILED", reason: "INSTALLATION_SYNC_FAILED", scanQueued: false };
+  }
+}
+
 export async function processGitHubWebhookDelivery(
   organizationId: string,
   webhook: VerifiedGitHubWebhook,
   correlationId: string,
   options: GitHubWebhookLifecycleOptions,
 ): Promise<GitHubWebhookLifecycleResult> {
+  if (INSTALLATION_EVENTS.has(webhook.eventName)) {
+    return processInstallationControlEvent(organizationId, webhook, options);
+  }
+
   if (!options.scanLifecycleEnabled || options.policyBundleVersion == null) {
     await options.deliveryStore.markIgnored(
       organizationId,
@@ -114,21 +248,8 @@ export async function processGitHubWebhookDelivery(
     return { status: "IGNORED", reason: "UNKNOWN_REPOSITORY", scanQueued: false };
   }
 
-  const installation = await options.client.gitHubInstallation.findUnique({
-    where: { installationId: webhook.installationId },
-    select: { id: true, organizationId: true, accountLogin: true, installationId: true },
-  });
-  if (installation == null || installation.organizationId !== organizationId) {
-    await options.deliveryStore.markIgnored(
-      organizationId,
-      webhook.deliveryId,
-      "UNKNOWN_INSTALLATION",
-    );
-    return { status: "IGNORED", reason: "UNKNOWN_INSTALLATION", scanQueued: false };
-  }
-  try {
-    assertInstallationOwnership(installation, webhook);
-  } catch {
+  const installation = await resolveOwnedInstallation(organizationId, webhook, options);
+  if (installation == null || installation.status !== "ACTIVE") {
     await options.deliveryStore.markIgnored(
       organizationId,
       webhook.deliveryId,
@@ -170,12 +291,21 @@ export async function processGitHubWebhookDelivery(
     options: {},
   });
   try {
+    const trigger = webhook.eventName === "push" ? "PUSH" : "PULL_REQUEST";
     const job = await (options.enqueueScan ?? enqueueRepositoryScan)(
       request,
       `github:${webhook.deliveryId}`,
       organizationId,
       "github:webhook",
       correlationId,
+      {
+        trigger,
+        webhook: {
+          deliveryId: webhook.deliveryId,
+          eventName: webhook.eventName,
+          ...(webhook.action == null ? {} : { action: webhook.action }),
+        },
+      },
     );
     await options.deliveryStore.markQueued(organizationId, webhook.deliveryId, job.scanId);
     return { status: "QUEUED", scanQueued: true, scanId: job.scanId, jobId: job.id };
