@@ -1,4 +1,5 @@
-import { ScanStatus, type Prisma, type PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
+import { ScanStatus } from "../db/prismaRuntime.js";
 import { sanitizeText } from "@agentshield/schemas";
 
 import type { RuntimeConfig } from "../config.js";
