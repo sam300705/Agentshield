@@ -1,4 +1,4 @@
-import { ApprovalStatus, Prisma } from "@prisma/client";
+import { ApprovalStatus, Prisma } from "../db/prismaRuntime.js";
 import { createHash } from "node:crypto";
 
 import { canonicalJson, evaluateAgentAction } from "@agentshield/policy-engine";
