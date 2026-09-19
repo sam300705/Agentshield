@@ -1,4 +1,4 @@
-import { generateEd25519KeyPair, verifySignedSecurityReceipt } from "@agentshield/policy-engine";
+import {\n  generateEd25519KeyPair,\n  verifySignedSecurityReceipt,\n} from "@agentshield/policy-engine";
 import type { SecurityReceipt } from "@agentshield/schemas";
 import { describe, expect, it } from "vitest";
 
