@@ -1,13 +1,10 @@
 import { createRequire } from "node:module";
 
-type PrismaClientModule = {
-  PrismaClient: typeof import("@prisma/client").PrismaClient;
-  Prisma: typeof import("@prisma/client").Prisma;
-  ApprovalStatus: typeof import("@prisma/client").ApprovalStatus;
-  AuditAction: typeof import("@prisma/client").AuditAction;
-  PolicyDecisionType: typeof import("@prisma/client").PolicyDecisionType;
-  ScanStatus: typeof import("@prisma/client").ScanStatus;
-};
+// This is the single intentional CJS/ESM bridge for Prisma's generated client.
+// A module-namespace type is required here because createRequire() loads the
+// runtime CommonJS module while the rest of the API remains native ESM.
+// eslint-disable-next-line @typescript-eslint/consistent-type-imports
+type PrismaClientModule = typeof import("@prisma/client");
 
 const require = createRequire(import.meta.url);
 const prismaClient = require("@prisma/client") as PrismaClientModule;
