@@ -1,4 +1,4 @@
-import { AuditAction, ScanStatus } from "@prisma/client";
+import { AuditAction, ScanStatus } from "../db/prismaRuntime.js";
 
 import { prisma } from "../db/prisma.js";
 
