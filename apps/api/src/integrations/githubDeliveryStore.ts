@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import { Prisma, type PrismaClient } from "@prisma/client";
+import type { PrismaClient } from "@prisma/client";
+
+import { Prisma } from "../db/prismaRuntime.js";
 
 import { sanitizeText } from "@agentshield/schemas";
 
