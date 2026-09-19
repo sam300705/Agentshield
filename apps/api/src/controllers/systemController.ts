@@ -1,4 +1,4 @@
-import { ScanStatus } from "@prisma/client";
+import { ScanStatus } from "../db/prismaRuntime.js";
 import type { Request, Response } from "express";
 
 import { prisma } from "../db/prisma.js";
