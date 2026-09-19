@@ -60,7 +60,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(docker image inspect --format '{{.Config.User}}' agentshield-api:ci)" = "node"
-          docker run --rm --entrypoint sh agentshield-api:ci -c 'test ! -d /app/src && test -f /app/dist/index.js'
+          docker run --rm --entrypoint sh agentshield-api:ci -c 'test ! -d /app/src && test -f /app/dist/index.js && test -f /app/dist/worker.js'
           container_id="$(docker run -d --network host \
             -e NODE_ENV=development \
             -e PORT=3101 \
@@ -71,10 +71,16 @@ jobs:
             -e RATE_LIMIT_ENABLED=false \
             agentshield-api:ci)"
           trap 'docker logs "$container_id" || true; docker rm -f "$container_id" >/dev/null 2>&1 || true' EXIT
+
+          ready=false
           for attempt in $(seq 1 30); do
-            if curl --fail --silent --show-error http://127.0.0.1:3101/health >/tmp/agentshield-health.json; then
-              grep -q '"status":"ok"' /tmp/agentshield-health.json
-              exit 0
+            if curl --fail --silent --show-error http://127.0.0.1:3101/health/live >/tmp/agentshield-live.json \
+              && curl --fail --silent --show-error http://127.0.0.1:3101/health/ready >/tmp/agentshield-ready.json; then
+              grep -q '"status":"alive"' /tmp/agentshield-live.json
+              grep -q '"status":"ready"' /tmp/agentshield-ready.json
+              grep -q '"database":"ok"' /tmp/agentshield-ready.json
+              ready=true
+              break
             fi
             if ! docker inspect --format '{{.State.Running}}' "$container_id" | grep -q true; then
               docker logs "$container_id"
@@ -82,9 +88,25 @@ jobs:
             fi
             sleep 1
           done
-          echo "AgentShield API container did not become healthy" >&2
-          docker logs "$container_id"
-          exit 1
+          if [ "$ready" != "true" ]; then
+            echo "AgentShield API container did not become ready" >&2
+            docker logs "$container_id"
+            exit 1
+          fi
+
+          worker_output="$(timeout 45s docker run --rm --network host \
+            -e NODE_ENV=development \
+            -e DATABASE_URL="$DATABASE_URL" \
+            -e CORS_ORIGIN=http://localhost:5173 \
+            -e AUTH_MODE=oidc \
+            -e DEMO_AUTH_ENABLED=true \
+            -e RATE_LIMIT_ENABLED=false \
+            -e WORKER_MODE=once \
+            --entrypoint node \
+            agentshield-api:ci dist/worker.js 2>&1)"
+          printf '%s\n' "$worker_output"
+          grep -q '"message":"worker started"' <<<"$worker_output"
+          grep -q '"message":"worker batch complete"' <<<"$worker_output"
       - name: Install Playwright browser
         run: pnpm exec playwright install --with-deps chromium
       - name: Browser E2E
