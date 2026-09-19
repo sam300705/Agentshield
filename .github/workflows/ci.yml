@@ -46,11 +46,7 @@ jobs:
       - run: pnpm db:generate
       - run: pnpm exec prisma validate
       - run: pnpm db:deploy
-      - name: Receipt signer formatter diagnostic
-        run: |
-          pnpm exec prettier --write apps/api/src/services/receiptSigner.test.ts
-          git diff -- apps/api/src/services/receiptSigner.test.ts
-          exit 1
+      - run: pnpm format:check
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
