@@ -1,4 +1,4 @@
-import { ApprovalStatus, AuditAction } from "@prisma/client";
+import { ApprovalStatus, AuditAction } from "../db/prismaRuntime.js";
 import { type Request, type Response } from "express";
 import { z } from "zod";
 
