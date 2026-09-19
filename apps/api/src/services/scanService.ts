@@ -22,7 +22,9 @@ import {
   type ScanOptions,
   type SecurityReceipt,
 } from "@agentshield/schemas";
-import { AuditAction, Prisma, ScanStatus, type PrismaClient } from "@prisma/client";
+import type { Prisma as PrismaTypes, PrismaClient } from "@prisma/client";
+
+import { AuditAction, Prisma, ScanStatus } from "../db/prismaRuntime.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -41,13 +43,13 @@ interface FindingCounts {
   low: number;
 }
 
-function toInputJson(value: unknown): Prisma.InputJsonValue {
-  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+function toInputJson(value: unknown): PrismaTypes.InputJsonValue {
+  return JSON.parse(JSON.stringify(value)) as PrismaTypes.InputJsonValue;
 }
 
 function toNullableInputJson(
   value: JsonValue | null | undefined,
-): Prisma.InputJsonValue | typeof Prisma.JsonNull {
+): PrismaTypes.InputJsonValue | typeof Prisma.JsonNull {
   return value == null ? Prisma.JsonNull : toInputJson(value);
 }
 
@@ -116,7 +118,7 @@ function createScanMetadata(input: {
   advisoryStatus: "DISABLED" | "ENRICHED" | "UNAVAILABLE";
   advisoryDiagnostic?: string;
   policyBundleVersion: string;
-}): Prisma.InputJsonValue {
+}): PrismaTypes.InputJsonValue {
   return toInputJson({
     source: input.source,
     targetPath: input.targetPath,
@@ -136,7 +138,7 @@ function createScanMetadata(input: {
   });
 }
 
-function createScannerEvidence(finding: Finding): Prisma.InputJsonValue {
+function createScannerEvidence(finding: Finding): PrismaTypes.InputJsonValue {
   const sanitized = sanitizeEvidence(finding.evidence);
   const evidence =
     typeof sanitized === "object" && sanitized != null && !Array.isArray(sanitized)
@@ -210,7 +212,7 @@ async function runAdvisoryEnrichment(
 }
 
 async function persistDependency(
-  tx: Prisma.TransactionClient,
+  tx: PrismaTypes.TransactionClient,
   dependency: Dependency,
 ): Promise<void> {
   await tx.dependency.create({
@@ -232,7 +234,7 @@ async function persistDependency(
 }
 
 async function persistFinding(
-  tx: Prisma.TransactionClient,
+  tx: PrismaTypes.TransactionClient,
   finding: Finding,
   scanId: string,
 ): Promise<void> {
@@ -255,7 +257,7 @@ async function persistFinding(
 }
 
 async function persistPolicyDecision(
-  tx: Prisma.TransactionClient,
+  tx: PrismaTypes.TransactionClient,
   decision: PolicyDecision,
 ): Promise<void> {
   await tx.policyDecision.create({
@@ -273,7 +275,7 @@ async function persistPolicyDecision(
 }
 
 async function persistRemediation(
-  tx: Prisma.TransactionClient,
+  tx: PrismaTypes.TransactionClient,
   remediation: Remediation,
 ): Promise<void> {
   await tx.remediation.create({
@@ -291,7 +293,7 @@ async function persistRemediation(
 }
 
 async function persistAdvisories(
-  tx: Prisma.TransactionClient,
+  tx: PrismaTypes.TransactionClient,
   organizationId: string,
   scanId: string,
   dependencies: Dependency[],
@@ -374,7 +376,7 @@ function buildSecurityReceipt(
 }
 
 async function persistSecurityReceipt(
-  tx: Prisma.TransactionClient,
+  tx: PrismaTypes.TransactionClient,
   receipt: SecurityReceipt,
   signed: SignedSecurityReceipt | null,
 ): Promise<void> {
