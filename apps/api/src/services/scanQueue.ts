@@ -1,4 +1,4 @@
-import { ScanStatus } from "@prisma/client";
+import { ScanStatus } from "../db/prismaRuntime.js";
 import { randomUUID } from "node:crypto";
 
 import {
