@@ -11,7 +11,7 @@ WORKDIR /app
 COPY . .
 RUN pnpm install --frozen-lockfile
 RUN DATABASE_URL_UNPOOLED=postgresql://agentshield:build-only@127.0.0.1:5432/agentshield?schema=public pnpm db:generate
-RUN pnpm --filter @agentshield/api... build
+RUN pnpm build
 RUN pnpm --filter @agentshield/api deploy --prod /runtime
 RUN rm -rf /runtime/src /runtime/test /runtime/tests /runtime/coverage
 
