@@ -1,3 +1,4 @@
+import type { ScanStatus as ScanStatusType } from "@prisma/client";
 import { ScanStatus } from "../db/prismaRuntime.js";
 import { randomUUID } from "node:crypto";
 
@@ -56,7 +57,7 @@ export async function enqueueRepositoryScan(
   requester: string,
   correlationId: string,
   provenance: ScanProvenance = {},
-): Promise<{ id: string; scanId: string; status: ScanStatus }> {
+): Promise<{ id: string; scanId: string; status: ScanStatusType }> {
   const request = createRepositoryScanSchema.parse(input);
   const trigger = scanTriggerSchema.parse(provenance.trigger ?? "MANUAL");
   const scopedIdempotencyKey = `${organizationId}:${idempotencyKey}`;
@@ -374,7 +375,7 @@ export async function renewScanJobLease(
 async function deadLetterExhaustedCandidate(input: {
   id: string;
   scanId: string;
-  status: ScanStatus;
+  status: ScanStatusType;
   attempts: number;
   maxAttempts: number;
 }): Promise<boolean> {
