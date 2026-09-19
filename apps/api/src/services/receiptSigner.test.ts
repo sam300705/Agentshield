@@ -2,7 +2,10 @@ import { generateEd25519KeyPair, verifySignedSecurityReceipt } from "@agentshiel
 import type { SecurityReceipt } from "@agentshield/schemas";
 import { describe, expect, it } from "vitest";
 
-import { createConfiguredReceiptSigner } from "./receiptSigner.js";
+import {
+  createConfiguredReceiptSigner,
+  createConfiguredReceiptVerifier,
+} from "./receiptSigner.js";
 
 const VALID_SHA256 = "a".repeat(64);
 
@@ -54,5 +57,79 @@ describe("receipt signer configuration", () => {
         RECEIPT_SIGNING_PRIVATE_KEY: keys.privateKeyPem,
       }),
     ).toThrow("unsupported characters");
+  });
+});
+
+describe("receipt verifier configuration", () => {
+  it("keeps verification disabled when no public key ring is configured", () => {
+    expect(createConfiguredReceiptVerifier({})).toBeNull();
+  });
+
+  it("accepts previous and current keys during rotation", async () => {
+    const previous = generateEd25519KeyPair("previous");
+    const current = generateEd25519KeyPair("current");
+    const previousSigner = createConfiguredReceiptSigner({
+      RECEIPT_SIGNING_KEY_ID: previous.keyId,
+      RECEIPT_SIGNING_PRIVATE_KEY: previous.privateKeyPem,
+    });
+    const currentSigner = createConfiguredReceiptSigner({
+      RECEIPT_SIGNING_KEY_ID: current.keyId,
+      RECEIPT_SIGNING_PRIVATE_KEY: current.privateKeyPem,
+    });
+    if (previousSigner == null || currentSigner == null) {
+      throw new Error("Expected configured receipt signers.");
+    }
+
+    const verifier = createConfiguredReceiptVerifier({
+      RECEIPT_SIGNING_PUBLIC_KEYS_JSON: JSON.stringify({
+        [previous.keyId]: previous.publicKeyPem,
+        [current.keyId]: current.publicKeyPem,
+      }),
+    });
+    if (verifier == null) throw new Error("Expected configured receipt verifier.");
+
+    expect(verifier.verify(await previousSigner.sign(receipt))).toBe(true);
+    expect(verifier.verify(await currentSigner.sign(receipt))).toBe(true);
+  });
+
+  it("rejects unknown keys and tampered receipts", async () => {
+    const keys = generateEd25519KeyPair("current");
+    const signer = createConfiguredReceiptSigner({
+      RECEIPT_SIGNING_KEY_ID: keys.keyId,
+      RECEIPT_SIGNING_PRIVATE_KEY: keys.privateKeyPem,
+    });
+    if (signer == null) throw new Error("Expected configured receipt signer.");
+    const signed = await signer.sign(receipt);
+
+    const other = generateEd25519KeyPair("other");
+    const wrongVerifier = createConfiguredReceiptVerifier({
+      RECEIPT_SIGNING_PUBLIC_KEYS_JSON: JSON.stringify({ [other.keyId]: other.publicKeyPem }),
+    });
+    if (wrongVerifier == null) throw new Error("Expected configured receipt verifier.");
+    expect(wrongVerifier.verify(signed)).toBe(false);
+
+    const verifier = createConfiguredReceiptVerifier({
+      RECEIPT_SIGNING_PUBLIC_KEYS_JSON: JSON.stringify({ [keys.keyId]: keys.publicKeyPem }),
+    });
+    if (verifier == null) throw new Error("Expected configured receipt verifier.");
+    const tampered = {
+      ...signed,
+      payload: { ...signed.payload, repository: "attacker/repository" },
+    };
+    expect(verifier.verify(tampered)).toBe(false);
+  });
+
+  it("fails closed on malformed public key ring configuration", () => {
+    expect(() =>
+      createConfiguredReceiptVerifier({ RECEIPT_SIGNING_PUBLIC_KEYS_JSON: "[]" }),
+    ).toThrow("must be a JSON object");
+    expect(() =>
+      createConfiguredReceiptVerifier({
+        RECEIPT_SIGNING_PUBLIC_KEYS_JSON: JSON.stringify({ "unsafe id": "pem" }),
+      }),
+    ).toThrow("unsupported characters");
+    expect(() =>
+      createConfiguredReceiptVerifier({ RECEIPT_SIGNING_PUBLIC_KEYS_JSON: "{}" }),
+    ).toThrow("at least one key");
   });
 });
