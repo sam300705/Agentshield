@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { createConfiguredReceiptSigner } from "./receiptSigner.js";
 
-const VALID_SHA256 = `sha256:${"a".repeat(64)}`;
+const VALID_SHA256 = "a".repeat(64);
 
 const receipt: SecurityReceipt = {
   id: "receipt:test",
