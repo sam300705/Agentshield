@@ -13,6 +13,16 @@ RUN pnpm install --frozen-lockfile
 RUN DATABASE_URL_UNPOOLED=postgresql://agentshield:build-only@127.0.0.1:5432/agentshield?schema=public pnpm db:generate
 RUN pnpm build
 RUN pnpm --filter @agentshield/api deploy --prod /runtime
+RUN set -eux; \
+  source_prisma_client="$(readlink -f /app/node_modules/@prisma/client)"; \
+  source_node_modules="$(dirname "$(dirname "$source_prisma_client")")"; \
+  runtime_prisma_client="$(readlink -f /runtime/node_modules/@prisma/client)"; \
+  runtime_node_modules="$(dirname "$(dirname "$runtime_prisma_client")")"; \
+  test -f "$source_node_modules/.prisma/client/default.js"; \
+  mkdir -p "$runtime_node_modules/.prisma"; \
+  rm -rf "$runtime_node_modules/.prisma/client"; \
+  cp -a "$source_node_modules/.prisma/client" "$runtime_node_modules/.prisma/client"; \
+  test -f "$runtime_node_modules/.prisma/client/default.js"
 RUN rm -rf /runtime/src /runtime/test /runtime/tests /runtime/coverage
 
 FROM node:22-bookworm-slim AS runtime
