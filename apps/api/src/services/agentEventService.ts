@@ -1,4 +1,6 @@
-import { Prisma } from "@prisma/client";
+import type { Prisma as PrismaTypes } from "@prisma/client";
+
+import { Prisma } from "../db/prismaRuntime.js";
 import { createHash, randomUUID } from "node:crypto";
 
 import { canonicalJson, createIntegrityChain, redactEvidence } from "@agentshield/policy-engine";
@@ -217,7 +219,7 @@ export async function ingestAgentEvent(
             riskLevel: event.riskLevel,
             summary: event.summary,
             resource: event.resource ?? null,
-            evidence: JSON.parse(JSON.stringify(event.evidence)) as Prisma.InputJsonValue,
+            evidence: JSON.parse(JSON.stringify(event.evidence)) as PrismaTypes.InputJsonValue,
             correlationId: event.correlationId,
             previousHash: event.integrity.previousHash,
             eventHash: event.integrity.eventHash,
