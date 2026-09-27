@@ -1,6 +1,7 @@
 import "dotenv/config";
 
 import cors from "cors";
+import cookieParser from "cookie-parser";
 import express, {
   type ErrorRequestHandler,
   type Express,
@@ -21,9 +22,11 @@ export function createServer(): Express {
   app.use(
     cors({
       origin: process.env.CORS_ORIGIN ?? "http://localhost:5173",
+      credentials: true, // Typically needed for cookie auth with CORS
     }),
   );
   app.use(express.json({ limit: "1mb" }));
+  app.use(cookieParser()); // Register cookie-parser globally
 
   app.use("/", router);
 
