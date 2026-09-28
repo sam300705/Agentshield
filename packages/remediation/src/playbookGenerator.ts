@@ -2,6 +2,7 @@ import { type Finding, type JsonValue } from "@agentshield/schemas";
 
 import { generatePrComment } from "./commentGenerator.js";
 import { selectRemediationTemplate, type SafeCodeSnippet } from "./templates.js";
+import { validateAst } from "./firewall.js";
 
 export interface RemediationPlaybook {
   templateId: string;
@@ -45,8 +46,15 @@ function createPatchPayload(playbook: Omit<RemediationPlaybook, "patchPayload">)
   return payload;
 }
 
-export function generatePlaybook(finding: Finding): RemediationPlaybook {
+export async function generatePlaybook(finding: Finding): Promise<RemediationPlaybook> {
   const template = selectRemediationTemplate(finding);
+
+  // Firewall check: if there's a code snippet in bash (or potentially others that look like bash commands),
+  // validate it before finalizing the playbook.
+  if (template.safeCodeSnippet && (template.safeCodeSnippet.language === "bash" || template.safeCodeSnippet.language === "sh")) {
+    await validateAst(template.safeCodeSnippet.after, finding.scanId);
+  }
+
   const prComment = generatePrComment(finding);
   const fixSuggestion =
     template.safeCodeSnippet == null

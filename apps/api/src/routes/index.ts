@@ -20,6 +20,7 @@ import {
   listScansController,
   runDemoScanController,
 } from "../controllers/scanController.js";
+import scanEventsRouter from "./scanEvents.js";
 
 type AsyncRouteHandler = (
   request: Request,
@@ -52,3 +53,5 @@ router.post("/api/approvals/:approvalId/approve", asyncHandler(approveApprovalCo
 router.post("/api/approvals/:approvalId/reject", asyncHandler(rejectApprovalController));
 router.get("/api/audit-events", asyncHandler(listAuditEventsController));
 router.get("/api/dashboard/summary", asyncHandler(getDashboardSummaryController));
+
+router.use("/api/scans", scanEventsRouter);

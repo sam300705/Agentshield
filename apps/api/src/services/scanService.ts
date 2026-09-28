@@ -268,7 +268,7 @@ export async function runDemoScan(): Promise<string> {
       }
 
       if (shouldGenerateRemediation(decision.decision)) {
-        remediations.push(generateRemediation(finding, scan.id));
+        remediations.push(await generateRemediation(finding, scan.id));
       }
 
       if (decision.decision === "REQUIRE_APPROVAL") {
