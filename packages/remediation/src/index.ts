@@ -32,13 +32,13 @@ function renderDetail(playbook: {
   ].join("\n");
 }
 
-export function generateRemediation(finding: Finding, scanId: string): Remediation {
+export async function generateRemediation(finding: Finding, scanId: string): Promise<Remediation> {
   if (finding.scanId !== scanId) {
     throw new Error(`Finding ${finding.id} belongs to scan ${finding.scanId}, not ${scanId}`);
   }
 
   const template = selectRemediationTemplate(finding);
-  const playbook = generatePlaybook(finding);
+  const playbook = await generatePlaybook(finding);
 
   return remediationSchema.parse({
     id: randomUUID(),

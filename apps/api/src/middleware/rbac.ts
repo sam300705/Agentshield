@@ -15,7 +15,8 @@ export const requireRole = (allowedRoles: Role[]) => {
 
       if (!allowedRoles.includes(user.role)) {
         // If the path includes playbook approval routes, create an audit log
-        if (req.originalUrl.includes("/playbooks") && (req.originalUrl.includes("/approve") || req.originalUrl.includes("/reject"))) {
+        // (Checking for /approvals as that is where they are mapped in index.ts)
+        if (req.originalUrl.includes("/approvals") && (req.originalUrl.includes("/approve") || req.originalUrl.includes("/reject"))) {
           await prisma.safaAuditLog.create({
             data: {
               eventType: SafaEventType.UNAUTHORIZED_APPROVAL_ATTEMPT,
