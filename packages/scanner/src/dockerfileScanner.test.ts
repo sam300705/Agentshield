@@ -31,7 +31,7 @@ CMD ["node", "index.js"]
     const dockerfileFindings = await scanDockerfile(scanInput);
 
     const criticalAwsFinding = secretFindings.find(
-      (f) => f.severity === "CRITICAL" && f.evidence.ruleId === "secret.aws_access_key_id"
+      (f) => f.severity === "CRITICAL" && f.evidence.ruleId === "secret.aws_access_key_id",
     );
 
     expect(criticalAwsFinding).toBeDefined();

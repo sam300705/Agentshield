@@ -29,7 +29,11 @@ export default [
     languageOptions: {
       parserOptions: {
         projectService: {
-          allowDefaultProject: ["apps/web-dashboard/*.config.ts", "scripts/*.ts", "vitest.workspace.ts"],
+          allowDefaultProject: [
+            "apps/web-dashboard/*.config.ts",
+            "scripts/*.ts",
+            "vitest.workspace.ts",
+          ],
         },
         tsconfigRootDir: import.meta.dirname,
       },

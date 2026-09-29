@@ -13,7 +13,8 @@ describe("evaluator - OPA-style policy evaluation", () => {
       category: "KUBERNETES",
       severity: "CRITICAL",
       title: "Kubernetes container runs privileged or lacks runAsNonRoot",
-      description: "The pod manifest securityContext is missing runAsNonRoot: true or runs privileged",
+      description:
+        "The pod manifest securityContext is missing runAsNonRoot: true or runs privileged",
       filePath: "deploy/pod.yaml",
       lineStart: 12,
       lineEnd: 12,
@@ -34,7 +35,9 @@ describe("evaluator - OPA-style policy evaluation", () => {
     if (decision) {
       expect(decision.decision).toBe("BLOCK");
       expect(decision.ruleId).toBe("kubernetes.privileged_container.block");
-      expect(decision.reason).toContain("Blocked because Privileged containers can bypass workload isolation");
+      expect(decision.reason).toContain(
+        "Blocked because Privileged containers can bypass workload isolation",
+      );
     }
   });
 });

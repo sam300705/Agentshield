@@ -112,4 +112,3 @@ export async function runScan(targetPath: string, scanId: string): Promise<ScanR
     dependencies,
   };
 }
-
