@@ -1,8 +1,4 @@
-import {
-  type Finding,
-  type FindingSeverity,
-  findingSchema,
-} from "@agentshield/schemas";
+import { type Finding, type FindingSeverity, findingSchema } from "@agentshield/schemas";
 import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -37,7 +33,12 @@ function isKubernetesDocument(value: unknown): boolean {
   return isRecord(value) && typeof value.apiVersion === "string" && typeof value.kind === "string";
 }
 
-function createFingerprint(ruleId: string, relativePath: string, lineNumber: number, line: string): string {
+function createFingerprint(
+  ruleId: string,
+  relativePath: string,
+  lineNumber: number,
+  line: string,
+): string {
   const digest = createHash("sha256")
     .update(`${ruleId}:${relativePath}:${lineNumber}:${line}`)
     .digest("hex")
@@ -120,7 +121,8 @@ export async function scanKubernetesManifest(input: KubernetesScannerInput): Pro
           ruleId: "kubernetes.allow_privilege_escalation",
           severity: "HIGH",
           title: "Kubernetes container allows privilege escalation",
-          description: "The manifest allows a process to gain more privileges than its parent process.",
+          description:
+            "The manifest allows a process to gain more privileges than its parent process.",
           lineStart: lineNumber,
           evidence: {
             field: "securityContext.allowPrivilegeEscalation",
@@ -138,7 +140,8 @@ export async function scanKubernetesManifest(input: KubernetesScannerInput): Pro
           ruleId: "kubernetes.host_path_volume",
           severity: "HIGH",
           title: "Kubernetes manifest mounts a hostPath volume",
-          description: "The manifest uses a hostPath volume, which can expose host filesystem access.",
+          description:
+            "The manifest uses a hostPath volume, which can expose host filesystem access.",
           lineStart: lineNumber,
           evidence: {
             field: "volumes.hostPath",
@@ -151,4 +154,3 @@ export async function scanKubernetesManifest(input: KubernetesScannerInput): Pro
 
   return findings;
 }
-

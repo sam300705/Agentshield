@@ -201,7 +201,8 @@ async function main() {
             id: "dockerfile.remote_script.root_user",
             version: "2026.06.0",
             name: "Require approval for remote script execution as root",
-            description: "Flags Dockerfiles that combine remote script execution with root runtime.",
+            description:
+              "Flags Dockerfiles that combine remote script execution with root runtime.",
             enabled: true,
             target: {
               categories: ["DOCKERFILE"],
@@ -220,7 +221,8 @@ async function main() {
             ],
             decision: "REQUIRE_APPROVAL",
             remediationEligible: true,
-            rationale: "Build-time remote execution and root containers increase supply-chain risk.",
+            rationale:
+              "Build-time remote execution and root containers increase supply-chain risk.",
             tags: ["dockerfile", "platform-approval"],
           },
         },

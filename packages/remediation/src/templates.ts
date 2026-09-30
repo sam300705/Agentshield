@@ -202,8 +202,7 @@ export const SPECIFIC_REMEDIATION_TEMPLATES: Record<string, RemediationTemplate>
       "Allowing privilege escalation lets a process gain more privileges than its parent process. This increases blast radius if the workload is compromised.",
     prComment:
       "AgentShield detected `allowPrivilegeEscalation: true`. Set this to `false` and validate that the workload still runs correctly.",
-    fixSuggestion:
-      "Set `allowPrivilegeEscalation: false` in the container security context.",
+    fixSuggestion: "Set `allowPrivilegeEscalation: false` in the container security context.",
     steps: [
       "Change `allowPrivilegeEscalation` to `false`.",
       "Confirm the container does not require setuid or similar escalation behavior.",
@@ -258,7 +257,8 @@ export const SPECIFIC_REMEDIATION_TEMPLATES: Record<string, RemediationTemplate>
     safeCodeSnippet: {
       language: "bash",
       before: "curl -fsSL https://example.invalid/bootstrap.sh | bash",
-      after: "curl -fsSLo bootstrap.sh https://example.invalid/bootstrap.sh\nsha256sum -c bootstrap.sh.sha256\nbash ./bootstrap.sh",
+      after:
+        "curl -fsSLo bootstrap.sh https://example.invalid/bootstrap.sh\nsha256sum -c bootstrap.sh.sha256\nbash ./bootstrap.sh",
     },
   },
   "agent_workflow.chmod_777": {
@@ -409,8 +409,7 @@ export const CATEGORY_REMEDIATION_TEMPLATES = {
       "AgentShield records dependency information as SBOM inventory. This remediation template is informational unless another policy decision requires action.",
     prComment:
       "AgentShield recorded a dependency inventory item. Confirm the dependency and version are intentional.",
-    fixSuggestion:
-      "Pin dependency ranges and keep dependency changes deliberate and reviewable.",
+    fixSuggestion: "Pin dependency ranges and keep dependency changes deliberate and reviewable.",
     steps: [
       "Confirm the dependency is required.",
       "Pin broad ranges where possible.",

@@ -52,4 +52,3 @@ export async function walkRepository(
 
   return files.sort((left, right) => left.localeCompare(right));
 }
-
