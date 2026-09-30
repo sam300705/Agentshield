@@ -68,21 +68,82 @@ enum AuditAction {
   APPROVAL_UPDATED
 }
 
+enum Role {
+  SECURITY_ADMIN
+  ENGINEER
+  STANDARD_USER
+}
+
+enum PlaybookStatus {
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+  EXECUTED
+  FAILED_EXECUTION
+}
+
+enum SafaEventType {
+  PRE_DEPLOYMENT_TEST_FAILURE
+  EXCESSIVE_AGENCY_ATTEMPT
+  DESTRUCTIVE_COMMAND_BLOCKED
+  PROMPT_INJECTION_DETECTED
+  UNAUTHORIZED_APPROVAL_ATTEMPT
+}
+
+model User {
+  id        String         @id @default(uuid())
+  email     String?        @unique
+  role      Role           @default(STANDARD_USER)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  playbooks Playbook[]     @relation("PlaybookApprover")
+  auditLogs SafaAuditLog[]
+}
+
+model Playbook {
+  id               String         @id @default(uuid())
+  scanId           String
+  scan             Scan           @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  generatedPlan    String         @db.Text
+  sanitizedPlan    String         @db.Text
+  requiresApproval Boolean        @default(true)
+  approvedById     String?
+  approvedBy       User?          @relation("PlaybookApprover", fields: [approvedById], references: [id])
+  status           PlaybookStatus @default(PENDING_REVIEW)
+  createdAt        DateTime       @default(now())
+  executedAt       DateTime?
+}
+
+model SafaAuditLog {
+  id          String        @id @default(uuid())
+  eventType   SafaEventType
+  severity    Severity
+  description String
+  metadata    Json
+  scanId      String?
+  scan        Scan?         @relation(fields: [scanId], references: [id], onDelete: SetNull)
+  userId      String?
+  user        User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt   DateTime      @default(now())
+}
+
 model Scan {
-  id             String       @id @default(cuid())
+  id             String         @id @default(cuid())
   repositoryName String
   repositoryUrl  String?
   branch         String
   commitSha      String?
-  status         ScanStatus   @default(QUEUED)
-  metadata       Json         @default("{}")
-  startedAt      DateTime     @default(now())
+  status         ScanStatus     @default(QUEUED)
+  metadata       Json           @default("{}")
+  startedAt      DateTime       @default(now())
   completedAt    DateTime?
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
   findings       Finding[]
   dependencies   Dependency[]
   auditEvents    AuditEvent[]
+  playbooks      Playbook[]
+  auditLogs      SafaAuditLog[]
 
   @@index([status])
   @@index([repositoryName])
