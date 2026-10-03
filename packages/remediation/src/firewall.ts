@@ -1,5 +1,4 @@
 import Parser from "tree-sitter";
-// @ts-ignore
 import Bash from "tree-sitter-bash";
 import { PrismaClient, SafaEventType, Severity } from "@prisma/client";
 
@@ -17,6 +16,7 @@ export class ASTFirewallError extends Error {
 
 export async function validateAst(script: string, scanId?: string, userId?: string): Promise<void> {
   const parser = new Parser();
+
   parser.setLanguage(Bash);
 
   const tree = parser.parse(script);

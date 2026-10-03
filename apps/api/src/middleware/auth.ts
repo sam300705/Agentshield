@@ -1,7 +1,7 @@
-import { Request, Response, NextFunction } from "express";
+import type { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { prisma } from "../db/prisma.js";
-import { User } from "@prisma/client";
+import type { User } from "@prisma/client";
 
 export interface AuthenticatedRequest extends Request {
   user?: User;
@@ -14,9 +14,10 @@ if (!JWT_SECRET) {
 
 export const authenticate = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const token = req.cookies?.token;
 
-    if (!token) {
+    if (!token || typeof token !== "string") {
       res.status(401).json({ error: "Unauthorized: No token provided in HTTP-Only cookie" });
       return;
     }
@@ -34,7 +35,8 @@ export const authenticate = async (req: AuthenticatedRequest, res: Response, nex
 
     req.user = user;
     next();
-  } catch (error) {
+  } catch (err) {
+    console.error("Auth error:", err);
     res.status(401).json({ error: "Unauthorized: Invalid token" });
   }
 };

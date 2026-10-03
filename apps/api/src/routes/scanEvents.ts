@@ -1,10 +1,9 @@
-import { Router, Request, Response } from "express";
+import { Router, type Request, type Response } from "express";
 import { QueueEvents } from "bullmq";
-import * as IORedis from "ioredis";
+import { Redis } from "ioredis";
 import { authenticate } from "../middleware/auth.js";
 
 const router: Router = Router();
-const Redis = (IORedis as any).default || IORedis.Redis || IORedis;
 
 const redisConnection = new Redis(process.env.REDIS_URL || "redis://127.0.0.1:6379", {
   maxRetriesPerRequest: null,
@@ -13,6 +12,7 @@ const redisConnection = new Redis(process.env.REDIS_URL || "redis://127.0.0.1:63
 const queueEvents = new QueueEvents("scannerQueue", { connection: redisConnection });
 queueEvents.setMaxListeners(0);
 
+// eslint-disable-next-line @typescript-eslint/no-misused-promises
 router.get("/:scanId/stream", authenticate, (req: Request, res: Response) => {
   const { scanId } = req.params;
 
@@ -23,13 +23,13 @@ router.get("/:scanId/stream", authenticate, (req: Request, res: Response) => {
 
   res.write(`data: ${JSON.stringify({ message: "Connected to scan stream", scanId })}\n\n`);
 
-  const onProgress = (args: { jobId: string; data: any }) => {
+  const onProgress = (args: { jobId: string; data: unknown }) => {
     if (args.jobId === scanId) {
       res.write(`data: ${JSON.stringify({ event: "progress", jobId: args.jobId, data: args.data })}\n\n`);
     }
   };
 
-  const onCompleted = (args: { jobId: string; returnvalue: any; prev?: string }) => {
+  const onCompleted = (args: { jobId: string; returnvalue: unknown; prev?: string }) => {
     if (args.jobId === scanId) {
       res.write(`data: ${JSON.stringify({ event: "completed", jobId: args.jobId, returnvalue: args.returnvalue })}\n\n`);
     }

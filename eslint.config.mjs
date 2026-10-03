@@ -29,7 +29,7 @@ export default [
     languageOptions: {
       parserOptions: {
         projectService: {
-          allowDefaultProject: ["apps/web-dashboard/*.config.ts"],
+          allowDefaultProject: ["apps/web-dashboard/*.config.ts", "scripts/*.ts"],
         },
         tsconfigRootDir: import.meta.dirname,
       },

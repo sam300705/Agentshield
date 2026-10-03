@@ -9,9 +9,11 @@ const MINIMUM_FINDINGS = 10;
 
 function printBanner(message: string): void {
   const border = "=".repeat(message.length + 8);
-
+  // eslint-disable-next-line no-console
   console.log(`\n${border}`);
+  // eslint-disable-next-line no-console
   console.log(`=== ${message} ===`);
+  // eslint-disable-next-line no-console
   console.log(`${border}\n`);
 }
 
@@ -50,8 +52,8 @@ function readStringField(value: JsonValue | null | undefined, key: string): stri
   if (typeof value !== "object" || value == null || Array.isArray(value)) {
     return null;
   }
-
-  const fieldValue = value[key];
+  const typedValue = value as Record<string, JsonValue>;
+  const fieldValue = typedValue[key];
 
   return typeof fieldValue === "string" ? fieldValue : null;
 }
@@ -86,7 +88,7 @@ async function main(): Promise<void> {
   );
 
   const blockedSecret = findBlockedSecret(findings, decisions);
-  const remediation = generateRemediation(blockedSecret, SCAN_ID);
+  const remediation = await generateRemediation(blockedSecret, SCAN_ID);
   const prComment = readStringField(remediation.patch, "prComment");
 
   assertCondition(
@@ -95,10 +97,15 @@ async function main(): Promise<void> {
   );
 
   printBanner("INTEGRATION TEST PASSED");
+  // eslint-disable-next-line no-console
   console.log(`Target: ${targetPath}`);
+  // eslint-disable-next-line no-console
   console.log(`Findings: ${findings.length}`);
+  // eslint-disable-next-line no-console
   console.log(`Dependencies: ${scanResult.dependencies.length}`);
+  // eslint-disable-next-line no-console
   console.log(`Blocked secret: ${blockedSecret.title}`);
+  // eslint-disable-next-line no-console
   console.log(`PR comment preview: ${prComment.split("\n")[0]}`);
 }
 

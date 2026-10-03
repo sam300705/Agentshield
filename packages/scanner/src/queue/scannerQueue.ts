@@ -1,9 +1,8 @@
-import { Queue, Worker, Job } from "bullmq";
-import * as IORedis from "ioredis";
+import { Queue, Worker, type Job } from "bullmq";
+import { Redis } from "ioredis";
 import { PrismaClient, ScanStatus } from "@prisma/client";
 
 const prisma = new PrismaClient();
-const Redis = (IORedis as any).default || IORedis.Redis || IORedis;
 
 const redisConnection = new Redis(process.env.REDIS_URL || "redis://127.0.0.1:6379", {
   maxRetriesPerRequest: null,
@@ -15,7 +14,7 @@ export const scannerQueue = new Queue("scannerQueue", {
 
 export const worker = new Worker(
   "scannerQueue",
-  async (job: Job) => {
+  async (job: Job<{ scanId: string }>) => {
     const { scanId } = job.data;
 
     try {
@@ -44,6 +43,7 @@ export const worker = new Worker(
   }
 );
 
+// eslint-disable-next-line @typescript-eslint/no-misused-promises
 worker.on("failed", async (job, err) => {
   if (job) {
     const { scanId } = job.data;

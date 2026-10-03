@@ -1,7 +1,7 @@
-import { Response, NextFunction } from "express";
-import { Role, SafaEventType, Severity } from "@prisma/client";
+import type { Response, NextFunction } from "express";
+import { SafaEventType, Severity, type Role } from "@prisma/client";
 import { prisma } from "../db/prisma.js";
-import { AuthenticatedRequest } from "./auth.js";
+import type { AuthenticatedRequest } from "./auth.js";
 
 export const requireRole = (allowedRoles: Role[]) => {
   return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
