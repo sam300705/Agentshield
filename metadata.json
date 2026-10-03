@@ -1,0 +1,8 @@
+{
+  "name": "AgentShield",
+  "description": "Policy-as-Code guardrails for AI coding agents in software supply chains.",
+  "permissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

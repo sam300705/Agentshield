@@ -13,15 +13,13 @@
     }
   },
   "scripts": {
-    "prebuild": "corepack pnpm --filter @agentshield/schemas build",
     "build": "tsc -p tsconfig.json",
     "lint": "eslint .",
-    "pretypecheck": "corepack pnpm --filter @agentshield/schemas build",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@agentshield/schemas": "workspace:*",
+    "@agentshield/schemas": "*",
     "zod": "^3.24.1"
   },
   "devDependencies": {

@@ -8,7 +8,7 @@ import type {
   Scan,
 } from "@agentshield/schemas";
 
-const API_BASE_URL = "http://localhost:3001";
+const API_BASE_URL = "";
 
 export interface PaginatedResponse<T> {
   page: number;
