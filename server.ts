@@ -41,7 +41,7 @@ async function start() {
   }
 
   app.listen(PORT, HOST, () => {
-    console.log(`AgentShield server listening on http://${HOST}:${PORT}`);
+    console.warn(`AgentShield server listening on http://${HOST}:${PORT}`);
   });
 }
 

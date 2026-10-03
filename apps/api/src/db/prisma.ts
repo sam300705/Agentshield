@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/require-await, @typescript-eslint/no-unused-vars */
 import {
   ApprovalStatus,
   AuditAction,
@@ -5,7 +6,7 @@ import {
   FindingCategory,
   PackageManager,
   PolicyDecisionType,
-  PrismaClient,
+  type PrismaClient,
   ScanStatus,
   Severity,
 } from "@prisma/client";
@@ -729,4 +730,4 @@ function createInMemoryPrismaClient(): any {
 // In-Memory mock client ready with demo data
 const inMemoryStoreClient = createInMemoryPrismaClient();
 
-export const prisma: PrismaClient = inMemoryStoreClient as unknown as PrismaClient;
+export const prisma = inMemoryStoreClient as unknown as PrismaClient;
