@@ -74,8 +74,10 @@ async function detectPackageManager(manifestPath: string): Promise<PackageManage
   return "NPM";
 }
 
-function createPackageUrl(packageManager: PackageManager, packageName: string, version: string): string {
-  const ecosystem = packageManager === "UNKNOWN" ? "npm" : packageManager.toLowerCase();
+function createPackageUrl(_packageManager: PackageManager, packageName: string, version: string): string {
+  // Regardless of the tool (npm, yarn, pnpm) driving the installation,
+  // they all resolve packages from the npm ecosystem/registry. PURL specifies ecosystem, not tooling.
+  const ecosystem = "npm";
 
   return `pkg:${ecosystem}/${encodeURIComponent(packageName)}@${encodeURIComponent(version)}`;
 }
@@ -84,7 +86,12 @@ export async function generateSbomForPackageJson(
   input: DependencyScannerInput,
 ): Promise<Dependency[]> {
   const content = await readFile(input.filePath, "utf8");
-  const parsedManifest: unknown = JSON.parse(content);
+  let parsedManifest: unknown;
+  try {
+    parsedManifest = JSON.parse(content);
+  } catch {
+    return []; // Fail safely for malformed JSON
+  }
 
   if (!isRecord(parsedManifest)) {
     return [];
@@ -124,4 +131,3 @@ export async function generateSbomForPackageJson(
     ),
   );
 }
-

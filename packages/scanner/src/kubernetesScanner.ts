@@ -6,7 +6,7 @@ import {
 import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { parseAllDocuments } from "yaml";
+import { parseAllDocuments, type Document, type ParsedNode } from "yaml";
 
 export interface KubernetesScannerInput {
   scanId: string;
@@ -74,13 +74,22 @@ function createKubernetesFinding(input: KubernetesFindingInput): Finding {
 export async function scanKubernetesManifest(input: KubernetesScannerInput): Promise<Finding[]> {
   const content = await readFile(input.filePath, "utf8");
   const relativePath = toRelativePath(input.targetRoot, input.filePath);
-  const documents = parseAllDocuments(content);
+
+  let documents: Document.Parsed<ParsedNode>[];
+  try {
+    documents = parseAllDocuments(content);
+  } catch {
+    return []; // Malformed YAML should fail safely
+  }
+
   const containsKubernetesManifest = documents.some((document) => {
     if (document.errors.length > 0) {
       return false;
     }
 
-    return isKubernetesDocument(document.toJSON());
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const docJson = document.toJSON();
+    return isKubernetesDocument(docJson);
   });
 
   if (!containsKubernetesManifest) {
@@ -149,6 +158,55 @@ export async function scanKubernetesManifest(input: KubernetesScannerInput): Pro
     }
   }
 
+  // Proper YAML AST parsing to catch missing resource limits
+  for (const doc of documents) {
+    if (doc.errors.length > 0) continue;
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const docJson = doc.toJSON();
+    if (!isKubernetesDocument(docJson)) continue;
+
+    const findContainers = (obj: unknown): Record<string, unknown>[] => {
+      let containers: Record<string, unknown>[] = [];
+      if (Array.isArray(obj)) {
+        for (const item of obj) {
+          containers = containers.concat(findContainers(item));
+        }
+      } else if (isRecord(obj)) {
+        if (Array.isArray(obj.containers)) {
+          for (const c of obj.containers) {
+             if (isRecord(c)) {
+               containers.push(c);
+             }
+          }
+        }
+        for (const val of Object.values(obj)) {
+          containers = containers.concat(findContainers(val));
+        }
+      }
+      return containers;
+    };
+
+    const containers = findContainers(docJson);
+    for (const container of containers) {
+      if (!container.resources) {
+        findings.push(
+          createKubernetesFinding({
+            scanId: input.scanId,
+            relativePath,
+            ruleId: "kubernetes.missing_resource_limits",
+            severity: "HIGH",
+            title: "Kubernetes container missing resource limits",
+            description: "The container spec does not define resource limits or requests.",
+            lineStart: 1, // Fallback line start for AST findings
+            evidence: {
+              field: "resources",
+              value: null,
+            },
+          }),
+        );
+      }
+    }
+  }
+
   return findings;
 }
-

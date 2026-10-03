@@ -52,6 +52,24 @@ const RISKY_AGENT_PATTERNS: AgentWorkflowPattern[] = [
   },
 ];
 
+const SECRET_REDACTION_PATTERNS = [
+  { regex: /\b(AKIA|ASIA)[A-Z0-9]{16}\b/g, mask: "[REDACTED_AWS_ACCESS_KEY]" },
+  { regex: /(AWS_SECRET_ACCESS_KEY\s*[:=]\s*(?:['"`]?))([A-Za-z0-9/+=]{40})/gi, mask: "$1[REDACTED_AWS_SECRET]" },
+  { regex: /\b(gh[pousr]_[A-Za-z0-9_]{20,255})\b/g, mask: "[REDACTED_GITHUB_TOKEN]" },
+  { regex: /\b(sk_live_[A-Za-z0-9]{20,255})\b/g, mask: "[REDACTED_STRIPE_KEY]" },
+  { regex: /\b(eyJhbGciOi[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)\b/g, mask: "[REDACTED_JWT]" },
+  { regex: /(API_KEY|ADMIN_TOKEN|JWT_SECRET|SECRET_KEY|GITHUB_TOKEN|TOKEN)\s*[:=]\s*(?:['"`]?)([A-Za-z0-9_./+=-]{12,})/gi, mask: "$1=[REDACTED_GENERIC_SECRET]" },
+  { regex: /-----BEGIN(?:.*)PRIVATE KEY-----[\s\S]*?-----END(?:.*)PRIVATE KEY-----/g, mask: "[REDACTED_PRIVATE_KEY]" }
+];
+
+function redactAgentLogLine(line: string): string {
+  let redactedLine = line;
+  for (const pattern of SECRET_REDACTION_PATTERNS) {
+    redactedLine = redactedLine.replace(pattern.regex, pattern.mask);
+  }
+  return redactedLine;
+}
+
 function toRelativePath(targetRoot: string, filePath: string): string {
   return path.relative(targetRoot, filePath) || path.basename(filePath);
 }
@@ -79,6 +97,8 @@ export async function scanAgentWorkflowLog(input: AgentWorkflowScannerInput): Pr
         continue;
       }
 
+      const redactedLine = redactAgentLogLine(line);
+
       findings.push(
         findingSchema.parse({
           id: randomUUID(),
@@ -92,7 +112,7 @@ export async function scanAgentWorkflowLog(input: AgentWorkflowScannerInput): Pr
           lineEnd: lineNumber,
           evidence: {
             ruleId: pattern.id,
-            logLine: line,
+            logLine: redactedLine, // Store the redacted log line instead of raw output
           },
           fingerprint: createFingerprint(pattern.id, relativePath, lineNumber, line),
           createdAt: new Date(),
@@ -103,4 +123,3 @@ export async function scanAgentWorkflowLog(input: AgentWorkflowScannerInput): Pr
 
   return findings;
 }
-

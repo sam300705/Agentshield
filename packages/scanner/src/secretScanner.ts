@@ -13,6 +13,7 @@ interface SecretPattern {
   description: string;
   severity: FindingSeverity;
   regex: RegExp;
+  valueGroupIndex?: number;
 }
 
 export interface SecretScannerInput {
@@ -27,35 +28,40 @@ const SECRET_PATTERNS: SecretPattern[] = [
     title: "High-confidence AWS access key id detected",
     description: "A value matching the AWS access key id format was found in source-controlled text.",
     severity: "CRITICAL",
-    regex: /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/,
+    regex: /\b(AKIA|ASIA)[A-Z0-9]{16}\b/,
+    valueGroupIndex: 0
   },
   {
     id: "secret.aws_secret_access_key",
     title: "High-confidence AWS secret access key detected",
     description: "An explicit AWS_SECRET_ACCESS_KEY assignment was found in source-controlled text.",
     severity: "CRITICAL",
-    regex: /\bAWS_SECRET_ACCESS_KEY\s*[:=]\s*["']?[A-Za-z0-9/+=]{40}["']?/i,
+    regex: /\bAWS_SECRET_ACCESS_KEY\s*[:=]\s*(?:['"`]?)([A-Za-z0-9/+=]{40})(?:['"`]?)/i,
+    valueGroupIndex: 1
   },
   {
     id: "secret.github_token",
     title: "High-confidence GitHub token detected",
     description: "A value matching a GitHub token prefix was found in source-controlled text.",
     severity: "CRITICAL",
-    regex: /\bgh[pousr]_[A-Za-z0-9_]{20,255}\b/,
+    regex: /\b(gh[pousr]_[A-Za-z0-9_]{20,255})\b/,
+    valueGroupIndex: 1
   },
   {
     id: "secret.stripe_live_key",
     title: "High-confidence Stripe live secret key detected",
     description: "A value matching a Stripe live secret key prefix was found in source-controlled text.",
     severity: "CRITICAL",
-    regex: /\bsk_live_[A-Za-z0-9]{20,255}\b/,
+    regex: /\b(sk_live_[A-Za-z0-9]{20,255})\b/,
+    valueGroupIndex: 1
   },
   {
     id: "secret.jwt_token",
     title: "JWT-like bearer token detected",
     description: "A token with a standard JWT header prefix was found in source-controlled text.",
     severity: "HIGH",
-    regex: /\beyJhbGciOi[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/,
+    regex: /\b(eyJhbGciOi[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)\b/,
+    valueGroupIndex: 1
   },
   {
     id: "secret.explicit_generic_key",
@@ -63,7 +69,8 @@ const SECRET_PATTERNS: SecretPattern[] = [
     description: "An explicit key, token, or secret assignment with a long literal value was found.",
     severity: "HIGH",
     regex:
-      /\b(?:API_KEY|ADMIN_TOKEN|JWT_SECRET|SECRET_KEY|GITHUB_TOKEN|TOKEN)\s*[:=]\s*["']?[A-Za-z0-9_./+=-]{12,}["']?/i,
+      /(?:API_KEY|ADMIN_TOKEN|JWT_SECRET|SECRET_KEY|GITHUB_TOKEN|TOKEN)\s*[:=]\s*(?:['"`]?)([A-Za-z0-9_./+=-]{12,})(?:['"`]?)/i,
+    valueGroupIndex: 1
   },
 ];
 
@@ -106,6 +113,14 @@ export async function scanFileForSecrets(input: SecretScannerInput): Promise<Fin
         continue;
       }
 
+      const secretValue = (pattern.valueGroupIndex !== undefined && match[pattern.valueGroupIndex])
+        ? match[pattern.valueGroupIndex]
+        : match[0];
+
+      if (!secretValue) {
+        continue;
+      }
+
       findings.push(
         findingSchema.parse({
           id: randomUUID(),
@@ -119,9 +134,9 @@ export async function scanFileForSecrets(input: SecretScannerInput): Promise<Fin
           lineEnd: lineNumber,
           evidence: {
             ruleId: pattern.id,
-            matchedText: redact(match[0]),
+            matchedText: redact(secretValue),
           },
-          fingerprint: createFingerprint(pattern.id, relativePath, lineNumber, match[0]),
+          fingerprint: createFingerprint(pattern.id, relativePath, lineNumber, secretValue),
           createdAt: new Date(),
         }),
       );
@@ -130,4 +145,3 @@ export async function scanFileForSecrets(input: SecretScannerInput): Promise<Fin
 
   return findings;
 }
-

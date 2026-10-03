@@ -17,18 +17,23 @@ export interface ScanRunnerResult {
 
 const TEXT_FILE_EXTENSIONS = new Set([
   "",
-  ".conf",
-  ".env",
-  ".example",
-  ".json",
-  ".log",
-  ".md",
+  ".js",
+  ".jsx",
+  ".cjs",
   ".mjs",
   ".ts",
   ".tsx",
-  ".txt",
+  ".json",
   ".yaml",
   ".yml",
+  ".env",
+  ".conf",
+  ".toml",
+  ".ini",
+  ".log",
+  ".md",
+  ".txt",
+  ".example",
 ]);
 
 function isDockerfile(filePath: string): boolean {
@@ -37,7 +42,6 @@ function isDockerfile(filePath: string): boolean {
 
 function isYamlFile(filePath: string): boolean {
   const extension = path.extname(filePath).toLowerCase();
-
   return extension === ".yaml" || extension === ".yml";
 }
 
@@ -84,24 +88,29 @@ export async function runScan(targetPath: string, scanId: string): Promise<ScanR
       filePath,
     };
 
-    if (isLikelyTextFile(filePath)) {
-      findings.push(...(await scanFileForSecrets(scannerInput)));
-    }
+    try {
+      if (isLikelyTextFile(filePath)) {
+        findings.push(...(await scanFileForSecrets(scannerInput)));
+      }
 
-    if (isDockerfile(filePath)) {
-      findings.push(...(await scanDockerfile(scannerInput)));
-    }
+      if (isDockerfile(filePath)) {
+        findings.push(...(await scanDockerfile(scannerInput)));
+      }
 
-    if (isYamlFile(filePath)) {
-      findings.push(...(await scanKubernetesManifest(scannerInput)));
-    }
+      if (isYamlFile(filePath)) {
+        findings.push(...(await scanKubernetesManifest(scannerInput)));
+      }
 
-    if (isPackageJson(filePath)) {
-      dependencies.push(...(await generateSbomForPackageJson(scannerInput)));
-    }
+      if (isPackageJson(filePath)) {
+        dependencies.push(...(await generateSbomForPackageJson(scannerInput)));
+      }
 
-    if (isAgentWorkflowLog(targetRoot, filePath)) {
-      findings.push(...(await scanAgentWorkflowLog(scannerInput)));
+      if (isAgentWorkflowLog(targetRoot, filePath)) {
+        findings.push(...(await scanAgentWorkflowLog(scannerInput)));
+      }
+    } catch (error) {
+      console.warn(`Error scanning file ${filePath}:`, error);
+      // Graceful degradation: failing to scan one file should not break the entire repository scan.
     }
   }
 
@@ -112,4 +121,3 @@ export async function runScan(targetPath: string, scanId: string): Promise<ScanR
     dependencies,
   };
 }
-
