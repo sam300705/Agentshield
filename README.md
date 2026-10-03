@@ -133,6 +133,25 @@ pnpm dev
 
 The API runs at `http://localhost:3001`. The dashboard runs at `http://localhost:5173`.
 
+### Local Authentication
+
+Because AgentShield is a secure platform, all API endpoints are protected by an authentication boundary. For local development, there is a dev-only route that issues a valid JWT cookie without needing a real Identity Provider (IdP):
+
+```bash
+curl -X POST http://localhost:3001/api/auth/dev-login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "admin@example.com", "role": "ADMIN"}' \
+  -c cookies.txt
+```
+
+You can then pass the generated cookie to subsequent authenticated requests:
+
+```bash
+curl http://localhost:3001/api/scans -b cookies.txt
+```
+
+**Note:** This endpoint is explicitly disabled when `NODE_ENV=production`.
+
 For the complete local workflow in one command, run:
 
 ```bash

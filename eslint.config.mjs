@@ -29,7 +29,7 @@ export default [
     languageOptions: {
       parserOptions: {
         projectService: {
-          allowDefaultProject: ["apps/web-dashboard/*.config.ts", "scripts/*.ts", "packages/scanner/tests/*.ts"],
+          allowDefaultProject: ["apps/web-dashboard/*.config.ts", "scripts/*.ts", "packages/scanner/tests/*.ts", "apps/api/tests/*.ts", "apps/api/vitest.config.ts"],
         },
         tsconfigRootDir: import.meta.dirname,
       },

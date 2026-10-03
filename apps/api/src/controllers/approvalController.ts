@@ -1,10 +1,9 @@
-import { ApprovalStatus, AuditAction } from "@prisma/client";
-import { type Request, type Response } from "express";
+import { ApprovalStatus, AuditAction, type User } from "@prisma/client";
+import type { Request, Response } from "express";
 import { z } from "zod";
 
 import { prisma } from "../db/prisma.js";
-
-const ADMIN_ACTOR = "Admin User";
+import type { AuthenticatedRequest } from "../middleware/auth.js";
 
 const paginationQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(25),
@@ -71,6 +70,7 @@ async function updateApprovalStatus(
   approvalId: string,
   status: Extract<ApprovalStatus, "APPROVED" | "REJECTED">,
   reason: string | undefined,
+  actorUser: User,
 ) {
   const approval = await prisma.approval.findUnique({
     where: {
@@ -85,6 +85,9 @@ async function updateApprovalStatus(
     return null;
   }
 
+  // The actor is strictly the authenticated user's email or ID, preventing spoofing
+  const authenticatedActor = actorUser.email || actorUser.id;
+
   return prisma.$transaction(async (tx) => {
     const updatedApproval = await tx.approval.update({
       where: {
@@ -92,7 +95,7 @@ async function updateApprovalStatus(
       },
       data: {
         status,
-        actor: ADMIN_ACTOR,
+        actor: authenticatedActor,
         reason: reason ?? approval.reason,
         reviewedAt: new Date(),
       },
@@ -108,7 +111,7 @@ async function updateApprovalStatus(
 
     await tx.auditEvent.create({
       data: {
-        actor: ADMIN_ACTOR,
+        actor: authenticatedActor,
         action: AuditAction.APPROVAL_UPDATED,
         entityType: "Approval",
         entityId: approvalId,
@@ -126,12 +129,19 @@ async function updateApprovalStatus(
 }
 
 export async function approveApprovalController(
-  request: Request,
+  request: AuthenticatedRequest,
   response: Response,
 ): Promise<void> {
   const { approvalId } = approvalParamsSchema.parse(request.params);
   const body = approvalActionBodySchema.parse(request.body);
-  const approval = await updateApprovalStatus(approvalId, ApprovalStatus.APPROVED, body.reason);
+  const user = request.user;
+
+  if (!user) {
+    response.status(401).json({ error: "UNAUTHORIZED", message: "User not authenticated" });
+    return;
+  }
+
+  const approval = await updateApprovalStatus(approvalId, ApprovalStatus.APPROVED, body.reason, user);
 
   if (approval == null) {
     response.status(404).json({
@@ -147,12 +157,19 @@ export async function approveApprovalController(
 }
 
 export async function rejectApprovalController(
-  request: Request,
+  request: AuthenticatedRequest,
   response: Response,
 ): Promise<void> {
   const { approvalId } = approvalParamsSchema.parse(request.params);
   const body = approvalActionBodySchema.parse(request.body);
-  const approval = await updateApprovalStatus(approvalId, ApprovalStatus.REJECTED, body.reason);
+  const user = request.user;
+
+  if (!user) {
+    response.status(401).json({ error: "UNAUTHORIZED", message: "User not authenticated" });
+    return;
+  }
+
+  const approval = await updateApprovalStatus(approvalId, ApprovalStatus.REJECTED, body.reason, user);
 
   if (approval == null) {
     response.status(404).json({

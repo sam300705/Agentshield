@@ -3,6 +3,7 @@ import { type Request, type Response } from "express";
 
 import { prisma } from "../db/prisma.js";
 import { runDemoScan } from "../services/scanService.js";
+import type { AuthenticatedRequest } from "../middleware/auth.js";
 
 const paginationQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(25),
@@ -22,8 +23,16 @@ function getPagination(query: Request["query"]) {
   };
 }
 
-export async function runDemoScanController(_request: Request, response: Response): Promise<void> {
-  const scanId = await runDemoScan();
+export async function runDemoScanController(request: AuthenticatedRequest, response: Response): Promise<void> {
+  const user = request.user;
+  if (!user) {
+    response.status(401).json({ error: "UNAUTHORIZED", message: "User not authenticated" });
+    return;
+  }
+
+  // We pass the authenticated user's email/ID down to mark who triggered the scan
+  const actorIdentity = user.email || user.id;
+  const scanId = await runDemoScan(actorIdentity);
 
   response.status(201).json({
     scanId,

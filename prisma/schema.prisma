@@ -194,15 +194,15 @@ model AuditEvent {
 }
 
 enum Role {
-  SECURITY_ADMIN
-  ENGINEER
-  STANDARD_USER
+  ADMIN
+  REVIEWER
+  VIEWER
 }
 
 model User {
   id        String         @id @default(uuid())
   email     String?        @unique
-  role      Role           @default(STANDARD_USER)
+  role      Role           @default(VIEWER)
   createdAt DateTime       @default(now())
   updatedAt DateTime       @updatedAt
   playbooks Playbook[]     @relation("PlaybookApprover")

@@ -15,7 +15,6 @@ import { fileURLToPath } from "node:url";
 
 import { prisma } from "../db/prisma.js";
 
-const SYSTEM_ACTOR = "System";
 const DEMO_TARGET_PATH = "../../examples/vulnerable-repo";
 const API_PACKAGE_ROOT = new URL("../../", import.meta.url);
 
@@ -90,6 +89,7 @@ function createDecisionCounts(decisions: PolicyDecision[]): Record<PolicyDecisio
 
 function createScanMetadata(input: {
   targetPath: string;
+  actor: string;
   findingCounts: FindingCounts;
   decisionCounts: Record<PolicyDecisionType, number>;
   dependencyCount: number;
@@ -99,7 +99,7 @@ function createScanMetadata(input: {
   return toInputJson({
     source: "LOCAL_EXAMPLE",
     targetPath: input.targetPath,
-    triggeredBy: SYSTEM_ACTOR,
+    triggeredBy: input.actor,
     labels: ["demo", "api-run"],
     aggregateCounts: {
       findings: input.findingCounts,
@@ -203,7 +203,7 @@ async function persistRemediation(
   });
 }
 
-async function markScanFailed(client: PrismaClient, scanId: string, error: unknown): Promise<void> {
+async function markScanFailed(client: PrismaClient, scanId: string, actor: string, error: unknown): Promise<void> {
   await client.scan.update({
     where: {
       id: scanId,
@@ -214,14 +214,14 @@ async function markScanFailed(client: PrismaClient, scanId: string, error: unkno
       metadata: {
         source: "LOCAL_EXAMPLE",
         targetPath: DEMO_TARGET_PATH,
-        triggeredBy: SYSTEM_ACTOR,
+        triggeredBy: actor,
         error: error instanceof Error ? error.message : "Unknown scan failure",
       },
     },
   });
 }
 
-export async function runDemoScan(): Promise<string> {
+export async function runDemoScan(actor: string = "System"): Promise<string> {
   const scan = await prisma.scan.create({
     data: {
       repositoryName: "agentshield-vulnerable-demo-target",
@@ -231,14 +231,14 @@ export async function runDemoScan(): Promise<string> {
       metadata: {
         source: "LOCAL_EXAMPLE",
         targetPath: DEMO_TARGET_PATH,
-        triggeredBy: SYSTEM_ACTOR,
+        triggeredBy: actor,
       },
     },
   });
 
   await prisma.auditEvent.create({
     data: {
-      actor: SYSTEM_ACTOR,
+      actor: actor,
       action: AuditAction.SCAN_CREATED,
       entityType: "Scan",
       entityId: scan.id,
@@ -280,6 +280,7 @@ export async function runDemoScan(): Promise<string> {
     const decisionCounts = createDecisionCounts(policyDecisions);
     const metadata = createScanMetadata({
       targetPath: DEMO_TARGET_PATH,
+      actor,
       findingCounts,
       decisionCounts,
       dependencyCount: scanResult.dependencies.length,
@@ -310,7 +311,7 @@ export async function runDemoScan(): Promise<string> {
             data: {
               findingId,
               status: "PENDING",
-              actor: SYSTEM_ACTOR,
+              actor,
               reason: "Policy decision requires human approval before merge.",
             },
           });
@@ -318,7 +319,7 @@ export async function runDemoScan(): Promise<string> {
 
         await tx.auditEvent.create({
           data: {
-            actor: SYSTEM_ACTOR,
+            actor,
             action: AuditAction.SCAN_COMPLETED,
             entityType: "Scan",
             entityId: scan.id,
@@ -345,7 +346,7 @@ export async function runDemoScan(): Promise<string> {
 
     return scan.id;
   } catch (error) {
-    await markScanFailed(prisma, scan.id, error);
+    await markScanFailed(prisma, scan.id, actor, error);
     throw error;
   }
 }
