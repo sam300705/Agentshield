@@ -1,4 +1,4 @@
-import { ApprovalStatus, AuditAction, type User } from "@prisma/client";
+import { ApprovalStatus, AuditAction, type User, type Approval } from "@prisma/client";
 import type { Request, Response } from "express";
 import { z } from "zod";
 
@@ -66,39 +66,68 @@ export async function listPendingApprovalsController(
   });
 }
 
+type UpdateApprovalResult =
+  | { type: "SUCCESS"; approval: Approval }
+  | { type: "NOT_FOUND" }
+  | { type: "CONFLICT"; currentState: ApprovalStatus };
+
 async function updateApprovalStatus(
   approvalId: string,
-  status: Extract<ApprovalStatus, "APPROVED" | "REJECTED">,
+  targetStatus: Extract<ApprovalStatus, "APPROVED" | "REJECTED">,
   reason: string | undefined,
   actorUser: User,
-) {
+): Promise<UpdateApprovalResult> {
+  // First, quickly verify the approval exists. This is mostly to get relations and fail fast if it's completely missing.
   const approval = await prisma.approval.findUnique({
-    where: {
-      id: approvalId,
-    },
-    include: {
-      finding: true,
-    },
+    where: { id: approvalId },
+    include: { finding: true },
   });
 
   if (approval == null) {
-    return null;
+    return { type: "NOT_FOUND" };
   }
 
-  // The actor is strictly the authenticated user's email or ID, preventing spoofing
   const authenticatedActor = actorUser.email || actorUser.id;
 
   return prisma.$transaction(async (tx) => {
-    const updatedApproval = await tx.approval.update({
+    // Re-fetch inside transaction to lock the row and get latest state
+    const currentApproval = await tx.approval.findUnique({
+      where: { id: approvalId },
+    });
+
+    if (!currentApproval) {
+      return { type: "NOT_FOUND" };
+    }
+
+    // State machine logic: Only allow transitioning from PENDING
+    if (currentApproval.status !== ApprovalStatus.PENDING) {
+      return { type: "CONFLICT", currentState: currentApproval.status };
+    }
+
+    // Update strictly checking PENDING state (atomic query constraint)
+    const updateResult = await tx.approval.updateMany({
       where: {
         id: approvalId,
+        status: ApprovalStatus.PENDING,
       },
       data: {
-        status,
+        status: targetStatus,
         actor: authenticatedActor,
-        reason: reason ?? approval.reason,
+        reason: reason ?? currentApproval.reason,
         reviewedAt: new Date(),
       },
+    });
+
+    if (updateResult.count === 0) {
+      // If count is 0, it means it was modified concurrently to a non-PENDING state
+      const concurrentState = await tx.approval.findUnique({ where: { id: approvalId } });
+      const finalState = concurrentState?.status ?? ApprovalStatus.PENDING;
+      return { type: "CONFLICT", currentState: finalState };
+    }
+
+    // We need to fetch the updated record with relations to return it
+    const updatedApproval = await tx.approval.findUnique({
+      where: { id: approvalId },
       include: {
         finding: {
           include: {
@@ -109,6 +138,11 @@ async function updateApprovalStatus(
       },
     });
 
+    if (!updatedApproval) {
+      return { type: "NOT_FOUND" };
+    }
+
+    // Preserve existing audit trail
     await tx.auditEvent.create({
       data: {
         actor: authenticatedActor,
@@ -117,14 +151,16 @@ async function updateApprovalStatus(
         entityId: approvalId,
         scanId: approval.finding.scanId,
         metadata: {
-          status,
+          previousState: ApprovalStatus.PENDING,
+          newState: targetStatus,
           findingId: approval.findingId,
           reason: reason ?? null,
+          timestamp: new Date().toISOString()
         },
       },
     });
 
-    return updatedApproval;
+    return { type: "SUCCESS", approval: updatedApproval };
   });
 }
 
@@ -141,9 +177,9 @@ export async function approveApprovalController(
     return;
   }
 
-  const approval = await updateApprovalStatus(approvalId, ApprovalStatus.APPROVED, body.reason, user);
+  const result = await updateApprovalStatus(approvalId, ApprovalStatus.APPROVED, body.reason, user);
 
-  if (approval == null) {
+  if (result.type === "NOT_FOUND") {
     response.status(404).json({
       error: "APPROVAL_NOT_FOUND",
       message: `Approval ${approvalId} was not found.`,
@@ -151,8 +187,16 @@ export async function approveApprovalController(
     return;
   }
 
+  if (result.type === "CONFLICT") {
+    response.status(409).json({
+      error: "APPROVAL_CONFLICT",
+      message: `Approval ${approvalId} has already been resolved with state ${result.currentState}.`,
+    });
+    return;
+  }
+
   response.json({
-    data: approval,
+    data: result.approval,
   });
 }
 
@@ -169,9 +213,9 @@ export async function rejectApprovalController(
     return;
   }
 
-  const approval = await updateApprovalStatus(approvalId, ApprovalStatus.REJECTED, body.reason, user);
+  const result = await updateApprovalStatus(approvalId, ApprovalStatus.REJECTED, body.reason, user);
 
-  if (approval == null) {
+  if (result.type === "NOT_FOUND") {
     response.status(404).json({
       error: "APPROVAL_NOT_FOUND",
       message: `Approval ${approvalId} was not found.`,
@@ -179,7 +223,15 @@ export async function rejectApprovalController(
     return;
   }
 
+  if (result.type === "CONFLICT") {
+    response.status(409).json({
+      error: "APPROVAL_CONFLICT",
+      message: `Approval ${approvalId} has already been resolved with state ${result.currentState}.`,
+    });
+    return;
+  }
+
   response.json({
-    data: approval,
+    data: result.approval,
   });
 }
