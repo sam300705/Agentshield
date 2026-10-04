@@ -48,7 +48,9 @@ router.get("/health", (_request, response) => {
 });
 
 // Authentication
-router.post("/api/auth/dev-login", asyncHandler(devLoginController));
+if (process.env.NODE_ENV !== "production") {
+  router.post("/api/auth/dev-login", asyncHandler(devLoginController));
+}
 router.post("/api/auth/logout", logoutController);
 router.get("/api/auth/me", authenticate as RequestHandler, meController as RequestHandler);
 
@@ -69,6 +71,11 @@ router.get("/api/audit-events", authenticate as RequestHandler, requireRole(["VI
 
 // Dashboard Summary (VIEWER+)
 router.get("/api/dashboard/summary", authenticate as RequestHandler, requireRole(["VIEWER", "REVIEWER", "ADMIN"]) as RequestHandler, asyncHandler(getDashboardSummaryController));
+
+import githubWebhookRouter from "./webhooks/github.js";
+
+// Webhooks
+router.use("/api/webhooks", githubWebhookRouter);
 
 // Scan Events Stream
 router.use("/api/scans", scanEventsRouter);

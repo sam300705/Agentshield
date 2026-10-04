@@ -20,6 +20,8 @@ export default [
       "**/coverage/**",
       "**/*.cjs",
       "pnpm-lock.yaml",
+      "packages/**/*.d.ts",
+      "packages/**/*.js"
     ],
   },
   js.configs.recommended,
@@ -29,7 +31,13 @@ export default [
     languageOptions: {
       parserOptions: {
         projectService: {
-          allowDefaultProject: ["apps/web-dashboard/*.config.ts", "scripts/*.ts", "packages/scanner/tests/*.ts", "apps/api/tests/*.ts", "apps/api/vitest.config.ts"],
+          allowDefaultProject: [
+            "apps/web-dashboard/*.config.ts",
+            "scripts/*.ts",
+            "packages/scanner/tests/*.ts",
+            "apps/api/tests/*.ts",
+            "apps/api/vitest.config.ts"
+          ],
         },
         tsconfigRootDir: import.meta.dirname,
       },
@@ -54,7 +62,7 @@ export default [
     },
   },
   {
-    files: ["apps/api/**/*.ts", "packages/**/*.ts", "prisma/**/*.ts"],
+    files: ["apps/api/**/*.ts", "packages/**/*.ts", "prisma/**/*.ts", "apps/cli/**/*.ts"],
     languageOptions: {
       globals: {
         ...globals.node,

@@ -164,6 +164,24 @@ To reset the database and reload the demo scenario, run:
 ./scripts/seed-demo-data.sh
 ```
 
+
+## CLI Execution
+
+You can run AgentShield locally or in CI/CD using the CLI:
+
+```bash
+# Scan a directory
+pnpm -C apps/cli dev scan ../../examples/vulnerable-repo
+
+# Output JSON
+pnpm -C apps/cli dev scan ../../examples/vulnerable-repo --json
+
+# Output SARIF
+pnpm -C apps/cli dev scan ../../examples/vulnerable-repo --sarif > results.sarif
+```
+
+The CLI will return an exit code of `1` if any `BLOCK` decisions are found, preventing a CI/CD build from continuing.
+
 ## Future Scope
 
 - Promote the scanner package into a highly concurrent CLI that can scan large repositories, emit SARIF, and run in CI with deterministic exit codes.
