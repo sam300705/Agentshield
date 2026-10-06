@@ -5,11 +5,11 @@
   "type": "module",
   "scripts": {
     "predev": "pnpm --filter @agentshield/schemas build",
-    "dev": "vite --host 0.0.0.0",
+    "dev": "vite --host 127.0.0.1",
     "prebuild": "pnpm --filter @agentshield/schemas build",
     "build": "tsc -p tsconfig.json && vite build",
     "lint": "eslint .",
-    "preview": "vite preview --host 0.0.0.0",
+    "preview": "vite preview --host 127.0.0.1",
     "test": "vitest run",
     "pretypecheck": "pnpm --filter @agentshield/schemas build",
     "typecheck": "tsc -p tsconfig.json --noEmit"

@@ -74,10 +74,14 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     issues.push("GITHUB_WEBHOOK_ENABLED must be true when GitHub scan lifecycle is enabled");
   }
   if (githubScanLifecycleEnabled && value.GITHUB_SCAN_POLICY_BUNDLE_VERSION == null) {
-    issues.push("GITHUB_SCAN_POLICY_BUNDLE_VERSION is required when GitHub scan lifecycle is enabled");
+    issues.push(
+      "GITHUB_SCAN_POLICY_BUNDLE_VERSION is required when GitHub scan lifecycle is enabled",
+    );
   }
   if (githubMaterializationEnabled && !githubScanLifecycleEnabled) {
-    issues.push("GITHUB_SCAN_LIFECYCLE_ENABLED must be true when GitHub materialization is enabled");
+    issues.push(
+      "GITHUB_SCAN_LIFECYCLE_ENABLED must be true when GitHub materialization is enabled",
+    );
   }
   if (value.AUTH_MODE === "oidc" && !localDemoMode) {
     if (value.OIDC_ISSUER == null) issues.push("OIDC_ISSUER is required for oidc authentication");

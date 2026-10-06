@@ -12,12 +12,15 @@ export default defineConfig({
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     ...devices["Desktop Chrome"],
-    ...(process.env.CI ? {} : { launchOptions: { executablePath: "/usr/bin/chromium" } }),
+    ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
+      ? { launchOptions: { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH } }
+      : {}),
   },
   webServer: {
-    command: "pnpm --filter @agentshield/web-dashboard dev -- --host 127.0.0.1",
+    command: "pnpm --filter @agentshield/web-dashboard dev",
     url: "http://127.0.0.1:5173",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
+    env: { VITE_APP_MODE: "demo", WEB_PORT: "5173" },
   },
 });

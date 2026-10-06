@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./env.js";
 
 import { hostname } from "node:os";
 import { randomUUID } from "node:crypto";
