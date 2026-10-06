@@ -59,13 +59,15 @@ The repository’s local quality gates verify the dashboard build, API build, Pr
 
 For the Git-linked `agentshield` Vercel project, use the following values when the repository is configured as a pnpm monorepo:
 
-| Setting          | Value                |
-| ---------------- | -------------------- |
-| Framework preset | Vite                 |
-| Root directory   | `apps/web-dashboard` |
-| Install command  | `pnpm install`       |
-| Build command    | `pnpm run build`     |
-| Output directory | `dist`               |
+| Setting          | Value                                                                                               |
+| ---------------- | --------------------------------------------------------------------------------------------------- |
+| Framework preset | Vite                                                                                                |
+| Root directory   | `apps/web-dashboard`                                                                                |
+| Install command  | `PATH="$PWD/../../.bin:$PATH" PRISMA_SKIP_POSTINSTALL_GENERATE=true pnpm install --frozen-lockfile` |
+| Build command    | `PATH="$PWD/../../.bin:$PATH" pnpm --filter @agentshield/web-dashboard... build`                    |
+| Output directory | `dist`                                                                                              |
+
+The checked-in Vercel configuration uses the existing `.bin/pnpm` Corepack shim to pin both installation and nested package scripts and builds only the dashboard and its shared dependencies. The application-root configuration publishes `dist`; the equivalent repository-root configuration publishes `apps/web-dashboard/dist`. Prisma client generation is skipped only for this static dashboard install; API/database workflows continue to generate the real client.
 
 The Git connection must point to `sam300705/Agentshield`; these settings cannot work against an uploaded source tree that omits the `apps/web-dashboard` directory. Redeploy after saving the settings so the deployment uses the current Project Settings rather than an older production override.
 
