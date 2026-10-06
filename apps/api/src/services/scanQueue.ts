@@ -59,19 +59,17 @@ export async function enqueueRepositoryScan(
     if (provider !== "GITHUB" && provider !== "LOCAL") {
       throw new Error("Repository provider is not supported.");
     }
-    let githubInstallationNumericId: number | undefined;
     if (provider === "GITHUB") {
       if (repository.githubInstallationId == null) {
         throw new Error("GitHub repository installation mapping is missing.");
       }
       const installation = await tx.gitHubInstallation.findFirst({
         where: { id: repository.githubInstallationId, organizationId },
-        select: { id: true, installationId: true },
+        select: { id: true },
       });
       if (installation == null || installation.id !== repository.githubInstallationId) {
         throw new Error("GitHub repository installation mapping is invalid.");
       }
-      githubInstallationNumericId = installation.installationId;
     }
     const scan = await tx.scan.create({
       data: {
@@ -83,7 +81,7 @@ export async function enqueueRepositoryScan(
         organizationId,
         repositoryId: repository.id,
         metadata: {
-          source: "MANUAL",
+          source: trigger,
           triggeredBy: requester,
           correlationId,
           provider,
@@ -103,7 +101,7 @@ export async function enqueueRepositoryScan(
       ref: request.ref,
       ...(request.commitSha == null ? {} : { commitSha: request.commitSha }),
       policyBundleVersion: request.policyBundleVersion,
-      trigger: "MANUAL" as const,
+      trigger,
       requester,
       correlationId,
       options: request.options,
@@ -117,7 +115,7 @@ export async function enqueueRepositoryScan(
         repositoryRef: request.ref,
         ...(request.commitSha == null ? {} : { commitSha: request.commitSha }),
         policyBundleVersion: request.policyBundleVersion,
-        trigger: "MANUAL",
+        trigger,
         requester,
         correlationId,
         payload,

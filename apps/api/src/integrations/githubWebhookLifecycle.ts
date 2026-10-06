@@ -176,6 +176,7 @@ export async function processGitHubWebhookDelivery(
       organizationId,
       "github:webhook",
       correlationId,
+      webhook.eventName === "push" ? "PUSH" : "PULL_REQUEST",
     );
     await options.deliveryStore.markQueued(organizationId, webhook.deliveryId, job.scanId);
     return { status: "QUEUED", scanQueued: true, scanId: job.scanId, jobId: job.id };

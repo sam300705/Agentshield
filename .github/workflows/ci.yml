@@ -3,7 +3,7 @@ name: AgentShield CI
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, "phase1/**"]
 
 permissions:
   contents: read
@@ -43,9 +43,17 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Verify local Compose workflow
+        env:
+          POSTGRES_PORT: 5433
+        run: |
+          docker compose config --quiet
+          pnpm db:up
+          pnpm db:down
       - run: pnpm db:generate
       - run: pnpm exec prisma validate
       - run: pnpm db:deploy
+      - run: pnpm db:seed
       - run: pnpm format:check
       - run: pnpm lint
       - run: pnpm typecheck

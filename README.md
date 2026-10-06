@@ -81,13 +81,32 @@ See [90-second and 5-minute scripts](./docs/demo-script.md).
 
 ## Quick start
 
-Requirements: Node.js 20+, pnpm 9.15.4, and Docker Compose (or a local PostgreSQL service).
+Requirements: Node.js >=20.11 (CI uses Node 22), pnpm 9.15.4, and Docker with Compose v2 (`--wait` support). Use Node 22 for parity with CI; `.node-version` records this baseline.
 
 ```bash
+corepack enable
+pnpm --version # 9.15.4
 pnpm install --frozen-lockfile
 cp .env.example .env
-./scripts/run-local.sh
+pnpm db:up
+pnpm db:generate
+pnpm exec prisma validate
+pnpm db:deploy
+pnpm db:seed # optional deterministic data; clears existing local scan data
+pnpm dev
 ```
+
+The template uses local-only PostgreSQL credentials matching Compose. Change both the database variables and connection URLs together if customizing them. `DATABASE_URL` serves runtime traffic; `DATABASE_URL_UNPOOLED` serves migrations (the same local URL by default). Managed databases require their own URLs and TLS settings.
+
+The root `.env` is loaded by the API, worker, Prisma tooling, and Vite. Process environment values take precedence. `VITE_*` values are public browser configuration and must contain no secrets.
+
+`pnpm dev` starts the API and Vite as separate processes. Use `pnpm dev:api` or `pnpm dev:web` individually, and `pnpm dev:worker` for queued scans. `./scripts/run-local.sh` installs the frozen dependencies, starts PostgreSQL, deploys migrations, and starts all three processes; it does not reset or seed existing data. `pnpm db:down` stops Compose while preserving its volume.
+
+For schema development use `pnpm db:migrate`; deploy committed migrations with `pnpm db:deploy`. `pnpm db:push` is for disposable experiments and does not create migrations. `pnpm db:generate` regenerates the real Prisma client.
+
+Run `pnpm format:check`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm build` before proposing changes. PostgreSQL-backed checks are `pnpm test:integration`, `pnpm test:gateway`, and `pnpm test:github-lifecycle`; documentation and browser checks are `pnpm test:docs` and `pnpm test:e2e`. Install the browser first with `pnpm exec playwright install chromium` (Linux may also need `--with-deps`).
+
+Demo authentication requires explicit non-production configuration. Production rejects demo authentication and requires OIDC issuer, audience, JWKS, a database URL, and an exact CORS origin. The default dashboard is a labelled deterministic demo; select `VITE_APP_MODE=live` only when the API and identity configuration are available.
 
 Services:
 

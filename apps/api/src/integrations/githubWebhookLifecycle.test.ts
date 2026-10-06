@@ -110,6 +110,7 @@ describe("processGitHubWebhookDelivery", () => {
       "org-test",
       "github:webhook",
       "corr-test",
+      "PUSH",
     );
     expect(store.calls.map(({ method }) => method)).toEqual(["markResolved", "markQueued"]);
   });
@@ -141,6 +142,7 @@ describe("processGitHubWebhookDelivery", () => {
       "org-test",
       "github:webhook",
       "corr-pr",
+      "PULL_REQUEST",
     );
   });
 

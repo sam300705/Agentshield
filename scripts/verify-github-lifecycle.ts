@@ -124,6 +124,14 @@ async function main(): Promise<void> {
     assert(queued.status === "QUEUED" && queued.scanQueued, "mapped push was not queued");
     const job = await prisma.scanJob.findUniqueOrThrow({ where: { id: queued.jobId } });
     assert(job.status === ScanStatus.QUEUED, "queued job has incorrect status");
+    assert(job.trigger === "PUSH", "webhook trigger was not persisted");
+    assert(
+      typeof job.payload === "object" &&
+        job.payload !== null &&
+        !Array.isArray(job.payload) &&
+        job.payload.trigger === "PUSH",
+      "webhook job payload lost its trigger",
+    );
     assert(job.repositoryRef === "refs/heads/main", "webhook ref was not persisted");
     assert(job.commitSha === commitSha, "exact webhook commit was not persisted");
     assert(job.correlationId === `corr-${suffix}-1`, "webhook correlation was not persisted");
