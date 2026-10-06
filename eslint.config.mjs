@@ -31,7 +31,7 @@ export default [
     languageOptions: {
       parserOptions: {
         projectService: {
-          allowDefaultProject: ["apps/web-dashboard/*.config.ts", "scripts/*.ts"],
+          allowDefaultProject: ["apps/web-dashboard/*.config.ts"],
         },
         tsconfigRootDir: import.meta.dirname,
       },

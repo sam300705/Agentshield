@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 interface CapabilityManifest {
   schemaVersion: number;
@@ -8,7 +9,7 @@ interface CapabilityManifest {
   limitations: string[];
 }
 
-const root = resolve(import.meta.dirname, "..");
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 async function read(relativePath: string): Promise<string> {
   return readFile(resolve(root, relativePath), "utf8");
