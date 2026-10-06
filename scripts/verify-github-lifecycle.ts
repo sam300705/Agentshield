@@ -287,6 +287,7 @@ async function main(): Promise<void> {
     );
   } finally {
     if (organizationCreated) {
+      await prisma.gitHubWebhookDelivery.deleteMany({ where: { organizationId } });
       await prisma.scanJob.deleteMany({ where: { scan: { organizationId } } });
       await prisma.scan.deleteMany({ where: { organizationId } });
       await prisma.repository.deleteMany({ where: { organizationId } });
