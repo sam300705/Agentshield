@@ -60,6 +60,24 @@ jobs:
       - run: pnpm test
       - run: pnpm test:docs
       - run: pnpm build
+      - name: Verify local API dashboard and worker startup
+        run: |
+          cp .env.example .env
+          setsid pnpm dev > dev-startup.log 2>&1 &
+          startup_pid=$!
+          trap 'kill -- -"$startup_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for attempt in $(seq 1 45); do
+            if curl --fail --silent http://127.0.0.1:3001/health/ready >/dev/null && \
+               curl --fail --silent http://127.0.0.1:5173/ >/dev/null; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" -eq 1
+          curl --fail --silent http://127.0.0.1:3001/api/v1/demo/control-plane >/dev/null
+          WORKER_MODE=once pnpm --filter @agentshield/api worker
       - run: pnpm test:integration
       - run: pnpm test:gateway
       - run: pnpm test:github-lifecycle
