@@ -1,6 +1,6 @@
 # Phase 1 Round 2 remediation — 2026-10-07
 
-Status: implementation complete; new-head CI and independent security acceptance pending.
+Status: implementation and applicable verification **PASS**; independent security acceptance pending.
 
 Scope: the 16 current PR #9 findings, on `phase1/consolidate-stabilize` at starting head `88dd86406447165da53fbd989a5efcbef245a0ee`. This round retains all 21 Round 1 corrections and their regressions. PR #9 remains open and unmerged, based on main. No downstream PR, main branch, or deployment is changed. This is not a production-readiness claim.
 
@@ -44,8 +44,14 @@ Local environment: Node 24.19.0, pinned pnpm 9.15.4; CI baseline is Node 22 and 
 | Compose and production container build                        | BLOCKED locally — Docker unavailable; required in new-head CI                                                        |
 | Live GitHub/OIDC/OSV/signing/shared-store activation          | NOT RUN — outside this remediation                                                                                   |
 
+Remediation commit: `857406c7c55d68a7397029019934cd7d8f092da8`. Local and published file trees match exactly: `83df27d6b62f10acea1a1053cbe70e3b7b1f0cd4`. Publication was a normal expected-head fast-forward from the recorded starting SHA.
+
+Actual new-commit CI: [run 37638968446](https://github.com/sam300705/Agentshield/actions/runs/37638968446), completed successfully on Node 22 with PostgreSQL 16. Every workflow step passed, including clean install, Compose, production container build, fresh migrate/seed, formatting/lint/types, all unit tests, build, API/dashboard/worker startup, deterministic integration, new Round 2 PostgreSQL checks, gateway, webhook lifecycle, browser E2E, and fixture/source SARIF gates. Local database/container limits above remain separate from this actual CI evidence.
+
+This documentation follow-up records the remediation run; final head and its check results are recorded in the PR handoff.
+
 The workflow now executes `pnpm test:phase1-round2` against its actual PostgreSQL service in addition to all existing gates. Its disposable upgrade schema exercises the exact forward SQL against a populated old unique index; application checks exercise the real persistence helper and queue cancellation primitive. No mock database result is reported as PostgreSQL evidence.
 
 ## Handoff
 
-Do not begin Phase 2 until the new-head CI evidence and independent Phase 1 review are recorded. A passing CI run does not resolve security review threads automatically. No merge, force push, rebase, retarget, live-provider activation, or deployment is included.
+The code commit has green new-head CI. Independent Phase 1 review remains required before Phase 2 begins. A passing CI run does not resolve security review threads automatically. No merge, force push, rebase, retarget, live-provider activation, or deployment is included.
