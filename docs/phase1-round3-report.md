@@ -1,6 +1,6 @@
 # Phase 1 Round 3 remediation — 2026-10-08
 
-Overall status: **PARTIAL** — corrections implemented; final verification and independent review pending.
+Overall status: **PASS** for implementation and applicable verification; independent security acceptance pending.
 
 Scope: seven new findings on PR #9 at `5519054883438af71445c07003c819e8a0ad36fe`. Preserve all 21 Round 1 and 16 Round 2 corrections, tests, and migrations. Work remains on `phase1/consolidate-stabilize`, based on main; no changes to PR #10, #11, #12, main, or deployments. Phase 2 stays paused until independent acceptance.
 
@@ -33,7 +33,7 @@ Local environment: Node 24.19.0 with pinned pnpm 9.15.4; CI baseline Node 22 / P
 | pnpm install --frozen-lockfile                                       | PASS                                                                |
 | pnpm db:generate; pnpm exec prisma validate                          | PASS                                                                |
 | pnpm format:check; pnpm lint; pnpm typecheck                         | PASS                                                                |
-| pnpm test                                                            | PASS — 206 tests, including earlier regressions                     |
+| pnpm test                                                            | PASS — 207 tests, including earlier regressions                     |
 | pnpm build; pnpm test:docs                                           | PASS                                                                |
 | pnpm test:integration                                                | PASS — 15 findings / 6 dependency records                           |
 | Fixture scanner / validate-sarif                                     | PASS — expected exit 3                                              |
@@ -46,4 +46,8 @@ Local environment: Node 24.19.0 with pinned pnpm 9.15.4; CI baseline Node 22 / P
 
 The workflow adds the actual populated-upgrade check and retains all prior gates. CI evidence is required and reported separately from local infrastructure limits.
 
-New-head CI, publication/tree evidence, exact test counts, and final review status will be recorded in the PR handoff. Implementation and CI success must not be described as independent security acceptance. Stop before Phase 2; no merge, force push, rebase, retargeting, provisioning, or deployment.
+Remediation commit: `b23c1d1e6ec8da62b49aa3a20e34c159973b2de4`. Published and locally tested trees match: `66c08a27310aab494e266bbffb5ce8d5326277b6`. Publication was a normal expected-head fast-forward from the recorded starting commit.
+
+Actual remediation CI [37686718211](https://github.com/sam300705/Agentshield/actions/runs/37686718211) completed successfully on Node 22 / PostgreSQL 16. Every workflow gate passed: fresh install/migrations/seed, Compose/container build, lint/types/tests/build, startup, populated legacy baseline plus incremental upgrade, Round 2 database suite, actor/evidence gateway regressions, webhook lifecycle, all 6 browser tests, and fixture/source SARIF validation. The populated upgrade retained its scan data and refused unknown drift.
+
+The follow-up fixes canonical action ordering to code-point order independent of host locale, adds its regression (207 local tests total), and explicitly verifies the preserved row exists and migration history is read in the isolated upgrade schema. The initial remediation run had 206 unit tests. Final follow-up head/tree and its complete CI result are recorded in the PR handoff; the preceding run is not claimed as a test of this follow-up. Implementation and CI success must not be described as independent security acceptance. Stop before Phase 2; no merge, force push, rebase, retargeting, provisioning, or deployment.

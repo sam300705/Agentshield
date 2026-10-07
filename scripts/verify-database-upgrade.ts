@@ -29,7 +29,10 @@ try {
     },
     { timeout: 60000 },
   );
-  const before = await legacy.$queryRaw`SELECT * FROM "Scan" WHERE "id"='preserved-scan'`;
+  const before = await legacy.$queryRawUnsafe<Array<Record<string, unknown>>>(
+    `SELECT * FROM "${schema}"."Scan" WHERE "id"='preserved-scan'`,
+  );
+  assert.equal(before.length, 1, "populated legacy row is required");
   assert.deepEqual(await identifyLegacyBaseline(legacy, schema), [names[0]]);
   await run(process.execPath, ["--import", "tsx", "scripts/baseline-database.ts", "--apply"], {
     env,
@@ -40,12 +43,12 @@ try {
     maxBuffer: 1024 * 1024,
   });
   assert.deepEqual(
-    await legacy.$queryRaw`SELECT * FROM "Scan" WHERE "id"='preserved-scan'`,
+    await legacy.$queryRawUnsafe(`SELECT * FROM "${schema}"."Scan" WHERE "id"='preserved-scan'`),
     before,
   );
-  const applied = await legacy.$queryRaw<
-    Array<{ migration_name: string }>
-  >`SELECT migration_name FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL ORDER BY migration_name`;
+  const applied = await legacy.$queryRawUnsafe<Array<{ migration_name: string }>>(
+    `SELECT migration_name FROM "${schema}"."_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL ORDER BY migration_name`,
+  );
   assert.deepEqual(
     applied.map((row) => row.migration_name),
     names,
