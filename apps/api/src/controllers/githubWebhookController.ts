@@ -92,6 +92,10 @@ export async function githubWebhookController(request: Request, response: Respon
 
   try {
     const result = await prisma.$transaction(async (tx) => {
+      if (webhook.eventName === "installation" || webhook.eventName === "installation_repositories")
+        await tx.$queryRaw`SELECT "id" FROM "GitHubInstallation" WHERE "installationId" = ${webhook.installationId} AND "organizationId" = ${installation.organizationId} FOR UPDATE`;
+      else
+        await tx.$queryRaw`SELECT "id" FROM "GitHubInstallation" WHERE "installationId" = ${webhook.installationId} AND "organizationId" = ${installation.organizationId} FOR SHARE`;
       const store = new PrismaGitHubDeliveryStore(tx);
       const claimed = await store.claim({
         organizationId: installation.organizationId,
@@ -119,6 +123,16 @@ export async function githubWebhookController(request: Request, response: Respon
         getCorrelationId(response),
         {
           client: tx,
+          updateRepositoryMetadata: async (id, fullName) => {
+            await tx.repository.updateMany({
+              where: {
+                id,
+                organizationId: installation.organizationId,
+                githubInstallation: { installationId: webhook.installationId },
+              },
+              data: { fullName },
+            });
+          },
           deliveryStore: store,
           scanLifecycleEnabled: config.githubScanLifecycleEnabled,
           ...(config.GITHUB_SCAN_POLICY_BUNDLE_VERSION == null

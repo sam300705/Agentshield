@@ -89,6 +89,25 @@ export async function enqueueRepositoryScan(
         );
       }
       if (provider === "GITHUB") {
+        // Installation then repository is the lifecycle lock order. Recheck under the locks.
+        if (repository.githubInstallationId != null) {
+          await tx.$queryRaw`SELECT "id" FROM "GitHubInstallation" WHERE "id" = ${repository.githubInstallationId} AND "organizationId" = ${organizationId} FOR SHARE`;
+          await tx.$queryRaw`SELECT "id" FROM "Repository" WHERE "id" = ${repository.id} AND "organizationId" = ${organizationId} FOR SHARE`;
+          const current = await tx.repository.findFirst({
+            where: { id: repository.id, organizationId },
+            select: { githubAccessible: true, githubInstallationId: true },
+          });
+          if (
+            current == null ||
+            !current.githubAccessible ||
+            current.githubInstallationId !== repository.githubInstallationId
+          )
+            throw new ServiceError(
+              409,
+              "GITHUB_REPOSITORY_UNAVAILABLE",
+              "Repository access is unavailable.",
+            );
+        }
         if (
           !repository.githubAccessible ||
           request.commitSha == null ||

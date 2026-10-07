@@ -19,6 +19,7 @@ import { createTar } from "./githubArchiveFixture.js";
 const suffix = randomUUID(),
   org = `github-e2e-${suffix}`,
   other = `github-foreign-${suffix}`;
+const failureTrigger = `github_accept_${suffix.replaceAll("-", "")}`;
 const installationId = 100_000 + Math.floor(Math.random() * 1_000_000);
 const shaA = "a".repeat(40),
   shaB = "b".repeat(40);
@@ -265,6 +266,31 @@ async function main() {
   pass(
     "HTTP signature, missing delivery, malformed/oversize, unsupported event, unknown installation/repository, irrelevant PR and deleted/tag push boundaries",
   );
+  const failedDelivery = randomUUID();
+  await prisma.$executeRawUnsafe(
+    `CREATE FUNCTION "${failureTrigger}"() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW."organizationId" = '${org}' AND NEW."action" = 'GITHUB_DELIVERY_ACCEPTED' THEN RAISE EXCEPTION 'Synthetic GitHub acceptance audit failure'; END IF; RETURN NEW; END $$`,
+  );
+  await prisma.$executeRawUnsafe(
+    `CREATE TRIGGER "${failureTrigger}" BEFORE INSERT ON "AuditEvent" FOR EACH ROW EXECUTE FUNCTION "${failureTrigger}"()`,
+  );
+  assert.equal((await webhook("pull_request", payload(), failedDelivery)).status, 503);
+  assert.equal(
+    await prisma.gitHubWebhookDelivery.count({
+      where: { organizationId: org, deliveryId: failedDelivery },
+    }),
+    0,
+  );
+  assert.equal(await prisma.scan.count({ where: { organizationId: org } }), 0);
+  await prisma.$executeRawUnsafe(`DROP TRIGGER "${failureTrigger}" ON "AuditEvent"`);
+  await prisma.$executeRawUnsafe(`DROP FUNCTION "${failureTrigger}"()`);
+  const recoveredDelivery = await webhook("pull_request", payload(), failedDelivery);
+  assert.equal(recoveredDelivery.body.status, "queued");
+  const recoveredJob = await prisma.scanJob.findUniqueOrThrow({
+    where: { scanId: recoveredDelivery.body.scanId as string },
+  });
+  await requestJobCancellation(recoveredJob.id, org, "synthetic");
+  await publishGitHubChecks(prisma, github, recoveredJob.scanId);
+  pass("acceptance audit failure rolls back delivery/scan/job; redelivery safely succeeds");
   const delivery = randomUUID();
   const concurrent = await Promise.all(
     Array.from({ length: 6 }, () => webhook("pull_request", payload(), delivery)),
@@ -276,7 +302,10 @@ async function main() {
   const job = await prisma.scanJob.findUniqueOrThrow({ where: { scanId } });
   assert.equal(job.commitSha, shaA);
   assert.equal((job.payload as Record<string, unknown>).integrationId, String(installationId));
-  assert.equal(await prisma.scan.count({ where: { organizationId: org } }), 1);
+  assert.equal(
+    await prisma.scan.count({ where: { organizationId: org, status: { not: "CANCELLED" } } }),
+    1,
+  );
   assert.equal(
     (await prisma.scan.findUniqueOrThrow({ where: { id: scanId } })).organizationId,
     org,
@@ -320,10 +349,10 @@ async function main() {
   });
   await publishGitHubChecks(prisma, github, scanId);
   assert.equal(checkRequests.at(-1)!.conclusion, "success");
-  assert.equal(createCount, 1);
+  assert.equal(createCount, 2);
   assert.equal(archiveRequests.length, 1);
   await publishGitHubChecks(prisma, github, scanId);
-  assert.equal(createCount, 1);
+  assert.equal(createCount, 2);
   assert.equal(
     (
       await prisma.gitHubWebhookDelivery.findUniqueOrThrow({
@@ -335,6 +364,19 @@ async function main() {
   pass(
     "real worker/scanner/policy/receipt, exact acquisition SHA A after branch B, queued/in-progress/success Check and independent temporary publication retry",
   );
+  const renamed = await webhook(
+    "pull_request",
+    payload({ repository: { id: 123, full_name: "synthetic/renamed-repo" } }),
+  );
+  assert.equal(
+    (await prisma.repository.findUniqueOrThrow({ where: { id: repository.id } })).fullName,
+    "synthetic/renamed-repo",
+  );
+  const renameJob = await prisma.scanJob.findUniqueOrThrow({
+    where: { scanId: renamed.body.scanId as string },
+  });
+  await requestJobCancellation(renameJob.id, org, "synthetic");
+  await publishGitHubChecks(prisma, github, renameJob.scanId);
   await webhook("installation_repositories", {
     installation: { id: installationId },
     action: "added",
@@ -352,6 +394,11 @@ async function main() {
   assert.equal(checkRequests.at(-1)!.conclusion, "failure");
   assert((await prisma.finding.count({ where: { scanId: blockedScan } })) > 0);
   assert(!JSON.stringify(checkRequests).includes(rawFinding));
+  assert(
+    !JSON.stringify(await prisma.finding.findMany({ where: { scanId: blockedScan } })).includes(
+      rawFinding,
+    ),
+  );
   const cancelled = await webhook("pull_request", payload());
   const cancelledScan = cancelled.body.scanId as string;
   const cancelJob = await prisma.scanJob.findUniqueOrThrow({ where: { scanId: cancelledScan } });
@@ -423,6 +470,19 @@ async function main() {
     "DELETED",
   );
   assert.equal((await webhook("pull_request", payload())).body.status, "ignored");
+  await prisma.gitHubCheckPublication.update({
+    where: { scanId },
+    data: { status: "PENDING", publishedState: null, nextAttemptAt: new Date() },
+  });
+  await publishGitHubChecks(prisma, github, scanId);
+  assert.equal(
+    (await prisma.gitHubCheckPublication.findUniqueOrThrow({ where: { scanId } })).status,
+    "STOPPED",
+  );
+  assert.equal(
+    (await prisma.scan.findUniqueOrThrow({ where: { id: scanId } })).status,
+    "COMPLETED",
+  );
   assert(
     (await prisma.auditEvent.count({
       where: { organizationId: org, action: "GITHUB_CHECK_PUBLISHED" },
@@ -450,6 +510,8 @@ main()
     process.exitCode = 1;
   })
   .finally(async () => {
+    await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS "${failureTrigger}" ON "AuditEvent"`);
+    await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS "${failureTrigger}"()`);
     await close(api);
     await close(provider);
     await prisma.gitHubWebhookDelivery.deleteMany({ where: { organizationId: org } });

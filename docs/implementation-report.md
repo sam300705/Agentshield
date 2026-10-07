@@ -185,3 +185,42 @@ Base: `phase1/consolidate-stabilize@2a993b9a0bd8299d178ce2fc1c86803cef09acc4`. W
 Architecture, role matrix, migration constraints, state transitions and evidence boundaries are documented in `architecture.md`. The new `test:backend-security` gate executes real database races and rollback; all previous gates are retained. The real database suite passed all 15 security groups, including actual audit-write rollback and resumed stale-worker fencing. Blank optional receipt-signing settings were repaired after the suite exposed the invalid-key path. Existing GitHub lifecycle behavior remains unchanged; its synthetic cleanup now removes the newly created tenant audit records before deleting that test tenant. Final command outcomes and run links are recorded in the PR after CI completes. Database-dependent local commands require Docker/PostgreSQL unavailable in this sandbox; release verification uses the workflow's fresh PostgreSQL 16 service.
 
 Deferred: real provider/OIDC provisioning, broad GitHub lifecycle expansion, new scanner categories, automated patches, cloud/Redis/KMS/telemetry, UI redesign and LLM behavior. This phase does not claim production deployment readiness.
+
+## Phase 3: GitHub App events, pinned scans and durable Checks
+
+Phase 3 starts from `phase2/backend-core-security@f22615be02296912d30d66536b7b3cd0468c714b`
+and is proposed in [PR #11](https://github.com/sam300705/Agentshield/pull/11) against Phase 2.
+PRs #9/#10 were open and unmerged when the base was selected. No earlier PR or main branch
+was merged or rewritten by this work.
+
+The existing adapters, durable queue, lease fencing, temporary workspace provider, scanner,
+policy evaluator, evidence/receipt persistence and SARIF pipeline are retained. The worker now
+uses real App installation authentication and commit-pinned materialization. Installation and
+selected-repository events preserve history while updating access. Acceptance and enqueue share
+a transaction; installation-before-repository locks serialize admission with access changes.
+Mutable repository names update by immutable numeric identity. Check publication has its own
+persisted ID/status/retry scheduling and a per-scan advisory lock plus stable job-state lock.
+Provider retries do not rerun completed scans; stale executors must prove lease ownership before
+requesting publication. GitHub's remote create visibility/crash window is explicitly documented.
+
+The deterministic provider integration test exercises real signed HTTP ingestion, PostgreSQL,
+concurrent dedupe, acceptance/audit rollback and redelivery, selected access/lifecycle, personal
+account mapping, tenant override rejection, PR SHA A after branch B, real tar extraction and
+scanner/policy/receipt, queued/in-progress/success/block/cancel, uncertain create reconciliation,
+publication outage/retry, stale lease rejection, rename identity and post-scan revocation. Twelve
+JWT/transport tests and three additional archive path/depth tests supplement all 108 baseline
+unit tests. All 15 Phase 2 PostgreSQL security groups and six browser tests remain required.
+Normal CI runs `pnpm test:github-e2e` alongside every existing verification and scanner/SARIF gate.
+
+Live verification remains **BLOCKED BY OWNER/EXTERNAL CONFIG**. Only credential-presence booleans
+were inspected: App ID, App private key and webhook secret are absent. This environment has no
+controlled test installation or approved public webhook ingress. Synthetic tests are not live
+provider evidence. [The dedicated setup and security review](./github-app.md) lists exact minimal
+permissions/events, limits, authentication, lineage, failure modes, operator registration,
+publication retry and a provider-backed live verification command. No credentials should be
+pasted into chat. The implementation is not described as production-ready.
+
+Phase 4 cloud/infrastructure/production secrets/OIDC/telemetry/scaling and Phase 5 UI/AI/onboarding,
+other SCMs/compliance/new scanner expansion remain deferred. Check annotations and legitimate
+symlink preservation are explicitly deferred; the current implementation publishes safe summaries
+and rejects all archive links.

@@ -81,6 +81,11 @@ export async function synchronizeGitHubRepositories(
   }
 
   await client.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "GitHubInstallation" WHERE "id" = ${installation.id} FOR UPDATE`;
+    const active = await tx.gitHubInstallation.findFirst({
+      where: { id: installation.id, organizationId: registration.organizationId, status: "ACTIVE" },
+    });
+    if (active == null) throw new Error("GITHUB_INSTALLATION_UNAVAILABLE");
     await tx.repository.updateMany({
       where: { organizationId: registration.organizationId, githubInstallationId: installation.id },
       data: { githubAccessible: false },
@@ -126,8 +131,12 @@ export async function applyGitHubInstallationEvent(
   webhook: VerifiedGitHubWebhook,
   correlationId: string,
 ): Promise<void> {
-  const installation = await tx.gitHubInstallation.findFirstOrThrow({
+  let installation = await tx.gitHubInstallation.findFirstOrThrow({
     where: { organizationId, installationId: webhook.installationId },
+  });
+  await tx.$queryRaw`SELECT "id" FROM "GitHubInstallation" WHERE "id" = ${installation.id} FOR UPDATE`;
+  installation = await tx.gitHubInstallation.findFirstOrThrow({
+    where: { id: installation.id, organizationId },
   });
   const statuses: Record<string, string> = {
     created: "ACTIVE",

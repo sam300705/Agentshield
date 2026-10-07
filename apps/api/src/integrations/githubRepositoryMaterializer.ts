@@ -51,7 +51,10 @@ export interface GitHubRepositoryMaterializerOptions {
 
 function splitRepositoryName(fullName: string): { owner: string; repository: string } {
   const parts = fullName.split("/");
-  if (parts.length !== 2 || parts.some((part) => !/^[A-Za-z0-9_.-]{1,100}$/.test(part))) {
+  if (
+    parts.length !== 2 ||
+    parts.some((part) => part === "." || part === ".." || !/^[A-Za-z0-9_.-]{1,100}$/.test(part))
+  ) {
     throw new Error("GITHUB_REPOSITORY_IDENTITY_INVALID");
   }
   return { owner: parts[0]!, repository: parts[1]! };

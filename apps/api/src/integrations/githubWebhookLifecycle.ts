@@ -45,6 +45,7 @@ export interface GitHubWebhookLifecycleOptions {
   scanLifecycleEnabled: boolean;
   policyBundleVersion?: string;
   enqueueScan?: typeof enqueueRepositoryScan;
+  updateRepositoryMetadata?: (repositoryId: string, fullName: string) => Promise<void>;
 }
 
 export type GitHubWebhookLifecycleResult =
@@ -115,7 +116,10 @@ export async function processGitHubWebhookDelivery(
     return { status: "IGNORED", reason: "UNSUPPORTED_EVENT", scanQueued: false };
   }
 
-  if (webhook.repositoryFullName == null) {
+  if (
+    webhook.repositoryFullName == null ||
+    !/^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/.test(webhook.repositoryFullName)
+  ) {
     await options.deliveryStore.markIgnored(
       organizationId,
       webhook.deliveryId,
@@ -175,6 +179,9 @@ export async function processGitHubWebhookDelivery(
     );
     return { status: "IGNORED", reason: "UNKNOWN_REPOSITORY", scanQueued: false };
   }
+
+  if (repository.fullName !== webhook.repositoryFullName)
+    await options.updateRepositoryMetadata?.(repository.id, webhook.repositoryFullName);
 
   const commitContext = readCommitContext(webhook);
   if (commitContext == null) {

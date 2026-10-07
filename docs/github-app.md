@@ -62,7 +62,8 @@ Numeric GitHub repository IDs are stable identity. Names are mutable provider me
 A selected-repository event updates names by ID, removes access without deleting history, and
 never grants access through a body tenant override. Suspended/deleted installations cannot enqueue,
 materialize, or publish. Deletion retains audit, deliveries, repository rows, and completed results.
-The operator synchronizer can refresh selected repositories after a rename. Account-login fields
+Supported signed PR/push events update mutable names by the already authorized numeric ID.
+The operator synchronizer can also refresh selected repositories after a rename. Account-login fields
 are informational; personal-account installations do not require an `organization` webhook field.
 
 Only PR `opened`, `synchronize`, `reopened`, and `ready_for_review` actions scan. The accepted
@@ -70,6 +71,7 @@ Only PR `opened`, `synchronize`, `reopened`, and `ready_for_review` actions scan
 and tags are ignored. Fork PR commits that are not accessible through the authorized base repository
 fail safely; the adapter never switches to an untrusted fork URL or different installation.
 
+Installation-before-repository row locks serialize admission with access revocation.
 Delivery, installation/repository changes, scan/job/publication creation, and acceptance audit use
 one Prisma transaction. `(organizationId, deliveryId)` is durable uniqueness, with `createMany`
 `skipDuplicates` for concurrent delivery. Queue keys also include the tenant and delivery. A
