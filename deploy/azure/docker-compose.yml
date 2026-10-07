@@ -3,7 +3,7 @@ services:
     build:
       context: ../..
       dockerfile: Dockerfile
-    command: sh -c "pnpm db:deploy && node apps/api/dist/index.js"
+    command: ["node", "apps/api/dist/index.js"]
     env_file:
       - ./azure.env
     environment:

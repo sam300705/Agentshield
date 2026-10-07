@@ -1,3 +1,4 @@
+import { createPrivateKey } from "node:crypto";
 import { z } from "zod";
 import { validateGitHubPrivateKey } from "./integrations/githubApiClient.js";
 
@@ -23,6 +24,12 @@ const baseSchema = z.object({
   OIDC_AUDIENCE: optionalString,
   OIDC_JWKS_URL: optionalUrl,
   OIDC_ROLE_CLAIM: z.string().min(1).default("roles"),
+  REDIS_REST_URL: optionalUrl,
+  REDIS_REST_TOKEN: optionalString,
+  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(2).default(0),
+  RECEIPT_SIGNING_REQUIRED: booleanFromEnv,
+  RECEIPT_SIGNING_KEY_ID: optionalString,
+  RECEIPT_SIGNING_PRIVATE_KEY: optionalString,
   RATE_LIMIT_ENABLED: booleanFromEnv.optional(),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().max(100_000).default(120),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().max(86_400_000).default(60_000),
@@ -63,6 +70,54 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
   }
   if (isProduction && demoEnabled) {
     issues.push("DEMO_AUTH_ENABLED must be false or unset in production");
+  }
+  if (isProduction) {
+    if (value.DATABASE_URL != null) {
+      const database = new URL(value.DATABASE_URL);
+      if (!["postgres:", "postgresql:"].includes(database.protocol))
+        issues.push("DATABASE_URL must be PostgreSQL");
+      if (!["require", "verify-full"].includes(database.searchParams.get("sslmode") ?? ""))
+        issues.push("DATABASE_URL requires sslmode=require or verify-full in production");
+    }
+    if (value.RATE_LIMIT_ENABLED === false)
+      issues.push("RATE_LIMIT_ENABLED cannot be false in production");
+    if (value.REDIS_REST_URL == null || value.REDIS_REST_TOKEN == null)
+      issues.push("REDIS_REST_URL and REDIS_REST_TOKEN are required in production");
+    for (const field of [
+      "CORS_ORIGIN",
+      "OIDC_ISSUER",
+      "OIDC_JWKS_URL",
+      "REDIS_REST_URL",
+    ] as const) {
+      const url = value[field];
+      if (url != null && new URL(url).protocol !== "https:")
+        issues.push(`${field} must use HTTPS in production`);
+    }
+    if (
+      value.RECEIPT_SIGNING_REQUIRED !== false &&
+      (value.RECEIPT_SIGNING_KEY_ID == null || value.RECEIPT_SIGNING_PRIVATE_KEY == null)
+    )
+      issues.push(
+        "Receipt signing keys are required unless RECEIPT_SIGNING_REQUIRED=false is explicit",
+      );
+  }
+  if ((value.RECEIPT_SIGNING_KEY_ID == null) !== (value.RECEIPT_SIGNING_PRIVATE_KEY == null))
+    issues.push("Receipt signing requires both private key and key ID");
+  if (
+    value.RECEIPT_SIGNING_KEY_ID != null &&
+    !/^[A-Za-z0-9._:-]{1,128}$/.test(value.RECEIPT_SIGNING_KEY_ID)
+  )
+    issues.push("RECEIPT_SIGNING_KEY_ID is invalid");
+  if (value.RECEIPT_SIGNING_PRIVATE_KEY != null) {
+    try {
+      if (
+        createPrivateKey(value.RECEIPT_SIGNING_PRIVATE_KEY.replaceAll("\\n", "\n"))
+          .asymmetricKeyType !== "ed25519"
+      )
+        issues.push("RECEIPT_SIGNING_PRIVATE_KEY must be Ed25519");
+    } catch {
+      issues.push("RECEIPT_SIGNING_PRIVATE_KEY is invalid");
+    }
   }
   const localDemoMode = !isProduction && demoEnabled;
   const githubWebhookEnabled = value.GITHUB_WEBHOOK_ENABLED === true;

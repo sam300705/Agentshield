@@ -3,7 +3,7 @@ name: AgentShield CI
 on:
   pull_request:
   push:
-    branches: [main, "phase1/**", "phase2/**", "phase3/**"]
+    branches: [main, "phase1/**", "phase2/**", "phase3/**", "phase4/**"]
 
 permissions:
   contents: read
@@ -119,3 +119,13 @@ jobs:
         if: always() && hashFiles('agentshield-source.sarif') != ''
         with:
           sarif_file: agentshield-source.sarif
+
+  production-container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and run production API and worker images
+        run: bash scripts/verify-production-container.sh

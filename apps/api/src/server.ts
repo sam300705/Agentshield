@@ -14,8 +14,14 @@ import { sanitizeText } from "@agentshield/schemas";
 import { ServiceError } from "./security/serviceError.js";
 
 import { getRuntimeConfig } from "./config.js";
+import { readinessController } from "./controllers/systemController.js";
+import { observeRequest } from "./observability.js";
 import { router } from "./routes/index.js";
-import { createRateLimiter } from "./security/rateLimit.js";
+import {
+  createDistributedRateLimiter,
+  InMemoryRateLimitStore,
+} from "./security/distributedRateLimit.js";
+import { RedisRestRateLimitStore } from "./security/redisRest.js";
 import { getCorrelationId, requestContext } from "./security/auth.js";
 
 const DEFAULT_PORT = 3001;
@@ -24,6 +30,7 @@ export function createServer(): Express {
   const config = getRuntimeConfig();
   const app = express();
 
+  app.set("trust proxy", config.TRUST_PROXY_HOPS);
   app.disable("x-powered-by");
   app.use(helmet());
   app.use(
@@ -31,9 +38,18 @@ export function createServer(): Express {
       origin: config.corsOrigin,
     }),
   );
+  app.get("/health/live", (_request, response) => response.json({ status: "alive" }));
+  app.get("/health/ready", (request, response, next) => {
+    void readinessController(request, response).catch(next);
+  });
+  app.use(observeRequest);
   app.use(requestContext);
   app.use(
-    createRateLimiter({
+    createDistributedRateLimiter({
+      store:
+        config.REDIS_REST_URL != null && config.REDIS_REST_TOKEN != null
+          ? new RedisRestRateLimitStore(config.REDIS_REST_URL, config.REDIS_REST_TOKEN)
+          : new InMemoryRateLimitStore(),
       enabled: config.rateLimitEnabled,
       max: config.RATE_LIMIT_MAX,
       windowMs: config.RATE_LIMIT_WINDOW_MS,

@@ -8,11 +8,11 @@ services:
     name: agentshield-api
     runtime: node
     repo: https://github.com/sam300705/Agentshield
-    branch: agent/production-hardening
+    branch: main
     rootDir: .
     plan: starter
-    autoDeployTrigger: checksPass
-    buildCommand: pnpm install --frozen-lockfile && pnpm --filter @agentshield/api build
+    autoDeployTrigger: off
+    buildCommand: pnpm install --frozen-lockfile && pnpm db:generate && pnpm --filter @agentshield/api build
     preDeployCommand: pnpm db:deploy
     startCommand: pnpm --filter @agentshield/api start
     healthCheckPath: /health/ready
@@ -33,11 +33,11 @@ services:
     name: agentshield-worker
     runtime: node
     repo: https://github.com/sam300705/Agentshield
-    branch: agent/production-hardening
+    branch: main
     rootDir: .
     plan: starter
-    autoDeployTrigger: checksPass
-    buildCommand: pnpm install --frozen-lockfile && pnpm --filter @agentshield/api build
+    autoDeployTrigger: off
+    buildCommand: pnpm install --frozen-lockfile && pnpm db:generate && pnpm --filter @agentshield/api build
     startCommand: pnpm --filter @agentshield/api worker
     maxShutdownDelaySeconds: 120
     buildFilter:
@@ -75,3 +75,16 @@ envVarGroups:
         sync: false
       - key: OIDC_ROLE_CLAIM
         value: roles
+
+      - key: REDIS_REST_URL
+        sync: false
+      - key: REDIS_REST_TOKEN
+        sync: false
+      - key: RECEIPT_SIGNING_REQUIRED
+        value: "true"
+      - key: RECEIPT_SIGNING_KEY_ID
+        sync: false
+      - key: RECEIPT_SIGNING_PRIVATE_KEY
+        sync: false
+      - key: TRUST_PROXY_HOPS
+        value: "1"

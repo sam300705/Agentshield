@@ -102,7 +102,11 @@ function mapOrganizationId(claims: AuthClaims): string | null {
 function getJwks(url: string): ReturnType<typeof createRemoteJWKSet> {
   const cached = jwksCache.get(url);
   if (cached != null) return cached;
-  const remote = createRemoteJWKSet(new URL(url));
+  const remote = createRemoteJWKSet(new URL(url), {
+    timeoutDuration: 3000,
+    cacheMaxAge: 600_000,
+    cooldownDuration: 30_000,
+  });
   jwksCache.set(url, remote);
   return remote;
 }
@@ -116,7 +120,12 @@ async function verifyOidcToken(token: string): Promise<RequestActor> {
     throw new Error("OIDC authentication is not configured.");
   }
 
-  const verified = await jwtVerify(token, getJwks(jwksUrl), { issuer, audience });
+  const verified = await jwtVerify(token, getJwks(jwksUrl), {
+    issuer,
+    audience,
+    requiredClaims: ["exp", "iat", "sub"],
+    clockTolerance: 5,
+  });
   const claims = verified.payload as AuthClaims;
   const subject = typeof claims.sub === "string" ? claims.sub : null;
   const role = mapRole(claims);

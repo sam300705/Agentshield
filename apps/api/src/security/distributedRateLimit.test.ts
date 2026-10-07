@@ -36,17 +36,11 @@ afterEach(async () => {
 
 describe("distributed rate limiter", () => {
   it("uses Redis-compatible atomic increment and expiry commands", async () => {
-    const client = {
-      incr: vi.fn().mockResolvedValue(2),
-      pExpire: vi.fn().mockResolvedValue(true),
-      pTtl: vi.fn().mockResolvedValue(30_000),
-    };
+    const client = { eval: vi.fn().mockResolvedValue([2, 30_000]) };
     const store = new RedisRateLimitStore(client);
-
     await expect(store.increment("org:user", 60_000)).resolves.toMatchObject({ count: 2 });
-    expect(client.incr).toHaveBeenCalledWith("org:user");
-    expect(client.pExpire).not.toHaveBeenCalled();
-    expect(client.pTtl).toHaveBeenCalledWith("org:user");
+    expect(client.eval).toHaveBeenCalledOnce();
+    expect(client.eval.mock.calls[0]?.slice(1)).toEqual([["org:user"], ["60000"]]);
   });
 
   it("applies a shared store and standard headers", async () => {

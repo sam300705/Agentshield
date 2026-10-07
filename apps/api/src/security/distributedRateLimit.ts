@@ -1,5 +1,7 @@
+import { createHash } from "node:crypto";
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 
+import { RATE_LIMIT_SCRIPT } from "./redisRest.js";
 import { getCorrelationId } from "./auth.js";
 
 export interface RateLimitDecision {
@@ -12,9 +14,7 @@ export interface RateLimitStore {
 }
 
 export interface RedisLikeRateLimitClient {
-  incr(key: string): Promise<number>;
-  pExpire(key: string, milliseconds: number): Promise<unknown>;
-  pTtl(key: string): Promise<number>;
+  eval(script: string, keys: string[], arguments_: string[]): Promise<unknown>;
 }
 
 export class InMemoryRateLimitStore implements RateLimitStore {
@@ -34,6 +34,10 @@ export class InMemoryRateLimitStore implements RateLimitStore {
         if (value.resetAt <= now) this.buckets.delete(bucketKey);
       }
     }
+    if (this.buckets.size > this.maxBuckets) {
+      this.buckets.delete(key);
+      return Promise.reject(new Error("RATE_LIMIT_CAPACITY"));
+    }
     return Promise.resolve(bucket);
   }
 }
@@ -42,10 +46,17 @@ export class RedisRateLimitStore implements RateLimitStore {
   constructor(private readonly client: RedisLikeRateLimitClient) {}
 
   async increment(key: string, windowMs: number): Promise<RateLimitDecision> {
-    const count = await this.client.incr(key);
-    if (count === 1) await this.client.pExpire(key, windowMs);
-    const ttl = await this.client.pTtl(key);
-    return { count, resetAt: Date.now() + Math.max(0, ttl) };
+    const result = await this.client.eval(RATE_LIMIT_SCRIPT, [key], [String(windowMs)]);
+    if (
+      !Array.isArray(result) ||
+      result.length !== 2 ||
+      !Number.isSafeInteger(result[0]) ||
+      !Number.isSafeInteger(result[1]) ||
+      Number(result[0]) < 1 ||
+      Number(result[1]) < 0
+    )
+      throw new Error("RATE_LIMIT_STORE_INVALID_RESPONSE");
+    return { count: Number(result[0]), resetAt: Date.now() + Number(result[1]) };
   }
 }
 
@@ -73,9 +84,17 @@ export function createDistributedRateLimiter(options: DistributedRateLimitOption
     options.keyForRequest ??
     ((request: Request, response: Response) => {
       const actor = response.locals.actor as { organizationId?: unknown; id?: unknown } | undefined;
-      return typeof actor?.organizationId === "string" && typeof actor.id === "string"
-        ? `organization:${actor.organizationId}:user:${actor.id}:route:${request.method}:${request.path}`
-        : `ip:${request.ip || "unknown"}:route:${request.method}:${request.path}`;
+      const identity =
+        typeof actor?.organizationId === "string" && typeof actor.id === "string"
+          ? `${actor.organizationId}:${actor.id}`
+          : request.ip || "unknown";
+      const category =
+        request.path === "/api/v1/integrations/github/webhooks"
+          ? "webhook"
+          : ["GET", "HEAD"].includes(request.method)
+            ? "read"
+            : "mutation";
+      return `agentshield:limit:${category}:${createHash("sha256").update(identity).digest("hex")}`;
     });
   const handleRequest = async (
     request: Request,

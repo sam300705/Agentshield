@@ -147,7 +147,7 @@ export class OidcSession {
     if (error != null) {
       this.transaction = null;
       this.storage?.removeItem(transactionStorageKey(this.config));
-      throw new Error(`OIDC authorization failed: ${error}.`);
+      throw new Error("OIDC authorization failed.");
     }
     const code = url.searchParams.get("code");
     const state = url.searchParams.get("state");
@@ -272,7 +272,10 @@ export function readOidcConfig(env: Record<string, string | undefined>): OidcCon
 }
 
 export function createFetchTokenClient(config: OidcConfig): OidcTokenClient {
-  const jwks = createRemoteJWKSet(new URL(config.jwksUri));
+  const jwks = createRemoteJWKSet(new URL(config.jwksUri), {
+    timeoutDuration: 5000,
+    cacheMaxAge: 600_000,
+  });
 
   async function parseResponse(response: Response, nonce?: string): Promise<OidcTokenSet> {
     if (!response.ok) throw new Error(`OIDC token endpoint returned HTTP ${response.status}.`);
@@ -329,6 +332,8 @@ export function createFetchTokenClient(config: OidcConfig): OidcTokenClient {
           client_id: input.clientId,
         }),
         credentials: "omit",
+        redirect: "error",
+        signal: AbortSignal.timeout(10_000),
       }).then((response) => parseResponse(response, input.nonce));
     },
     refresh(input) {
@@ -341,6 +346,8 @@ export function createFetchTokenClient(config: OidcConfig): OidcTokenClient {
           client_id: input.clientId,
         }),
         credentials: "omit",
+        redirect: "error",
+        signal: AbortSignal.timeout(10_000),
       }).then(parseResponse);
     },
   };
