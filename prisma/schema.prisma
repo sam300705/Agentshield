@@ -730,7 +730,7 @@ model AgentBaseline {
 model GitHubCheckPublication {
   scanId String @id
   scan Scan @relation(fields: [scanId], references: [id], onDelete: Cascade)
-  checkRunId Int?
+  checkRunId String?
   publishedState String?
   status String @default("PENDING")
   attempts Int @default(0)

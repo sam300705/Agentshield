@@ -375,6 +375,7 @@ export class FetchGitHubAppClient
       this.requireInstallationToken(),
       this.checkBody(request),
     );
+    if (!Number.isSafeInteger(data.id) || data.id <= 0) throw new GitHubApiError(0, false);
     return data.html_url == null ? { id: data.id } : { id: data.id, htmlUrl: data.html_url };
   }
 
@@ -388,6 +389,7 @@ export class FetchGitHubAppClient
       this.requireInstallationToken(),
       this.checkBody(request),
     );
+    if (!Number.isSafeInteger(data.id) || data.id <= 0) throw new GitHubApiError(0, false);
     return data.html_url == null ? { id: data.id } : { id: data.id, htmlUrl: data.html_url };
   }
 

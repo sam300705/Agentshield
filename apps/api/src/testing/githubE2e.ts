@@ -168,7 +168,7 @@ async function main() {
           checkRequests.push(request);
           if (req.method === "POST") {
             createCount++;
-            const id = 500 + createCount;
+            const id = 12_000_000_000 + createCount;
             checkRuns.push({ id, external_id: request.external_id as string });
             if (uncertainCreate) {
               uncertainCreate = false;

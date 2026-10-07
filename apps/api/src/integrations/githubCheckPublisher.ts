@@ -120,7 +120,7 @@ export async function publishGitHubChecks(
             .join("; ")}`;
           // Reconcile a provider create that succeeded before our database commit/crash.
           const existingId =
-            publication.checkRunId ??
+            (publication.checkRunId == null ? null : Number(publication.checkRunId)) ??
             (await checks.findCheckRun(owner, name, scan.commitSha, scan.id));
           const result =
             existingId == null
@@ -129,7 +129,7 @@ export async function publishGitHubChecks(
           await tx.gitHubCheckPublication.update({
             where: { scanId: scan.id },
             data: {
-              checkRunId: result.id,
+              checkRunId: String(result.id),
               publishedState: state,
               status: terminal ? "COMPLETE" : "PENDING",
               attempts: 0,

@@ -82,7 +82,7 @@ async function main() {
     if (owner == null || repository == null) throw new Error("LIVE_REPOSITORY_INVALID");
     const check = await github
       .withInstallationToken(token.token)
-      .getCheckRun(owner, repository, scan.githubCheck.checkRunId);
+      .getCheckRun(owner, repository, Number(scan.githubCheck.checkRunId));
     if (
       check.head_sha !== scan.commitSha ||
       check.external_id !== scan.id ||

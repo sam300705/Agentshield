@@ -79,6 +79,10 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
       "GITHUB_SCAN_POLICY_BUNDLE_VERSION is required when GitHub scan lifecycle is enabled",
     );
   }
+  if (githubScanLifecycleEnabled && !githubMaterializationEnabled)
+    issues.push(
+      "GITHUB_MATERIALIZATION_ENABLED must be true when GitHub scan lifecycle is enabled",
+    );
   if (githubMaterializationEnabled && !githubScanLifecycleEnabled) {
     issues.push(
       "GITHUB_SCAN_LIFECYCLE_ENABLED must be true when GitHub materialization is enabled",

@@ -194,8 +194,8 @@ PRs #9/#10 were open and unmerged when the base was selected. No earlier PR or m
 was merged or rewritten by this work.
 
 The existing adapters, durable queue, lease fencing, temporary workspace provider, scanner,
-policy evaluator, evidence/receipt persistence and SARIF pipeline are retained. The worker now
-uses real App installation authentication and commit-pinned materialization. Installation and
+policy evaluator, evidence/receipt persistence and SARIF pipeline are retained. Check IDs are stored as text to preserve real provider IDs beyond the PostgreSQL INTEGER range.
+The worker now uses real App installation authentication and commit-pinned materialization. Installation and
 selected-repository events preserve history while updating access. Acceptance and enqueue share
 a transaction; installation-before-repository locks serialize admission with access changes.
 Mutable repository names update by immutable numeric identity. Check publication has its own
@@ -208,7 +208,7 @@ concurrent dedupe, acceptance/audit rollback and redelivery, selected access/lif
 account mapping, tenant override rejection, PR SHA A after branch B, real tar extraction and
 scanner/policy/receipt, queued/in-progress/success/block/cancel, uncertain create reconciliation,
 publication outage/retry, stale lease rejection, rename identity and post-scan revocation. Twelve
-JWT/transport tests and three additional archive path/depth tests supplement all 108 baseline
+JWT/transport tests, three fail-closed live-configuration tests and three additional archive path/depth tests supplement all 108 baseline
 unit tests. All 15 Phase 2 PostgreSQL security groups and six browser tests remain required.
 Normal CI runs `pnpm test:github-e2e` alongside every existing verification and scanner/SARIF gate.
 
