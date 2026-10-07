@@ -24,6 +24,9 @@ const baseSchema = z.object({
   OIDC_AUDIENCE: optionalString,
   OIDC_JWKS_URL: optionalUrl,
   OIDC_ROLE_CLAIM: z.string().min(1).default("roles"),
+  METRICS_TOKEN: z.preprocess(blankToUndefined, z.string().min(32).max(256).optional()),
+  ERROR_REPORT_URL: optionalUrl,
+  ERROR_REPORT_TOKEN: optionalString,
   REDIS_REST_URL: optionalUrl,
   REDIS_REST_TOKEN: optionalString,
   TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(2).default(0),
@@ -88,6 +91,7 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
       "OIDC_ISSUER",
       "OIDC_JWKS_URL",
       "REDIS_REST_URL",
+      "ERROR_REPORT_URL",
     ] as const) {
       const url = value[field];
       if (url != null && new URL(url).protocol !== "https:")

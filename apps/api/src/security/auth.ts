@@ -196,7 +196,9 @@ export const requestContext: RequestHandler = (
   const correlationId =
     suppliedCorrelation != null && /^[A-Za-z0-9._:-]{1,128}$/.test(suppliedCorrelation)
       ? suppliedCorrelation
-      : randomUUID();
+      : typeof response.locals.correlationId === "string"
+        ? response.locals.correlationId
+        : randomUUID();
   response.locals.correlationId = correlationId;
   response.setHeader("x-correlation-id", correlationId);
   void populateRequestContext(request, response).then(() => next());

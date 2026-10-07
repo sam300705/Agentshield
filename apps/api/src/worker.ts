@@ -1,5 +1,6 @@
 import "./env.js";
 
+import { reportError } from "./errorReporter.js";
 import { hostname } from "node:os";
 import { randomUUID } from "node:crypto";
 
@@ -90,6 +91,7 @@ process.on("SIGINT", () => shutdown("SIGINT"));
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 
 run().catch(() => {
+  reportError({ service: "agentshield-worker", code: "WORKER_STOPPED" });
   console.error(
     JSON.stringify({
       level: "error",

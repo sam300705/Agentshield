@@ -11,6 +11,8 @@ services:
     expose:
       - "3001"
     restart: unless-stopped
+    init: true
+    stop_grace_period: 120s
     healthcheck:
       test:
         [
@@ -32,6 +34,14 @@ services:
     env_file:
       - ./azure.env
     restart: unless-stopped
+    init: true
+    stop_grace_period: 120s
+    healthcheck:
+      test: ["CMD", "node", "apps/api/dist/workerProbe.js"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     depends_on:
       api:
         condition: service_healthy

@@ -60,6 +60,17 @@ jobs:
       - run: pnpm test
       - run: pnpm test:docs
       - run: pnpm build
+      - name: Build production dashboard with public OIDC configuration
+        env:
+          VITE_APP_MODE: live
+          VITE_API_BASE_URL: https://api.example.com
+          VITE_OIDC_ISSUER: https://identity.example.com
+          VITE_OIDC_CLIENT_ID: ci-public-spa
+          VITE_OIDC_REDIRECT_URI: https://web.example.com/callback
+          VITE_OIDC_AUTHORIZATION_ENDPOINT: https://identity.example.com/authorize
+          VITE_OIDC_TOKEN_ENDPOINT: https://identity.example.com/token
+          VITE_OIDC_JWKS_URI: https://identity.example.com/keys
+        run: pnpm --filter @agentshield/web-dashboard build
       - name: Verify local API dashboard and worker startup
         run: |
           cp .env.example .env
@@ -129,3 +140,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build and run production API and worker images
         run: bash scripts/verify-production-container.sh
+      - name: Scan production image for fixable high and critical vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0 verified release
+        with:
+          version: v0.75.0
+          image-ref: agentshield:ops
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"

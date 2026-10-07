@@ -521,6 +521,18 @@ export async function processNextScanJob(
     return result;
   });
   if (claimed.count !== 1) return true;
+  console.warn(
+    JSON.stringify({
+      level: "info",
+      service: "agentshield-worker",
+      event: "job_claimed",
+      workerId,
+      jobId: candidate.id,
+      scanId: candidate.scanId,
+      correlationId: candidate.correlationId,
+      attempt: candidate.attempts + 1,
+    }),
+  );
 
   const abortController = new AbortController();
   const shutdownHandler = () => abortController.abort();

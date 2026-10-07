@@ -36,7 +36,7 @@ export function Dashboard() {
 
     try {
       const result = await api.runDemoScan();
-      navigate(`/scans/${result.scanId}`);
+      await navigate(`/scans/${result.scanId}`);
     } catch {
       setError("Demo scan failed. Confirm PostgreSQL and the API are running.");
     } finally {

@@ -219,3 +219,7 @@ using [GitHub App setup and security details](./docs/github-app.md). Live verifi
 **BLOCKED BY OWNER/EXTERNAL CONFIG** until App credentials, a test repository and an approved
 public webhook endpoint are configured. Run `pnpm test:github-e2e` for the deterministic
 HTTP-provider/PostgreSQL flow; it does not establish a real GitHub installation.
+
+## Phase 4 operating model
+
+See [production operations](docs/production-operations.md) for the runtime audit, configuration matrix, shared rate protection, receipt custody, container verification, release/rollback and incident runbooks. Live infrastructure and GitHub verification remain owner configuration tasks.

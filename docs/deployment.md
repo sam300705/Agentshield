@@ -1,3 +1,5 @@
+> Phase 4 canonical release and configuration instructions: [production operations](production-operations.md). The provider alternatives below require the same shared Redis and receipt-signing configuration.
+
 # Deployment
 
 AgentShield has two deployment surfaces. The **Vercel preview** serves the React/Vite dashboard as a static frontend. The Express API, PostgreSQL database, and durable scan worker remain separate services and are not implicitly provided by the static preview.
@@ -87,7 +89,7 @@ The repository includes a credential-free `render.yaml` Blueprint for the API an
 | `OIDC_JWKS_URL`         | Approved JWKS endpoint                                                   | API                        |
 | `OIDC_ROLE_CLAIM`       | `roles` or the approved claim name                                       | API                        |
 
-Import the repository as a Render Blueprint from the `agent/production-hardening` branch. The web service runs `pnpm --filter @agentshield/api start`, probes `/health/ready`, and applies committed migrations with `pnpm db:deploy` before starting. The background worker runs `pnpm --filter @agentshield/api worker` and has no public endpoint. Render’s service model separates public web services from background workers, which are intended for continuously running queue processors.[3]
+Import the repository as a Render Blueprint from the `main` branch. The web service runs `pnpm --filter @agentshield/api start`, probes `/health/ready`, and applies committed migrations with `pnpm db:deploy` before starting. The background worker runs `pnpm --filter @agentshield/api worker` and has no public endpoint. Render’s service model separates public web services from background workers, which are intended for continuously running queue processors.[3]
 
 Do not run `pnpm db:migrate`, `pnpm db:push`, or `pnpm db:seed` against the Neon production database. Review committed SQL migrations first, take the provider-managed backup required by your operating procedure, and run only `pnpm db:deploy` from the Render pre-deploy command. Keep the Vercel frontend’s `VITE_API_BASE_URL` unset until the API has a verified HTTPS URL and the API’s `CORS_ORIGIN` is set to the exact frontend origin.
 
