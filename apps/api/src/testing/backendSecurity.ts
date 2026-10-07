@@ -387,6 +387,15 @@ async function main() {
     correlationId,
     idempotencyKey: `approval-${suffix}`,
   };
+  assert.equal(
+    (
+      await call("/api/v1/agent/authorize", {
+        method: "POST",
+        body: { ...approvalInput, action: "READ_FILE", sessionId: "foreign-or-missing-session" },
+      })
+    ).status,
+    404,
+  );
   const approval = await ensureAgentApproval(approvalInput, correlationId);
   assert("approval" in approval);
   assert.equal(

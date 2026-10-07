@@ -27,6 +27,20 @@ export async function authorizeAgentActionController(
     });
     return;
   }
+  const session = await prisma.agentSession.findFirst({
+    where: { id: input.sessionId, organizationId: actor.organizationId },
+    select: { id: true },
+  });
+  if (session == null) {
+    response.status(404).json({
+      error: {
+        code: "SESSION_NOT_FOUND",
+        message: "Agent session was not found.",
+        correlationId: getCorrelationId(response),
+      },
+    });
+    return;
+  }
   const decision = agentDecisionSchema.parse(
     evaluateAgentAction(input.action, input.correlationId),
   );

@@ -499,7 +499,7 @@ export async function runConfiguredScan(
         where: {
           id: existingScanId,
           organizationId: options.organizationId,
-          status: { in: options.leaseOwner == null ? ["QUEUED", "FAILED"] : ["RUNNING"] },
+          status: { in: options.leaseOwner == null ? ["QUEUED"] : ["RUNNING"] },
           ...(options.leaseOwner == null ? { job: { is: null } } : {}),
         },
         data: {
