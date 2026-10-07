@@ -17,6 +17,8 @@ function payload(): Buffer {
   return Buffer.from(
     JSON.stringify({
       action: "created",
+      ref: "refs/heads/main",
+      after: "a".repeat(40),
       installation: { id: 123 },
       organization: { login: "acme-security" },
       repository: { full_name: "acme-security/example" },
@@ -101,4 +103,80 @@ describe("GitHub App webhook boundary", () => {
       ),
     ).toThrow("installation context is required");
   });
+});
+
+it.each([
+  null,
+  [],
+  { installation: { id: -1 } },
+  {
+    installation: { id: 1 },
+    repository: { full_name: "a/b" },
+    ref: "x".repeat(257),
+    after: "a".repeat(40),
+  },
+  {
+    installation: { id: 1 },
+    repository: { full_name: "a/b" },
+    ref: "main",
+    after: { nested: true },
+  },
+])("rejects signed malformed nested payloads", (value) => {
+  const raw = Buffer.from(JSON.stringify(value));
+  expect(() =>
+    parseVerifiedGitHubWebhook(
+      raw,
+      { signature: signature(raw, "synthetic-secret"), delivery: "malformed", event: "push" },
+      "synthetic-secret",
+    ),
+  ).toThrow();
+});
+it("bounds signed raw bytes and leaves replay state usable after invalid input", () => {
+  const guard = new WebhookReplayGuard();
+  const invalid = Buffer.from("null");
+  const headers = {
+    signature: signature(invalid, "synthetic-secret"),
+    delivery: "retry-valid",
+    event: "push",
+  };
+  expect(() => parseVerifiedGitHubWebhook(invalid, headers, "synthetic-secret", guard)).toThrow();
+  const valid = payload();
+  expect(() =>
+    parseVerifiedGitHubWebhook(
+      valid,
+      { ...headers, signature: signature(valid, "synthetic-secret") },
+      "synthetic-secret",
+      guard,
+    ),
+  ).not.toThrow();
+  const large = Buffer.alloc(1024 * 1024 + 1, 32);
+  expect(() =>
+    parseVerifiedGitHubWebhook(
+      large,
+      { ...headers, signature: signature(large, "synthetic-secret") },
+      "synthetic-secret",
+    ),
+  ).toThrow("exceeds limit");
+});
+it("validates personal-account owner and rejects a different personal owner", () => {
+  const value = {
+    installation: { id: 123 },
+    repository: { full_name: "alice/example", owner: { login: "alice" } },
+    ref: "main",
+    after: "a".repeat(40),
+  };
+  const raw = Buffer.from(JSON.stringify(value));
+  const webhook = parseVerifiedGitHubWebhook(
+    raw,
+    { signature: signature(raw, "synthetic-secret"), delivery: "user-install", event: "push" },
+    "synthetic-secret",
+  );
+  const binding = {
+    organizationId: "tenant",
+    installationId: 123,
+    accountLogin: "Alice",
+    accountType: "User",
+  };
+  expect(() => assertInstallationOwnership(binding, webhook)).not.toThrow();
+  expect(() => assertInstallationOwnership({ ...binding, accountLogin: "bob" }, webhook)).toThrow();
 });

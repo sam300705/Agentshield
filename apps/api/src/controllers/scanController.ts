@@ -8,11 +8,7 @@ import { z } from "zod";
 
 import { prisma } from "../db/prisma.js";
 import { getActor, getCorrelationId } from "../security/auth.js";
-import {
-  enqueueDemoScan,
-  enqueueRepositoryScan,
-  requestJobCancellation,
-} from "../services/scanQueue.js";
+import { enqueueDemoScan, requestJobCancellation } from "../services/scanQueue.js";
 
 const scanParamsSchema = z.object({
   scanId: z.string().min(1).max(128),
@@ -52,25 +48,21 @@ export async function listRepositoriesController(
   response.json(paginatedResponseSchema.parse({ page, limit, total, data: repositories }));
 }
 
-export async function createRepositoryScanController(
+export function createRepositoryScanController(
   request: Request,
   response: Response,
 ): Promise<void> {
-  const actor = getActor(response);
-  const body = createRepositoryScanSchema.parse(request.body);
-  const suppliedKey = request.header("idempotency-key");
-  const idempotencyKey =
-    suppliedKey != null && /^[A-Za-z0-9._:-]{8,128}$/.test(suppliedKey)
-      ? suppliedKey
-      : `manual:${getCorrelationId(response)}`;
-  const job = await enqueueRepositoryScan(
-    body,
-    idempotencyKey,
-    actor.organizationId,
-    actor.id,
-    getCorrelationId(response),
-  );
-  response.status(202).json({ ...job, correlationId: getCorrelationId(response) });
+  getActor(response);
+  createRepositoryScanSchema.parse(request.body);
+  // No live repository executor is composed in this phase. Never enqueue doomed work.
+  response.status(503).json({
+    error: {
+      code: "REPOSITORY_SCANS_UNAVAILABLE",
+      message: "Repository scanning is not available in this release.",
+      correlationId: getCorrelationId(response),
+    },
+  });
+  return Promise.resolve();
 }
 
 export async function getScanProgressController(

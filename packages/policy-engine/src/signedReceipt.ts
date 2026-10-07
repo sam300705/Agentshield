@@ -61,6 +61,8 @@ export function signSecurityReceipt(
   receipt: SecurityReceipt,
   signingKey: ReceiptSigningKey,
 ): SignedSecurityReceipt {
+  if (!/^[A-Za-z0-9._:-]{1,128}$/.test(signingKey.keyId))
+    throw new Error("Receipt key ID must contain only safe identifier characters.");
   const payload = securityReceiptSchema.parse(receipt);
   const signature = sign(
     null,

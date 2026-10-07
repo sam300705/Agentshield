@@ -68,3 +68,23 @@ describe("signed security receipts", () => {
     expect(verifySignedSecurityReceipt(newReceipt, keyRing)).toBe(true);
   });
 });
+
+it.each(["", "production key", "x".repeat(129), "key/unsafe"])(
+  "rejects signing key ID %s before creating an unverifiable envelope",
+  (keyId) => {
+    const key = generateEd25519KeyPair("valid");
+    expect(() => signSecurityReceipt(receipt, { keyId, privateKey: key.privateKeyPem })).toThrow(
+      "key ID",
+    );
+  },
+);
+it("verifies the longest accepted safe signing identifier", () => {
+  const keyId = "x".repeat(128);
+  const key = generateEd25519KeyPair(keyId);
+  expect(
+    verifySignedSecurityReceipt(
+      signSecurityReceipt(receipt, { keyId, privateKey: key.privateKeyPem }),
+      { [keyId]: key.publicKeyPem },
+    ),
+  ).toBe(true);
+});

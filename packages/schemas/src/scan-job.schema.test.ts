@@ -8,6 +8,7 @@ describe("scan job payload schema", () => {
       organizationId: "org-1",
       repositoryId: "repo-1",
       provider: "GITHUB",
+      integrationId: "123",
       repositoryName: "acme/project",
       repositoryUrl: "https://github.com/acme/project",
       ref: "refs/heads/main",
@@ -34,6 +35,7 @@ describe("scan job payload schema", () => {
         organizationId: "org-1",
         repositoryId: "repo-1",
         provider: "GITHUB",
+        integrationId: "123",
         repositoryName: "acme/project",
         ref: "main",
         commitSha: "not-a-sha",
@@ -45,3 +47,24 @@ describe("scan job payload schema", () => {
     ).toThrow();
   });
 });
+
+it.each([undefined, "abcdef1", "0".repeat(40), "a".repeat(64)])(
+  "rejects GitHub job SHA %s before materialization",
+  (commitSha) => {
+    expect(
+      scanJobPayloadSchema.safeParse({
+        organizationId: "org",
+        repositoryId: "repo",
+        provider: "GITHUB",
+        integrationId: "123",
+        repositoryName: "a/b",
+        ref: "main",
+        commitSha,
+        policyBundleVersion: "2026.06.0",
+        trigger: "MANUAL",
+        requester: "user",
+        correlationId: "corr",
+      }).success,
+    ).toBe(false);
+  },
+);

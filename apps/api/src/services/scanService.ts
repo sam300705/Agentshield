@@ -170,6 +170,7 @@ type AdvisoryEnrichment = {
 async function runAdvisoryEnrichment(
   dependencies: Dependency[],
   enabled: boolean,
+  signal?: AbortSignal,
 ): Promise<AdvisoryEnrichment> {
   if (!enabled) return { results: [], status: "DISABLED" };
   try {
@@ -181,6 +182,7 @@ async function runAdvisoryEnrichment(
         ...(dependency.purl == null ? {} : { purl: dependency.purl }),
       })),
       {
+        ...(signal == null ? {} : { signal }),
         ...(process.env.OSV_API_BASE_URL == null ? {} : { baseUrl: process.env.OSV_API_BASE_URL }),
         ...(process.env.OSV_REQUEST_TIMEOUT_MS == null
           ? {}
@@ -189,6 +191,7 @@ async function runAdvisoryEnrichment(
     );
     return { results, status: "ENRICHED" };
   } catch (error) {
+    signal?.throwIfAborted();
     console.warn(
       JSON.stringify({
         level: "warn",
@@ -307,7 +310,7 @@ export function partitionAdvisoryResults(results: DependencyAdvisoryResult[]) {
   };
 }
 
-async function persistAdvisories(
+export async function persistAdvisories(
   tx: Prisma.TransactionClient,
   organizationId: string,
   scanId: string,
@@ -342,14 +345,16 @@ async function persistAdvisories(
       };
       await tx.advisory.upsert({
         where: {
-          organizationId_advisoryId_packageName_version: {
+          organizationId_scanId_ecosystem_advisoryId_packageName_version: {
             organizationId,
+            scanId,
+            ecosystem: ecosystemForPackageManager(result.packageManager),
             advisoryId: advisory.advisoryId,
             packageName: result.packageName,
             version: result.version,
           },
         },
-        update: data,
+        update: {},
         create: data,
       });
       count += 1;
@@ -558,6 +563,7 @@ export async function runConfiguredScan(
     const advisoryEnrichment = await runAdvisoryEnrichment(
       scanResult.dependencies,
       options.options.includeOsv,
+      options.signal,
     );
     const { confirmed: advisoryResults, diagnostics: advisoryInventoryDiagnostics } =
       partitionAdvisoryResults(advisoryEnrichment.results);

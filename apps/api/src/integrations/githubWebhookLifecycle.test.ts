@@ -62,7 +62,7 @@ function makeClient(
     fullName: "octo/example",
     defaultBranch: "main",
   },
-): GitHubWebhookLifecycleClient {
+) {
   return {
     gitHubInstallation: {
       findUnique: vi.fn(() => Promise.resolve(installation)),
@@ -70,7 +70,7 @@ function makeClient(
     repository: {
       findFirst: vi.fn(() => Promise.resolve(repository)),
     },
-  };
+  } satisfies GitHubWebhookLifecycleClient;
 }
 
 describe("processGitHubWebhookDelivery", () => {
@@ -220,4 +220,43 @@ describe("processGitHubWebhookDelivery", () => {
       args: ["org-test", "delivery-push", "QUEUE_FAILED"],
     });
   });
+});
+
+it.each([{ deleted: true, after: commitSha }, { after: "0".repeat(40) }])(
+  "ignores deleted pushes without queue work",
+  async (values) => {
+    const enqueueScan = vi.fn();
+    const result = await processGitHubWebhookDelivery(
+      "org-test",
+      makeWebhook("push", { ref: "refs/heads/main", ...values }),
+      "corr",
+      {
+        client: makeClient(),
+        deliveryStore: makeStore(),
+        scanLifecycleEnabled: true,
+        policyBundleVersion: "policy-v1",
+        enqueueScan,
+      },
+    );
+    expect(result).toEqual({ status: "IGNORED", reason: "INVALID_COMMIT", scanQueued: false });
+    expect(enqueueScan).not.toHaveBeenCalled();
+  },
+);
+
+it("keeps the production lifecycle gated without an explicitly composed enqueue adapter", async () => {
+  const client = makeClient();
+  await expect(
+    processGitHubWebhookDelivery(
+      "org-test",
+      makeWebhook("push", { ref: "main", after: commitSha }),
+      "corr",
+      {
+        client,
+        deliveryStore: makeStore(),
+        scanLifecycleEnabled: true,
+        policyBundleVersion: "policy-v1",
+      },
+    ),
+  ).resolves.toEqual({ status: "DISABLED", scanQueued: false });
+  expect(client.repository.findFirst).not.toHaveBeenCalled();
 });

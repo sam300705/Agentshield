@@ -2,6 +2,11 @@ import { z } from "zod";
 
 const boundedString = (max: number) => z.string().trim().min(1).max(max);
 
+export const fullGitHubCommitSchema = z
+  .string()
+  .regex(/^[a-f0-9]{40}$/i)
+  .refine((value) => !/^0{40}$/.test(value), "Commit cannot be the deleted-ref SHA");
+
 export const scanProviderSchema = z.enum(["LOCAL", "GITHUB"]);
 export const scanTriggerSchema = z.enum(["MANUAL", "PUSH", "PULL_REQUEST", "INSTALLATION"]);
 
@@ -52,7 +57,26 @@ export const scanJobPayloadSchema = z
     correlationId: boundedString(128),
     options: scanOptionsSchema.default({}),
   })
-  .strict();
+  .strict()
+  .superRefine((payload, context) => {
+    if (payload.provider !== "GITHUB") return;
+    if (!fullGitHubCommitSchema.safeParse(payload.commitSha).success)
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["commitSha"],
+        message: "Full GitHub commit required",
+      });
+    if (
+      payload.integrationId == null ||
+      !/^[1-9][0-9]*$/.test(payload.integrationId) ||
+      !Number.isSafeInteger(Number(payload.integrationId))
+    )
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["integrationId"],
+        message: "Numeric installation required",
+      });
+  });
 
 export const scanJobStatusSchema = z.enum([
   "QUEUED",

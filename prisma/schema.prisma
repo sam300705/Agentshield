@@ -672,7 +672,7 @@ model Advisory {
   lastSeen        DateTime     @default(now())
   resolutionState String       @default("OPEN")
 
-  @@unique([organizationId, advisoryId, packageName, version])
+  @@unique([organizationId, scanId, ecosystem, advisoryId, packageName, version], map: "Advisory_scan_observation_key")
   @@index([organizationId, packageName, version])
   @@index([scanId])
   @@index([dependencyId])

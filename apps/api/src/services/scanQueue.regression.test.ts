@@ -11,6 +11,7 @@ const db = vi.hoisted(() => ({
     updateMany: vi.fn(),
   },
   scan: { findUnique: vi.fn(), updateMany: vi.fn() },
+  $queryRaw: vi.fn(),
   $transaction: vi.fn(),
 }));
 vi.mock("../db/prisma.js", () => ({ prisma: db }));
@@ -39,6 +40,8 @@ const candidate = {
 };
 beforeEach(() => {
   vi.clearAllMocks();
+  db.$queryRaw.mockResolvedValue([]);
+  db.scanJob.findUnique.mockResolvedValue(candidate);
   db.scanJob.findMany.mockResolvedValue([]);
   db.scanJob.findFirst.mockResolvedValue(candidate);
   db.scanJob.findUniqueOrThrow.mockResolvedValue(candidate);
@@ -90,11 +93,34 @@ describe("scan queue lifecycle regressions", () => {
     expect(db.scan.updateMany).not.toHaveBeenCalled();
   });
   it("cancels only explicit cancellation requests", async () => {
-    db.scanJob.findUniqueOrThrow.mockResolvedValue({ ...candidate, cancelRequestedAt: new Date() });
+    const cancelled = { ...candidate, cancelRequestedAt: new Date() };
+    db.scanJob.findUniqueOrThrow.mockResolvedValue(cancelled);
+    db.scanJob.findUnique.mockResolvedValue(cancelled);
     await processNextScanJob("worker", { execute: vi.fn() });
     expect(db.scanJob.updateMany).toHaveBeenLastCalledWith(
       contains({ data: contains({ status: "CANCELLED" }) }),
     );
+  });
+  it("lets cancellation arriving under the failure lock win shutdown classification", async () => {
+    const controller = new AbortController();
+    db.scanJob.findUnique.mockResolvedValue({ ...candidate, cancelRequestedAt: new Date() });
+    await processNextScanJob(
+      "worker",
+      {
+        execute: () => {
+          controller.abort();
+          return Promise.reject(new Error("shutdown"));
+        },
+      },
+      controller.signal,
+    );
+    const transition = db.scanJob.updateMany.mock.calls.at(-1)?.[0] as {
+      data: Record<string, unknown>;
+    };
+    expect(transition.data.status).toBe("CANCELLED");
+    expect(transition.data.failureCode).toBe("CANCELLED");
+    expect(transition.data.attempts).toBeUndefined();
+    expect(transition.data.nextAttemptAt).toBeNull();
   });
   it("excludes dead letters and exhausted retries at selection and claim", async () => {
     await processNextScanJob("worker", { execute: () => Promise.resolve("scan") });

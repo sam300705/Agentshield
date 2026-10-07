@@ -26,6 +26,12 @@ Supported event handling should be added behind the adapter for `installation`, 
 
 Start with read-only repository metadata and contents or pull-request access only when the approved scan workflow needs it. Do not request write permissions until a separately reviewed action requires them. Before live installation, run the synthetic tests for valid and invalid HMAC values, modified raw payloads, missing installation context, replayed delivery IDs, malformed identifiers, and cross-organization bindings. After installation, verify repository discovery and token expiry without printing the token.
 
+## Phase 1 admission gate
+
+Repository scan requests return a correlation-aware `503 REPOSITORY_SCANS_UNAVAILABLE` before creating scan or job rows. Startup rejects `GITHUB_SCAN_LIFECYCLE_ENABLED=true` and `GITHUB_MATERIALIZATION_ENABLED=true`. The default webhook lifecycle cannot enqueue work; synthetic qualification tests explicitly inject an enqueue adapter. A concrete HTTP client exists, but live worker composition and provider safeguards require Phase 3 qualification. Webhook ingestion can verify and record deliveries without enabling scans.
+
+Signed bodies are limited to 1 MiB, authenticated before bounded Zod parsing, and rejected before replay admission when malformed. Organization and personal installations use the persisted account type and owner login. GitHub jobs require a nonzero, full 40-character commit and the trusted numeric installation ID; deletion pushes are ignored.
+
 ## Current status
 
 The signature, replay, and ownership primitives are **implemented and tested using safe mocks**. Live App registration, installation persistence, repository discovery against GitHub, and webhook delivery into a public API remain **owner-configured and not deployed**. No GitHub App credentials have been created or committed by this repository work.

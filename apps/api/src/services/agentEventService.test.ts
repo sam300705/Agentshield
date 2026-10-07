@@ -168,3 +168,17 @@ describe("serializable agent-event ingestion", () => {
     }
   });
 });
+
+it("denies another actor before both append and idempotent replay", async () => {
+  fakePrisma.reset();
+  await ingestAgentEvent(input());
+  fakePrisma.prisma.agentSession.findFirst.mockResolvedValue(null);
+  await expect(ingestAgentEvent(input({ actor: "other-actor" }))).resolves.toEqual({
+    kind: "SESSION_NOT_FOUND",
+  });
+  await expect(
+    ingestAgentEvent(input({ actor: "other-actor", idempotencyKey: "new-event" })),
+  ).resolves.toEqual({ kind: "SESSION_NOT_FOUND" });
+  expect(fakePrisma.events).toHaveLength(1);
+  fakePrisma.prisma.agentSession.findFirst.mockResolvedValue({ id: "session-test" });
+});

@@ -82,3 +82,12 @@ describe("runtime configuration", () => {
     expect(config.rateLimitEnabled).toBe(false);
   });
 });
+
+it.each(["GITHUB_SCAN_LIFECYCLE_ENABLED", "GITHUB_MATERIALIZATION_ENABLED"])(
+  "fails closed on unsupported repository runtime %s",
+  (flag) => {
+    expect(() => getRuntimeConfig({ ...validProductionEnv, [flag]: "true" })).toThrow(
+      "Repository scanning is unavailable",
+    );
+  },
+);

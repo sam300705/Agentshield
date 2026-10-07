@@ -12,3 +12,4 @@ export * from "./sbom.schema.js";
 export * from "./scan.schema.js";
 export * from "./scan-job.schema.js";
 export * from "./secret-reference.schema.js";
+export * from "./github-webhook.schema.js";

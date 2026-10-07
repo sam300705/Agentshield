@@ -1,5 +1,7 @@
 # Phase 1 remediation verification — 2026-10-07
 
+Historical Round 1 evidence. Current remediation and acceptance status: [Round 2 report](phase1-round2-report.md).
+
 Overall status: **PASS**. All 21 current PR #9 inline review findings were VALID at starting head and received scoped corrections. All applicable checks passed locally or in actual GitHub CI on remediation commit `177cfd8ea25aaac7b34e1aa81ed21903e01ec7dc`. Local PostgreSQL/Docker limits remain recorded separately. This is readiness for another security review; no merge or production-readiness claim is made.
 
 ## Git and review evidence

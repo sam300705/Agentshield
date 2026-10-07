@@ -152,6 +152,7 @@ async function main(): Promise<void> {
             ...(process.env.OSV_API_BASE_URL == null
               ? {}
               : { baseUrl: process.env.OSV_API_BASE_URL }),
+            signal: controller.signal,
             timeoutMs: Number(process.env.OSV_REQUEST_TIMEOUT_MS ?? 5_000),
             maxRetries: Number(process.env.OSV_MAX_RETRIES ?? 2),
           },
@@ -159,6 +160,7 @@ async function main(): Promise<void> {
       : undefined;
     const advisoryCount =
       advisories?.reduce((count, item) => count + item.advisories.length, 0) ?? 0;
+    controller.signal.throwIfAborted();
     const completedAt = new Date();
     const findingCounts = Object.fromEntries(
       ["LOW", "MEDIUM", "HIGH", "CRITICAL"].map((severity) => [

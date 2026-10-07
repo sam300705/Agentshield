@@ -1,11 +1,11 @@
 import type { Request, Response } from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const db = vi.hoisted(() => ({
-  scan: { count: vi.fn(), findFirst: vi.fn() },
+  scan: { count: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
   finding: { count: vi.fn(), groupBy: vi.fn() },
   approval: { count: vi.fn() },
   policyDecision: { groupBy: vi.fn() },
-  scanJob: { count: vi.fn() },
+  scanJob: { count: vi.fn(), create: vi.fn() },
   repository: { count: vi.fn(), findMany: vi.fn() },
   securityReceipt: { findFirst: vi.fn() },
 }));
@@ -16,7 +16,7 @@ vi.mock("../security/auth.js", () => ({
 }));
 import { getDashboardSummaryController } from "./dashboardController.js";
 import { metricsController } from "./systemController.js";
-import { listRepositoriesController } from "./scanController.js";
+import { listRepositoriesController, createRepositoryScanController } from "./scanController.js";
 import { getReceiptController } from "./agentGatewayController.js";
 function response() {
   const res = { json: vi.fn(), type: vi.fn(), send: vi.fn() };
@@ -88,3 +88,27 @@ describe("tenant dashboard and request regressions", () => {
 function contains(value: Record<string, unknown>): unknown {
   return expect.objectContaining(value) as unknown;
 }
+
+it("rejects live repository admission before any durable database operation", async () => {
+  const res = { status: vi.fn(), json: vi.fn() };
+  res.status.mockReturnValue(res);
+  await createRepositoryScanController(
+    {
+      body: { repositoryId: "repo", ref: "main", policyBundleVersion: "2026.06.0", options: {} },
+    } as Request,
+    res as unknown as Response,
+  );
+  expect(res.status).toHaveBeenCalledWith(503);
+  expect(res.json).toHaveBeenCalledWith({
+    error: {
+      code: "REPOSITORY_SCANS_UNAVAILABLE",
+      message: "Repository scanning is not available in this release.",
+      correlationId: "corr",
+    },
+  });
+  expect(db.scan.create).not.toHaveBeenCalled();
+  expect(db.scanJob.create).not.toHaveBeenCalled();
+  expect(db.scan.count).not.toHaveBeenCalled();
+  expect(db.scanJob.count).not.toHaveBeenCalled();
+  expect(db.repository.findMany).not.toHaveBeenCalled();
+});

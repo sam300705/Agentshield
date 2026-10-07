@@ -115,7 +115,7 @@ async function findExisting(input: ParsedAgentEvent): Promise<PersistedAgentEven
     where: {
       sessionId: input.sessionId,
       idempotencyKey: input.idempotencyKey,
-      session: { organizationId: input.organizationId },
+      session: { organizationId: input.organizationId, actor: input.actor },
     },
   });
 }
@@ -141,6 +141,11 @@ export async function ingestAgentEvent(
   const input = agentEventInputSchema.parse(rawInput) as ParsedAgentEvent;
   const expectedHash = payloadHash(input);
 
+  const owner = await prisma.agentSession.findFirst({
+    where: { id: input.sessionId, organizationId: input.organizationId, actor: input.actor },
+    select: { id: true },
+  });
+  if (owner == null) return { kind: "SESSION_NOT_FOUND" };
   const existing = await findExisting(input);
   if (existing != null) {
     return samePayload(existing, expectedHash)
@@ -155,7 +160,7 @@ export async function ingestAgentEvent(
           Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${input.sessionId}))`,
         );
         const session = await tx.agentSession.findFirst({
-          where: { id: input.sessionId, organizationId: input.organizationId },
+          where: { id: input.sessionId, organizationId: input.organizationId, actor: input.actor },
           select: { id: true },
         });
         if (session == null) return { kind: "SESSION_NOT_FOUND" as const };
@@ -164,7 +169,7 @@ export async function ingestAgentEvent(
           where: {
             sessionId: input.sessionId,
             idempotencyKey: input.idempotencyKey,
-            session: { organizationId: input.organizationId },
+            session: { organizationId: input.organizationId, actor: input.actor },
           },
         });
         if (inTransactionExisting != null) {

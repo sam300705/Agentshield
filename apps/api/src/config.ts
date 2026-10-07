@@ -67,6 +67,11 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
   const githubWebhookEnabled = value.GITHUB_WEBHOOK_ENABLED === true;
   const githubScanLifecycleEnabled = value.GITHUB_SCAN_LIFECYCLE_ENABLED === true;
   const githubMaterializationEnabled = value.GITHUB_MATERIALIZATION_ENABLED === true;
+  if (githubScanLifecycleEnabled || githubMaterializationEnabled) {
+    issues.push(
+      "Repository scanning is unavailable in Phase 1; live worker wiring requires Phase 3 qualification",
+    );
+  }
   if (githubWebhookEnabled && value.GITHUB_WEBHOOK_SECRET == null) {
     issues.push("GITHUB_WEBHOOK_SECRET is required when GitHub webhook ingestion is enabled");
   }

@@ -155,11 +155,11 @@ describe("GitHubRepositoryMaterializer", () => {
       ).rejects.toThrow("GITHUB_MATERIALIZATION_DISABLED");
       await expect(
         makeFixture({ archive }).materializer.materialize(
-          githubPayload({ commitSha: "0123456" }),
+          { ...githubPayload(), commitSha: "0123456" },
           workspace,
           new AbortController().signal,
         ),
-      ).rejects.toThrow("GITHUB_COMMIT_SHA_REQUIRED");
+      ).rejects.toThrow("Full GitHub commit required");
       await expect(
         makeFixture({ archive, binding: null }).materializer.materialize(
           githubPayload(),

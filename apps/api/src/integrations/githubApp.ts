@@ -1,3 +1,4 @@
+import { parseGitHubWebhookPayload } from "@agentshield/schemas";
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 export interface GitHubAppConfig {
@@ -11,6 +12,7 @@ export interface GitHubInstallationBinding {
   organizationId: string;
   installationId: number;
   accountLogin: string;
+  accountType?: string | null;
 }
 
 export interface VerifiedGitHubWebhook {
@@ -20,6 +22,8 @@ export interface VerifiedGitHubWebhook {
   installationId: number;
   organizationLogin: string | null;
   repositoryFullName: string | null;
+  repositoryOwnerLogin?: string | null;
+  installationAccountLogin?: string | null;
   payload: Record<string, unknown>;
 }
 
@@ -85,17 +89,6 @@ export class WebhookReplayGuard {
   }
 }
 
-function readNumber(value: unknown, name: string): number {
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
-    throw new Error(`GitHub webhook ${name} is invalid.`);
-  }
-  return value;
-}
-
-function readString(value: unknown): string | null {
-  return typeof value === "string" && value.length > 0 && value.length <= 256 ? value : null;
-}
-
 export function parseVerifiedGitHubWebhook(
   rawPayload: Buffer,
   headers: {
@@ -106,49 +99,47 @@ export function parseVerifiedGitHubWebhook(
   webhookSecret: string,
   replayGuard?: WebhookReplayGuard,
 ): VerifiedGitHubWebhook {
+  if (rawPayload.length > 1024 * 1024) throw new Error("GitHub webhook body exceeds limit.");
   if (!verifyGitHubWebhookSignature(rawPayload, headers.signature, webhookSecret)) {
     throw new Error("GitHub webhook signature verification failed.");
   }
   const deliveryId = safeHeader(headers.delivery, "delivery");
+  const eventName = safeHeader(headers.event, "event");
+  const value: unknown = JSON.parse(rawPayload.toString("utf8"));
+  if (typeof value !== "object" || value == null || !("installation" in value))
+    throw new Error("GitHub webhook installation context is required.");
+  const parsed = parseGitHubWebhookPayload(eventName, value);
+  // Invalid signed input must not poison replay state.
   if (replayGuard != null && !replayGuard.accept(deliveryId))
     throw new Error("GitHub webhook delivery has already been processed.");
-  const eventName = safeHeader(headers.event, "event");
-  const parsed = JSON.parse(rawPayload.toString("utf8")) as Record<string, unknown>;
-  const installation = parsed.installation;
-  const installationId =
-    typeof installation === "object" && installation != null
-      ? readNumber((installation as { id?: unknown }).id, "installation.id")
-      : null;
-  if (installationId == null) throw new Error("GitHub webhook installation context is required.");
-  const organization = parsed.organization;
-  const organizationLogin =
-    typeof organization === "object" && organization != null
-      ? readString((organization as { login?: unknown }).login)
-      : null;
-  const repository = parsed.repository;
-  const repositoryFullName =
-    typeof repository === "object" && repository != null
-      ? readString((repository as { full_name?: unknown }).full_name)
-      : null;
   return {
     deliveryId,
     eventName,
-    action: readString(parsed.action),
-    installationId,
-    organizationLogin,
-    repositoryFullName,
+    action: parsed.action ?? null,
+    installationId: parsed.installation.id,
+    organizationLogin: parsed.organization?.login ?? null,
+    repositoryFullName: parsed.repository?.full_name ?? null,
+    repositoryOwnerLogin: parsed.repository?.owner?.login ?? null,
+    installationAccountLogin: parsed.installation.account?.login ?? null,
     payload: parsed,
   };
 }
 
 export function assertInstallationOwnership(
   binding: GitHubInstallationBinding,
-  webhook: Pick<VerifiedGitHubWebhook, "installationId" | "organizationLogin">,
+  webhook: Pick<
+    VerifiedGitHubWebhook,
+    "installationId" | "organizationLogin" | "repositoryOwnerLogin" | "installationAccountLogin"
+  >,
 ): void {
+  const owner =
+    binding.accountType === "User"
+      ? (webhook.repositoryOwnerLogin ?? webhook.installationAccountLogin)
+      : (webhook.organizationLogin ?? webhook.installationAccountLogin);
   if (
     binding.installationId !== webhook.installationId ||
-    webhook.organizationLogin == null ||
-    binding.accountLogin.toLowerCase() !== webhook.organizationLogin.toLowerCase()
+    owner == null ||
+    binding.accountLogin.toLowerCase() !== owner.toLowerCase()
   ) {
     throw new Error("GitHub installation does not belong to the organization context.");
   }

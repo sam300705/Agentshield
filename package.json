@@ -34,7 +34,8 @@
     "db:push": "prisma db push",
     "db:seed": "prisma db seed",
     "dev:worker": "pnpm --filter @agentshield/api dev:worker",
-    "db:validate": "prisma validate"
+    "db:validate": "prisma validate",
+    "test:phase1-round2": "node --import tsx scripts/verify-phase1-round2.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.0.0"

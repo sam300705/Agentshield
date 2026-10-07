@@ -3,7 +3,7 @@ import { createServer, type Server } from "node:http";
 import express from "express";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createRateLimiter } from "./rateLimit.js";
+import { createRateLimiter, rateLimitRouteIdentity } from "./rateLimit.js";
 
 const servers: Server[] = [];
 
@@ -87,6 +87,13 @@ it("bounds active bucket cardinality without evicting existing limits", () => {
     next,
   );
   expect(res.status).toHaveBeenLastCalledWith(429);
+  expect(res.json).toHaveBeenLastCalledWith({
+    error: {
+      code: "RATE_LIMITED",
+      message: "Too many active request identities. Try again later.",
+      correlationId: "unknown",
+    },
+  });
   limiter(
     { ip: "identity-0", method: "GET", path: "/" } as unknown as express.Request,
     res as unknown as express.Response,
@@ -94,4 +101,20 @@ it("bounds active bucket cardinality without evicting existing limits", () => {
   );
   expect(next).toHaveBeenCalledTimes(10000);
   expect(res.status).toHaveBeenLastCalledWith(429);
+  expect(res.json).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      error: expect.objectContaining({ correlationId: "unknown" }) as unknown,
+    }),
+  );
+});
+
+it("shares the admission budget across random IDs and versioned aliases before routing", async () => {
+  const app = express();
+  app.use(createRateLimiter({ enabled: true, max: 1, windowMs: 60_000 }));
+  app.get("/api/v1/scans/:id", (_req, res) => res.json({ ok: true }));
+  app.get("/api/scans/:id", (_req, res) => res.json({ ok: true }));
+  const { origin } = await start(app);
+  expect((await fetch(`${origin}/api/v1/scans/a`)).status).toBe(200);
+  expect((await fetch(`${origin}/api/scans/b`)).status).toBe(429);
+  expect(rateLimitRouteIdentity({ method: "GET", path: "/not/a/known/route" })).toBe("GET:other");
 });
