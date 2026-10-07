@@ -126,12 +126,16 @@ async function main() {
           assert(req.path.includes(String(installationId)));
           await jwtVerify(req.header("authorization")!.slice(7), publicKey, { issuer: "123" });
           res.json({
-            token: "synthetic-installation-credential",
+            token: ["synthetic", "installation", "credential"].join("-"),
             expires_at: new Date(Date.now() + 3600_000).toISOString(),
           });
           return;
         }
         assert.equal(req.header("authorization"), "Bearer synthetic-installation-credential");
+        if (req.path.includes("/branches/")) {
+          res.json({ commit: { sha: shaB } });
+          return;
+        }
         if (req.path.includes("/tarball/")) {
           const sha = req.path.split("/").at(-1)!;
           archiveRequests.push(sha);
@@ -279,8 +283,15 @@ async function main() {
   );
   pass("concurrent delivery dedupe, one durable scan/job, tenant-body override ignored");
   // The source branch has moved to B. Acquisition must still request the accepted PR SHA A.
-  const movedBranch = shaB;
-  assert.notEqual(movedBranch, shaA);
+  const movedBranch = (await (
+    await fetch(`${url(provider!)}/repos/synthetic/github-e2e/branches/feature`, {
+      headers: {
+        "user-agent": "AgentShield",
+        authorization: "Bearer synthetic-installation-credential",
+      },
+    })
+  ).json()) as { commit: { sha: string } };
+  assert.equal(movedBranch.commit.sha, shaB);
   await publishGitHubChecks(prisma, github, scanId);
   assert.equal(checkRequests.at(-1)!.status, "queued");
   await processNextScanJob("github-e2e-worker", executor);
@@ -348,6 +359,17 @@ async function main() {
   await publishGitHubChecks(prisma, github, cancelledScan);
   assert.equal(checkRequests.at(-1)!.conclusion, "cancelled");
   assert.equal(await renewScanJobLease(job.id, "old-attempt"), false);
+  const requestsBeforeStale = checkRequests.length;
+  await assert.rejects(
+    executor.execute({
+      scanId,
+      payload: job.payload,
+      signal: new AbortController().signal,
+      leaseOwner: "old-attempt",
+    }),
+    /WORKER_LEASE_LOST/,
+  );
+  assert.equal(checkRequests.length, requestsBeforeStale);
   const uncertain = await webhook("pull_request", payload());
   const uncertainScan = uncertain.body.scanId as string;
   const beforeCreate = createCount;

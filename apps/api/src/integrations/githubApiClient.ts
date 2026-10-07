@@ -47,6 +47,7 @@ export interface GitHubApiClientOptions {
   apiVersion?: string;
   now?: () => number;
   installationToken?: string;
+  signal?: AbortSignal;
 }
 
 export class FetchGitHubAppClient
@@ -57,6 +58,7 @@ export class FetchGitHubAppClient
   private readonly apiVersion: string;
   private readonly now: () => number;
   private readonly installationToken: string | undefined;
+  private readonly signal: AbortSignal | undefined;
 
   constructor(
     private readonly config: GitHubAppConfig,
@@ -69,6 +71,7 @@ export class FetchGitHubAppClient
     this.apiVersion = options.apiVersion ?? DEFAULT_API_VERSION;
     this.now = options.now ?? Date.now;
     this.installationToken = options.installationToken;
+    this.signal = options.signal;
   }
 
   withInstallationToken(token: string): FetchGitHubAppClient {
@@ -79,6 +82,18 @@ export class FetchGitHubAppClient
       apiVersion: this.apiVersion,
       now: this.now,
       installationToken: token,
+      ...(this.signal == null ? {} : { signal: this.signal }),
+    });
+  }
+
+  withSignal(signal: AbortSignal): FetchGitHubAppClient {
+    return new FetchGitHubAppClient(this.config, {
+      fetchImpl: this.fetchImpl,
+      apiBaseUrl: this.apiBaseUrl,
+      apiVersion: this.apiVersion,
+      now: this.now,
+      signal,
+      ...(this.installationToken == null ? {} : { installationToken: this.installationToken }),
     });
   }
 
@@ -106,7 +121,10 @@ export class FetchGitHubAppClient
           method,
           headers,
           redirect: "error",
-          signal: AbortSignal.timeout(8_000),
+          signal:
+            this.signal == null
+              ? AbortSignal.timeout(8_000)
+              : AbortSignal.any([this.signal, AbortSignal.timeout(8_000)]),
           ...(body == null ? {} : { body: JSON.stringify(body) }),
         });
       } catch {

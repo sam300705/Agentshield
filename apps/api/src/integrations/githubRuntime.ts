@@ -70,6 +70,18 @@ export function createGitHubExecutor(client: PrismaClient, github: FetchGitHubAp
   );
   return {
     async execute(input: Parameters<typeof executor.execute>[0]) {
+      if (input.leaseOwner != null) {
+        const owned = await client.scanJob.findFirst({
+          where: {
+            scanId: input.scanId,
+            lockedBy: input.leaseOwner,
+            status: "RUNNING",
+            leaseExpiresAt: { gt: new Date() },
+            cancelRequestedAt: null,
+          },
+        });
+        if (owned == null) throw new Error("WORKER_LEASE_LOST");
+      }
       // Publication reads only durable state. Scan attempts never publish their own output.
       await publishGitHubChecks(client, github, input.scanId);
       return executor.execute(input);

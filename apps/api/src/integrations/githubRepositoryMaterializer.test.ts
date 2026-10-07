@@ -159,6 +159,8 @@ describe("GitHubRepositoryMaterializer", () => {
   it.each([
     ["path traversal", createTar([{ name: "repo/../../escape.txt", body: "x" }])],
     ["absolute path", createTar([{ name: "/absolute.txt", body: "x" }])],
+    ["Windows drive", createTar([{ name: "C:/escape.txt", body: "x" }])],
+    ["Windows drive relative", createTar([{ name: "C:escape.txt", body: "x" }])],
     ["symlink", createTar([{ name: "repo/link", type: "symlink", linkname: "/tmp/escape" }])],
     ["hardlink", createTar([{ name: "repo/link", type: "hardlink", linkname: "repo/file" }])],
     ["device", createTar([{ name: "repo/device", type: "device" }])],
@@ -170,6 +172,21 @@ describe("GitHubRepositoryMaterializer", () => {
       await expect(
         fixture.materializer.materialize(githubPayload(), workspace, new AbortController().signal),
       ).rejects.toThrow();
+    } finally {
+      await rm(workspace, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects excessive directory depth", async () => {
+    const fixture = makeFixture({
+      archive: createTar([{ name: "repo/a/b/c.txt", body: "x" }]),
+      limits: { maxDepth: 3 },
+    });
+    const workspace = await mkdtemp(path.join(os.tmpdir(), "agentshield-materializer-test-"));
+    try {
+      await expect(
+        fixture.materializer.materialize(githubPayload(), workspace, new AbortController().signal),
+      ).rejects.toThrow("GITHUB_ARCHIVE_DEPTH_LIMIT");
     } finally {
       await rm(workspace, { recursive: true, force: true });
     }

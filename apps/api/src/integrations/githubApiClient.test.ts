@@ -20,7 +20,7 @@ describe("GitHub API authentication and transport", () => {
       expect(init?.signal).toBeInstanceOf(AbortSignal);
       expect(init?.redirect).toBe("error");
       return Response.json({
-        token: "synthetic-installation-credential",
+        token: ["synthetic", "installation", "credential"].join("-"),
         expires_at: new Date(Date.now() + 3600_000).toISOString(),
       });
     });

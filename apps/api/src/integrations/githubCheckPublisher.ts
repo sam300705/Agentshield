@@ -25,6 +25,7 @@ export async function publishGitHubChecks(
   for (const candidate of pending) {
     await client.$transaction(
       async (tx) => {
+        const provider = github.withSignal(AbortSignal.timeout(40_000));
         const lock = await tx.$queryRaw<
           Array<{ locked: boolean }>
         >`SELECT pg_try_advisory_xact_lock(hashtextextended(${`github-check:${candidate.scanId}`}, 0)) AS locked`;
@@ -33,6 +34,8 @@ export async function publishGitHubChecks(
           where: { scanId: candidate.scanId },
         });
         if (publication.status === "STOPPED" || publication.nextAttemptAt > new Date()) return;
+        // Keep job state stable while publishing. Queue/result writers lock job before scan.
+        await tx.$queryRaw`SELECT "id" FROM "ScanJob" WHERE "scanId" = ${candidate.scanId} FOR SHARE`;
         const scan = await tx.scan.findUniqueOrThrow({
           where: { id: candidate.scanId },
           include: {
@@ -68,8 +71,8 @@ export async function publishGitHubChecks(
             throw new GitHubApiError(403, false);
           const [owner, name] = repository.fullName.split("/");
           if (owner == null || name == null) throw new GitHubApiError(0, false);
-          const token = await github.createInstallationToken(installation.installationId);
-          const checks = github.withInstallationToken(token.token);
+          const token = await provider.createInstallationToken(installation.installationId);
+          const checks = provider.withInstallationToken(token.token);
           const counts: Record<string, number> = {};
           let outcome: AgentShieldOutcome = "ALLOW";
           const rank: Record<AgentShieldOutcome, number> = {

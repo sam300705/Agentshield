@@ -125,7 +125,10 @@ state are persisted. Workers publish queued before claiming, in-progress from du
 and completed after durable results. Publication is independent of the scan executor's result:
 old attempts have no client through which to publish their own findings.
 
-A per-scan PostgreSQL transaction advisory lock serializes publishers. On create uncertainty/crash,
+A per-scan PostgreSQL transaction advisory lock serializes publishers. A job share lock keeps
+the durable state stable during publication, following the queue’s job-before-scan lock order.
+The complete provider operation has a 40-second deadline inside a 60-second transaction;
+an old executor must prove its lease before requesting publication. On create uncertainty/crash,
 the publisher reconciles the exact `external_id` on that SHA (bounded 10 pages), rather than choosing
 by name alone, before creating. Retries update the persisted Check. GitHub does not expose an atomic
 create-idempotency key: there remains a provider visibility/crash window after an unacknowledged create;
