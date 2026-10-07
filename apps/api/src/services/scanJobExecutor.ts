@@ -15,6 +15,7 @@ export interface ScanJobExecutionInput {
   scanId: string;
   payload: unknown;
   signal: AbortSignal;
+  leaseOwner?: string;
 }
 
 export interface ScanJobExecutor {
@@ -27,8 +28,16 @@ export class ConfiguredScanJobExecutor implements ScanJobExecutor {
   async execute(input: ScanJobExecutionInput): Promise<string> {
     const payload = scanJobPayloadSchema.parse(input.payload);
     if (payload.provider === "LOCAL" && payload.repositoryId === "local-demo") {
+      if (process.env.NODE_ENV === "production") throw new Error("DEMO_DISABLED");
       if (payload.organizationId.length === 0) throw new Error("SCAN_ORGANIZATION_REQUIRED");
-      return runDemoScan(input.scanId, payload.organizationId, payload.correlationId, input.signal);
+      return runDemoScan(
+        input.scanId,
+        payload.organizationId,
+        payload.correlationId,
+        input.signal,
+        input.leaseOwner,
+        payload.requester,
+      );
     }
 
     if (this.workspaceProvider == null) {
@@ -55,6 +64,7 @@ export class ConfiguredScanJobExecutor implements ScanJobExecutor {
           policyBundleVersion: payload.policyBundleVersion,
           options,
           signal: input.signal,
+          ...(input.leaseOwner == null ? {} : { leaseOwner: input.leaseOwner }),
         },
         input.scanId,
       );

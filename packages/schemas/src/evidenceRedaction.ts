@@ -42,7 +42,14 @@ function sanitizeUnknown(value: unknown): JsonValue {
   if (Array.isArray(value)) return value.map(sanitizeUnknown);
   if (typeof value === "object") {
     return Object.fromEntries(
-      Object.entries(value).map(([key, nested]) => [sanitizeString(key), sanitizeUnknown(nested)]),
+      Object.entries(value).map(([key, nested]) => [
+        sanitizeString(key),
+        /^(?:password|token|secret|api[_-]?key|authorization|private[_-]?key|client[_-]?secret|AWS_SECRET_ACCESS_KEY)$/i.test(
+          key,
+        )
+          ? redact("SECRET")
+          : sanitizeUnknown(nested),
+      ]),
     );
   }
   return redact("UNSUPPORTED_VALUE");

@@ -182,7 +182,7 @@ router.post(
 );
 router.get(
   "/api/audit-events",
-  requirePermission("scan:read"),
+  requirePermission("audit:read"),
   asyncHandler(listAuditEventsController),
 );
 router.get(

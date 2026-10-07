@@ -23,19 +23,18 @@ function assertSafeSeedTarget(): void {
   }
 }
 
-async function clearDatabase() {
-  await prisma.auditEvent.deleteMany();
-  await prisma.policyDecision.deleteMany();
-  await prisma.remediation.deleteMany();
-  await prisma.approval.deleteMany();
-  await prisma.dependency.deleteMany();
-  await prisma.finding.deleteMany();
-  await prisma.scan.deleteMany();
-}
-
 async function main() {
   assertSafeSeedTarget();
-  await clearDatabase();
+  const existing = await prisma.scan.findFirst({
+    where: {
+      organizationId: "demo-organization",
+      metadata: { path: ["labels"], array_contains: ["phase-2-seed"] },
+    },
+  });
+  if (existing != null) {
+    console.warn("Demo seed already exists; preserving persisted history.");
+    return;
+  }
 
   const organization = await prisma.organization.upsert({
     where: { slug: "demo-organization" },

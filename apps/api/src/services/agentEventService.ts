@@ -2,7 +2,7 @@ import { Prisma } from "@prisma/client";
 import { createHash, randomUUID } from "node:crypto";
 
 import { canonicalJson, createIntegrityChain, redactEvidence } from "@agentshield/policy-engine";
-import { agentEventInputSchema, type AgentEventInput } from "@agentshield/schemas";
+import { agentEventInputSchema, sanitizeText, type AgentEventInput } from "@agentshield/schemas";
 
 import { prisma } from "../db/prisma.js";
 
@@ -138,7 +138,13 @@ export async function ingestAgentEvent(
   rawInput: AgentEventInput,
   retryOnConcurrency = true,
 ): Promise<AgentEventIngestResult> {
-  const input = agentEventInputSchema.parse(rawInput) as ParsedAgentEvent;
+  const parsed = agentEventInputSchema.parse(rawInput) as ParsedAgentEvent;
+  const input = {
+    ...parsed,
+    summary: sanitizeText(parsed.summary),
+    source: sanitizeText(parsed.source),
+    ...(parsed.resource == null ? {} : { resource: sanitizeText(parsed.resource) }),
+  };
   const expectedHash = payloadHash(input);
 
   const existing = await findExisting(input);

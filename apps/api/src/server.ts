@@ -11,6 +11,7 @@ import helmet from "helmet";
 import { ZodError } from "zod";
 
 import { sanitizeText } from "@agentshield/schemas";
+import { ServiceError } from "./security/serviceError.js";
 
 import { getRuntimeConfig } from "./config.js";
 import { router } from "./routes/index.js";
@@ -59,12 +60,50 @@ export function createServer(): Express {
   app.use(((error: unknown, _request: Request, response: Response, next) => {
     void next;
 
+    if (error instanceof ServiceError) {
+      response.status(error.status).json({
+        error: {
+          code: error.code,
+          message: error.message,
+          correlationId: getCorrelationId(response),
+        },
+      });
+      return;
+    }
+    if (typeof error === "object" && error != null && "status" in error && error.status === 413) {
+      response.status(400).json({
+        error: {
+          code: "REQUEST_TOO_LARGE",
+          message: "Request body exceeds the allowed size.",
+          correlationId: getCorrelationId(response),
+        },
+      });
+      return;
+    }
+    if (error instanceof SyntaxError && "status" in error && error.status === 400) {
+      response.status(400).json({
+        error: {
+          code: "INVALID_JSON",
+          message: "Request JSON is invalid.",
+          correlationId: getCorrelationId(response),
+        },
+      });
+      return;
+    }
     if (error instanceof ZodError) {
       response.status(400).json({
         error: {
           code: "VALIDATION_ERROR",
           message: "Request validation failed.",
-          issues: error.issues,
+          issues: error.issues.slice(0, 100).map(({ code, path }) => ({
+            code,
+            path: path
+              .slice(0, 32)
+              .map((segment) =>
+                typeof segment === "string" ? sanitizeText(segment).slice(0, 128) : segment,
+              ),
+            message: "Invalid value.",
+          })),
           correlationId: getCorrelationId(response),
         },
       });
@@ -75,7 +114,7 @@ export function createServer(): Express {
       JSON.stringify({
         level: "error",
         correlationId: getCorrelationId(response),
-        message: sanitizeText(error instanceof Error ? error.message : "Unknown error"),
+        message: "Request failed.",
       }),
     );
     response.status(500).json({
