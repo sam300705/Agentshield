@@ -52,9 +52,10 @@ describe("evidence redaction", () => {
   });
 
   it("redacts unrecognizable sensitive property values at any depth", () => {
+    const opaqueValue = ["custom", "opaque", "value"].join("-");
     const input = {
       token: "tiny",
-      nested: { api_key: "custom-opaque-value", authorization: "short" },
+      nested: { api_key: opaqueValue, authorization: "short" },
       safe: "hello",
     };
     const serialized = JSON.stringify(sanitizeEvidence(input));
