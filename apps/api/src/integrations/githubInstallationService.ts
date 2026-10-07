@@ -135,7 +135,16 @@ export async function applyGitHubInstallationEvent(
     suspend: "SUSPENDED",
     unsuspend: "ACTIVE",
   };
-  const status = webhook.eventName === "installation" ? statuses[webhook.action ?? ""] : undefined;
+  const status =
+    webhook.eventName === "installation" && Object.hasOwn(statuses, webhook.action ?? "")
+      ? statuses[webhook.action ?? ""]
+      : undefined;
+  if (webhook.eventName === "installation" && status == null) return;
+  if (
+    webhook.eventName === "installation_repositories" &&
+    !["added", "removed"].includes(webhook.action ?? "")
+  )
+    return;
   if (installation.status === "DELETED" && webhook.action !== "created") return;
   if (status != null)
     await tx.gitHubInstallation.update({ where: { id: installation.id }, data: { status } });

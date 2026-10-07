@@ -284,7 +284,7 @@ async function main() {
   pass("concurrent delivery dedupe, one durable scan/job, tenant-body override ignored");
   // The source branch has moved to B. Acquisition must still request the accepted PR SHA A.
   const movedBranch = (await (
-    await fetch(`${url(provider!)}/repos/synthetic/github-e2e/branches/feature`, {
+    await fetch(`${url(provider)}/repos/synthetic/github-e2e/branches/feature`, {
       headers: {
         "user-agent": "AgentShield",
         authorization: "Bearer synthetic-installation-credential",

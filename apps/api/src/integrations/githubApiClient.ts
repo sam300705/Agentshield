@@ -302,7 +302,7 @@ export class FetchGitHubAppClient
         check_runs: Array<{ id: number; external_id: string }>;
       }>(
         "GET",
-        `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}/commits/${headSha}/check-runs?check_name=AgentShield%20Security&per_page=100&page=${page}`,
+        `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}/commits/${headSha}/check-runs?check_name=AgentShield%20Security&app_id=${encodeURIComponent(this.config.appId)}&filter=all&per_page=100&page=${page}`,
         this.requireInstallationToken(),
       );
       const found = data.check_runs.find((run) => run.external_id === externalId);
