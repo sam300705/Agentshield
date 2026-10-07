@@ -1,8 +1,10 @@
 import "./env.js";
 
+import { reportError } from "./errorReporter.js";
 import { hostname } from "node:os";
 import { randomUUID } from "node:crypto";
 
+import { recordWorkerHealth } from "./workerHealth.js";
 import { getRuntimeConfig } from "./config.js";
 import { prisma } from "./db/prisma.js";
 import { createGitHubExecutor, githubClientFromEnvironment } from "./integrations/githubRuntime.js";
@@ -26,11 +28,30 @@ async function run(): Promise<void> {
       message: "worker started",
     }),
   );
+  await recordWorkerHealth("starting");
+  await prisma.$queryRaw`SELECT 1`;
+  await recordWorkerHealth("running");
+  const healthTimer = setInterval(() => {
+    void prisma.$queryRaw`SELECT 1`
+      .then(() => recordWorkerHealth(stopping ? "stopping" : "running"))
+      .catch(() => recordWorkerHealth("unavailable"))
+      .catch(() => undefined);
+  }, 10_000);
   try {
     while (!stopping) {
-      if (github != null) await publishGitHubChecks(prisma, github);
-      const processed = await processNextScanJob(workerId, executor, shutdownController.signal);
-      if (github != null) await publishGitHubChecks(prisma, github);
+      if (process.env.WORKER_PAUSED === "true") {
+        if (runOnce) break;
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        continue;
+      }
+      if (github != null && process.env.GITHUB_CHECKS_PAUSED !== "true")
+        await publishGitHubChecks(prisma, github);
+      if (stopping) break;
+      const processed = await processNextScanJob(workerId, executor, shutdownController.signal, {
+        drainOnShutdown: true,
+      });
+      if (!stopping && github != null && process.env.GITHUB_CHECKS_PAUSED !== "true")
+        await publishGitHubChecks(prisma, github);
       if (!processed && runOnce) break;
       if (!processed) await new Promise((resolve) => setTimeout(resolve, 1000));
     }
@@ -46,6 +67,8 @@ async function run(): Promise<void> {
       );
     }
   } finally {
+    clearInterval(healthTimer);
+    await recordWorkerHealth("stopping");
     await prisma.$disconnect();
   }
 }
@@ -53,6 +76,7 @@ async function run(): Promise<void> {
 function shutdown(signal: string): void {
   if (stopping) return;
   stopping = true;
+  shutdownController.abort();
   console.warn(
     JSON.stringify({
       level: "info",
@@ -62,13 +86,16 @@ function shutdown(signal: string): void {
       message: "worker stopping",
     }),
   );
-  shutdownController.abort();
+  // Drain the current job with its heartbeat active. A forced process exit leaves
+  // the durable lease for normal stale recovery; shutdown is not user cancellation.
+  setTimeout(() => process.exit(1), 110_000).unref();
 }
 
 process.on("SIGINT", () => shutdown("SIGINT"));
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 
 run().catch(() => {
+  reportError({ service: "agentshield-worker", code: "WORKER_STOPPED" });
   console.error(
     JSON.stringify({
       level: "error",

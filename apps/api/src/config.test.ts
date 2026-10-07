@@ -5,7 +5,10 @@ import { getRuntimeConfig } from "./config.js";
 
 const validProductionEnv = {
   NODE_ENV: "production",
-  DATABASE_URL: "postgresql://app:secret@example.com:5432/agentshield",
+  REDIS_REST_URL: "https://redis.example.com",
+  REDIS_REST_TOKEN: "synthetic",
+  RECEIPT_SIGNING_REQUIRED: "false",
+  DATABASE_URL: "postgresql://app:secret@example.com:5432/agentshield?sslmode=require",
   CORS_ORIGIN: "https://dashboard.example.com",
   AUTH_MODE: "oidc",
   OIDC_ISSUER: "https://issuer.example.com",

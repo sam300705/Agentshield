@@ -1,26 +1,30 @@
-FROM node:22-bookworm-slim AS build
-
-ENV PNPM_HOME=/pnpm
-ENV PATH=$PNPM_HOME:$PATH
+# Refresh the patch pin after dependency/container review; release using the resulting image digest.
+FROM node:22.23.3-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS build
+RUN apt-get update && apt-get upgrade -y --no-install-recommends && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 RUN npm install --global pnpm@9.15.4
-
 WORKDIR /app
 COPY . .
 RUN pnpm install --frozen-lockfile
-RUN pnpm db:generate
-RUN pnpm --filter @agentshield/api build
+RUN DATABASE_URL=postgresql://build-only/unused DATABASE_URL_UNPOOLED=postgresql://build-only/unused pnpm db:generate && pnpm --filter @agentshield/api build
+RUN pnpm --filter @agentshield/api deploy --prod /prod/api
+# pnpm deploy copies dependencies but Prisma's generated client is a build artifact.
+RUN for target in /prod/api/node_modules/.pnpm/@prisma+client*/node_modules; do \
+      mkdir -p "$target/.prisma"; \
+      cp -R node_modules/.pnpm/@prisma+client*/node_modules/.prisma/client "$target/.prisma/"; \
+    done && \
+    find /prod/api/dist -type f \( -name '*.test.*' -o -name '*.map' \) -delete && \
+    rm -rf /prod/api/dist/testing
 
-FROM node:22-bookworm-slim AS runtime
+# A controlled, one-off release step, never the API/worker startup command.
+FROM build AS migrations
+CMD ["pnpm", "db:deploy"]
 
+FROM node:22.23.3-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS runtime
+RUN apt-get update && apt-get upgrade -y --no-install-recommends && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 ENV NODE_ENV=production
-ENV PNPM_HOME=/pnpm
-ENV PATH=$PNPM_HOME:$PATH
 WORKDIR /app
-
-RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
-COPY --from=build /app /app
-
+COPY --from=build --chown=node:node /prod/api /app/apps/api
 USER node
-
 EXPOSE 3001
 CMD ["node", "apps/api/dist/index.js"]

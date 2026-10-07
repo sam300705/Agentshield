@@ -1,5 +1,6 @@
 import "./env.js";
 
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import cors from "cors";
 import express, {
   type ErrorRequestHandler,
@@ -13,9 +14,16 @@ import { ZodError } from "zod";
 import { sanitizeText } from "@agentshield/schemas";
 import { ServiceError } from "./security/serviceError.js";
 
+import { prisma } from "./db/prisma.js";
 import { getRuntimeConfig } from "./config.js";
+import { readinessController } from "./controllers/systemController.js";
+import { observeRequest, renderHttpMetrics } from "./observability.js";
 import { router } from "./routes/index.js";
-import { createRateLimiter } from "./security/rateLimit.js";
+import {
+  createDistributedRateLimiter,
+  InMemoryRateLimitStore,
+} from "./security/distributedRateLimit.js";
+import { RedisRestRateLimitStore } from "./security/redisRest.js";
 import { getCorrelationId, requestContext } from "./security/auth.js";
 
 const DEFAULT_PORT = 3001;
@@ -24,21 +32,68 @@ export function createServer(): Express {
   const config = getRuntimeConfig();
   const app = express();
 
+  app.set("trust proxy", config.TRUST_PROXY_HOPS);
   app.disable("x-powered-by");
-  app.use(helmet());
+  app.use(
+    helmet({
+      frameguard: { action: "deny" },
+      contentSecurityPolicy: { directives: { frameAncestors: ["'none'"] } },
+    }),
+  );
   app.use(
     cors({
       origin: config.corsOrigin,
     }),
   );
-  app.use(requestContext);
+  app.get("/health/live", (_request, response) => response.json({ status: "alive" }));
+  app.get("/health/ready", (request, response, next) => {
+    void readinessController(request, response).catch(next);
+  });
+  const store =
+    config.REDIS_REST_URL != null && config.REDIS_REST_TOKEN != null
+      ? new RedisRestRateLimitStore(config.REDIS_REST_URL, config.REDIS_REST_TOKEN)
+      : new InMemoryRateLimitStore();
+  const limits = {
+    store,
+    enabled: config.rateLimitEnabled,
+    max: config.RATE_LIMIT_MAX,
+    windowMs: config.RATE_LIMIT_WINDOW_MS,
+  };
+  app.use(observeRequest);
   app.use(
-    createRateLimiter({
-      enabled: config.rateLimitEnabled,
-      max: config.RATE_LIMIT_MAX,
-      windowMs: config.RATE_LIMIT_WINDOW_MS,
+    createDistributedRateLimiter({
+      ...limits,
+      keyForRequest: (request) =>
+        `agentshield:limit:ingress:${createHash("sha256")
+          .update(request.ip || "unknown")
+          .digest("hex")}`,
     }),
   );
+  app.get("/ops/metrics", (request, response) => {
+    const credential = config.METRICS_TOKEN;
+    if (credential == null) {
+      response.status(404).end();
+      return;
+    }
+    const authorization = request.header("authorization") ?? "";
+    if (
+      authorization.length > 512 ||
+      !timingSafeEqual(
+        createHash("sha256").update(authorization).digest(),
+        createHash("sha256").update(`Bearer ${credential}`).digest(),
+      )
+    ) {
+      response.status(401).end();
+      return;
+    }
+    response.type("text/plain").send(renderHttpMetrics());
+  });
+  app.use(requestContext);
+  const actorLimiter = createDistributedRateLimiter(limits);
+  app.use((request, response, next) => {
+    if (response.locals.actor != null) actorLimiter(request, response, next);
+    else next();
+  });
   app.use(
     "/api/v1/integrations/github/webhooks",
     express.raw({ type: "application/json", limit: "25mb" }),
@@ -129,12 +184,30 @@ export function createServer(): Express {
   return app;
 }
 
-export function startServer(
+export async function startServer(
   port = Number(process.env.PORT ?? process.env.API_PORT ?? DEFAULT_PORT),
 ) {
+  const config = getRuntimeConfig();
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("PORT_INVALID");
+  if (config.NODE_ENV === "production") {
+    await Promise.race([
+      prisma.$queryRaw`SELECT 1`,
+      new Promise<never>((_resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("STARTUP_DATABASE_UNAVAILABLE")), 5000);
+        timer.unref();
+      }),
+    ]);
+    if (config.REDIS_REST_URL != null && config.REDIS_REST_TOKEN != null)
+      await new RedisRestRateLimitStore(config.REDIS_REST_URL, config.REDIS_REST_TOKEN).increment(
+        `agentshield:startup:${randomUUID()}`,
+        1000,
+      );
+  }
   const app = createServer();
 
   return app.listen(port, () => {
-    console.warn(`AgentShield API listening on port ${port}`);
+    console.warn(
+      JSON.stringify({ level: "info", service: "agentshield-api", event: "listening", port }),
+    );
   });
 }

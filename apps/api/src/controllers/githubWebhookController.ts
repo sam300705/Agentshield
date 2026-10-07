@@ -1,6 +1,7 @@
 import { ZodError } from "zod";
 import type { Request, Response } from "express";
 
+import { recordOperation } from "../observability.js";
 import { getRuntimeConfig } from "../config.js";
 import { prisma } from "../db/prisma.js";
 import { getCorrelationId } from "../security/auth.js";
@@ -14,6 +15,7 @@ import { enqueueRepositoryScan } from "../services/scanQueue.js";
 import { processGitHubWebhookDelivery } from "../integrations/githubWebhookLifecycle.js";
 
 function sendWebhookError(response: Response, status: number, code: string, message: string): void {
+  if (status === 401) recordOperation("webhook_invalid_signature");
   response.status(status).json({
     error: { code, message, correlationId: getCorrelationId(response) },
   });
@@ -162,6 +164,7 @@ export async function githubWebhookController(request: Request, response: Respon
       });
       return lifecycle;
     });
+    if (result.status === "DUPLICATE") recordOperation("webhook_duplicate");
     response.status(result.status === "DUPLICATE" ? 200 : 202).json({
       ...result,
       status: result.status.toLowerCase(),

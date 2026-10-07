@@ -3,7 +3,7 @@ name: AgentShield CI
 on:
   pull_request:
   push:
-    branches: [main, "phase1/**", "phase2/**", "phase3/**"]
+    branches: [main, "phase1/**", "phase2/**", "phase3/**", "phase4/**"]
 
 permissions:
   contents: read
@@ -50,6 +50,7 @@ jobs:
           docker compose config --quiet
           pnpm db:up
           pnpm db:down
+      - run: pnpm audit --prod
       - run: pnpm db:generate
       - run: pnpm exec prisma validate
       - run: pnpm db:deploy
@@ -60,6 +61,17 @@ jobs:
       - run: pnpm test
       - run: pnpm test:docs
       - run: pnpm build
+      - name: Build production dashboard with public OIDC configuration
+        env:
+          VITE_APP_MODE: live
+          VITE_API_BASE_URL: https://api.example.com
+          VITE_OIDC_ISSUER: https://identity.example.com
+          VITE_OIDC_CLIENT_ID: ci-public-spa
+          VITE_OIDC_REDIRECT_URI: https://web.example.com/callback
+          VITE_OIDC_AUTHORIZATION_ENDPOINT: https://identity.example.com/authorize
+          VITE_OIDC_TOKEN_ENDPOINT: https://identity.example.com/token
+          VITE_OIDC_JWKS_URI: https://identity.example.com/keys
+        run: pnpm --filter @agentshield/web-dashboard build
       - name: Verify local API dashboard and worker startup
         run: |
           cp .env.example .env
@@ -119,3 +131,50 @@ jobs:
         if: always() && hashFiles('agentshield-source.sarif') != ''
         with:
           sarif_file: agentshield-source.sarif
+
+  production-container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and run production API and worker images
+        run: bash scripts/verify-production-container.sh
+      - name: Record complete production image vulnerability report
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0 verified release
+        with:
+          version: v0.75.0
+          image-ref: agentshield:ops
+          scanners: vuln
+          format: json
+          output: agentshield-image-report.json
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+          exit-code: "0"
+      - name: Summarize image review
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const report = JSON.parse(fs.readFileSync('agentshield-image-report.json', 'utf8'));
+          const counts = {};
+          for (const result of report.Results ?? []) for (const vulnerability of result.Vulnerabilities ?? []) {
+            const key = `${vulnerability.Severity}:${vulnerability.FixedVersion ? 'fixable' : 'unfixed'}`;
+            counts[key] = (counts[key] ?? 0) + 1;
+          }
+          console.log(JSON.stringify({ imageReview: counts }));
+          NODE
+      - name: Preserve image review artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: agentshield-image-review
+          path: agentshield-image-report.json
+          retention-days: 14
+      - name: Scan production image for fixable high and critical vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0 verified release
+        with:
+          version: v0.75.0
+          image-ref: agentshield:ops
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"

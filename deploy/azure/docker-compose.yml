@@ -3,7 +3,7 @@ services:
     build:
       context: ../..
       dockerfile: Dockerfile
-    command: sh -c "pnpm db:deploy && node apps/api/dist/index.js"
+    command: ["node", "apps/api/dist/index.js"]
     env_file:
       - ./azure.env
     environment:
@@ -11,6 +11,12 @@ services:
     expose:
       - "3001"
     restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: ["/tmp:rw,nosuid,nodev,noexec,size=1g"]
+    stop_grace_period: 120s
     healthcheck:
       test:
         [
@@ -32,6 +38,18 @@ services:
     env_file:
       - ./azure.env
     restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: ["/tmp:rw,nosuid,nodev,noexec,size=1g"]
+    stop_grace_period: 120s
+    healthcheck:
+      test: ["CMD", "node", "apps/api/dist/workerProbe.js"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     depends_on:
       api:
         condition: service_healthy

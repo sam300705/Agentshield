@@ -64,7 +64,13 @@
       "@prisma/engines",
       "esbuild",
       "prisma"
-    ]
+    ],
+    "overrides": {
+      "body-parser": "1.20.6",
+      "qs": "6.16.0",
+      "proxy-addr": "2.0.8",
+      "deepmerge-ts": "8.0.0"
+    }
   },
   "type": "module"
 }

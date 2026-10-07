@@ -1,8 +1,4 @@
-import {
-  createSecurityReceipt,
-  evaluateFindings,
-  signSecurityReceipt,
-} from "@agentshield/policy-engine";
+import { createSecurityReceipt, evaluateFindings } from "@agentshield/policy-engine";
 import { generateRemediation } from "@agentshield/remediation";
 import { enrichDependencies, runScan, type DependencyAdvisoryResult } from "@agentshield/scanner";
 import {
@@ -20,6 +16,7 @@ import { AuditAction, Prisma, ScanStatus, type PrismaClient } from "@prisma/clie
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { receiptSignerFromEnvironment } from "../security/receiptSigner.js";
 import { prisma } from "../db/prisma.js";
 
 const SYSTEM_ACTOR = "System";
@@ -365,15 +362,8 @@ async function persistSecurityReceipt(
     completedAt,
     gateResult: gateResultForDecisions(decisions),
   });
-  const privateKey = process.env.RECEIPT_SIGNING_PRIVATE_KEY?.trim() || undefined;
-  const keyId = process.env.RECEIPT_SIGNING_KEY_ID?.trim() || undefined;
-  if ((privateKey == null) !== (keyId == null)) {
-    throw new Error("Receipt signing requires both private key and key ID.");
-  }
-  const signed =
-    privateKey != null && keyId != null
-      ? signSecurityReceipt(receipt, { keyId, privateKey })
-      : null;
+  const signer = receiptSignerFromEnvironment();
+  const signed = signer == null ? null : await signer.sign(receipt);
   await tx.securityReceipt.upsert({
     where: { scanId },
     update: {

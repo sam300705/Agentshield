@@ -460,8 +460,10 @@ export async function processNextScanJob(
   workerId = `worker-${randomUUID()}`,
   executor: ScanJobExecutor = defaultScanJobExecutor,
   shutdownSignal?: AbortSignal,
+  options: { drainOnShutdown?: boolean } = {},
 ): Promise<boolean> {
-  if (shutdownSignal?.aborted === true) return false;
+  const isStopping = () => shutdownSignal?.aborted === true;
+  if (isStopping()) return false;
   await recoverAbandonedJobs();
   const candidate = await prisma.scanJob.findFirst({
     where: {
@@ -476,10 +478,11 @@ export async function processNextScanJob(
     orderBy: { createdAt: "asc" },
     include: { scan: { select: { organizationId: true } } },
   });
-  if (candidate == null) return false;
+  if (candidate == null || isStopping()) return false;
 
   const leaseOwner = `${workerId}:${randomUUID()}`;
   const claimed = await prisma.$transaction(async (tx) => {
+    if (isStopping()) return { count: 0 };
     const result = await tx.scanJob.updateMany({
       where: {
         id: candidate.id,
@@ -521,11 +524,25 @@ export async function processNextScanJob(
     return result;
   });
   if (claimed.count !== 1) return true;
+  console.warn(
+    JSON.stringify({
+      level: "info",
+      service: "agentshield-worker",
+      event: "job_claimed",
+      workerId,
+      jobId: candidate.id,
+      scanId: candidate.scanId,
+      correlationId: candidate.correlationId,
+      attempt: candidate.attempts + 1,
+    }),
+  );
 
   const abortController = new AbortController();
   const shutdownHandler = () => abortController.abort();
-  if (shutdownSignal != null && shutdownSignal.aborted) abortController.abort();
-  shutdownSignal?.addEventListener("abort", shutdownHandler, { once: true });
+  if (options.drainOnShutdown !== true) {
+    if (isStopping()) abortController.abort();
+    shutdownSignal?.addEventListener("abort", shutdownHandler, { once: true });
+  }
   let leaseLost = false;
   let timeoutTriggered = false;
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;

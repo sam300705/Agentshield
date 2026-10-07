@@ -130,7 +130,9 @@ export function ScanResults() {
                   <tr
                     className="cursor-pointer hover:bg-slate-50"
                     key={row.id}
-                    onClick={() => navigate(`/scans/${scanId}/findings/${row.original.id}`)}
+                    onClick={() => {
+                      void navigate(`/scans/${scanId}/findings/${row.original.id}`);
+                    }}
                   >
                     {row.getVisibleCells().map((cell) => (
                       <td className="px-4 py-3 text-slate-700" key={cell.id}>
