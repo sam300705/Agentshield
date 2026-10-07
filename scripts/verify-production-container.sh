@@ -4,6 +4,12 @@ set -euo pipefail
 task_tmp=$(mktemp -d)
 fixture_pid=''
 cleanup() {
+  result=$?
+  if test "$result" -ne 0; then
+    for container in agentshield-ops-api-a agentshield-ops-api-b agentshield-ops-worker; do
+      docker logs --tail 40 "$container" 2>&1 || true
+    done
+  fi
   if test -n "$fixture_pid"; then kill "$fixture_pid" 2>/dev/null || true; fi
   docker rm -f agentshield-ops-api-a agentshield-ops-api-b agentshield-ops-worker agentshield-ops-db agentshield-ops-redis >/dev/null 2>&1 || true
   rm -rf "$task_tmp"

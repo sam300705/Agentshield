@@ -70,8 +70,8 @@ export function createServer(): Express {
     }),
   );
   app.get("/ops/metrics", (request, response) => {
-    const token = config.METRICS_TOKEN;
-    if (token == null) {
+    const credential = config.METRICS_TOKEN;
+    if (credential == null) {
       response.status(404).end();
       return;
     }
@@ -80,7 +80,7 @@ export function createServer(): Express {
       authorization.length > 512 ||
       !timingSafeEqual(
         createHash("sha256").update(authorization).digest(),
-        createHash("sha256").update(`Bearer ${token}`).digest(),
+        createHash("sha256").update(`Bearer ${credential}`).digest(),
       )
     ) {
       response.status(401).end();

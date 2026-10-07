@@ -8,8 +8,10 @@ RUN pnpm install --frozen-lockfile
 RUN DATABASE_URL=postgresql://build-only/unused DATABASE_URL_UNPOOLED=postgresql://build-only/unused pnpm db:generate && pnpm --filter @agentshield/api build
 RUN pnpm --filter @agentshield/api deploy --prod /prod/api
 # pnpm deploy copies dependencies but Prisma's generated client is a build artifact.
-RUN mkdir -p /prod/api/node_modules/.prisma && \
-    cp -R node_modules/.pnpm/@prisma+client*/node_modules/.prisma/client /prod/api/node_modules/.prisma/ && \
+RUN for target in /prod/api/node_modules/.pnpm/@prisma+client*/node_modules; do \
+      mkdir -p "$target/.prisma"; \
+      cp -R node_modules/.pnpm/@prisma+client*/node_modules/.prisma/client "$target/.prisma/"; \
+    done && \
     find /prod/api/dist -type f \( -name '*.test.*' -o -name '*.map' \) -delete && \
     rm -rf /prod/api/dist/testing
 
