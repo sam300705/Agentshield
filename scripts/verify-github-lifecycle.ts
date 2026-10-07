@@ -51,7 +51,7 @@ function pushPayload(
   return {
     installation: { id: deliveryInstallationId },
     organization: { login: "synthetic-org" },
-    repository: { full_name: repositoryName },
+    repository: { id: repositoryName === fullName ? 123 : 124, full_name: repositoryName },
     ref: "refs/heads/main",
     after: commitSha,
   };
@@ -87,7 +87,7 @@ async function main(): Promise<void> {
         id: repositoryId,
         organizationId,
         provider: "GITHUB",
-        externalId: `synthetic-external-${suffix}`,
+        externalId: "123",
         fullName,
         defaultBranch: "main",
         githubInstallationId: installationRowId,

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { validateGitHubPrivateKey } from "./integrations/githubApiClient.js";
 
 const blankToUndefined = (value: unknown) =>
   typeof value === "string" && value.trim() === "" ? undefined : value;
@@ -78,10 +79,26 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
       "GITHUB_SCAN_POLICY_BUNDLE_VERSION is required when GitHub scan lifecycle is enabled",
     );
   }
+  if (githubScanLifecycleEnabled && !githubMaterializationEnabled)
+    issues.push(
+      "GITHUB_MATERIALIZATION_ENABLED must be true when GitHub scan lifecycle is enabled",
+    );
   if (githubMaterializationEnabled && !githubScanLifecycleEnabled) {
     issues.push(
       "GITHUB_SCAN_LIFECYCLE_ENABLED must be true when GitHub materialization is enabled",
     );
+  }
+  if (githubMaterializationEnabled) {
+    if (value.GITHUB_APP_ID == null || !/^[1-9][0-9]*$/.test(value.GITHUB_APP_ID))
+      issues.push("GITHUB_APP_ID is required and must be numeric");
+    if (value.GITHUB_PRIVATE_KEY == null) issues.push("GITHUB_PRIVATE_KEY is required");
+    else {
+      try {
+        validateGitHubPrivateKey(value.GITHUB_PRIVATE_KEY);
+      } catch {
+        issues.push("GITHUB_PRIVATE_KEY is invalid");
+      }
+    }
   }
   if (value.AUTH_MODE === "oidc" && !localDemoMode) {
     if (value.OIDC_ISSUER == null) issues.push("OIDC_ISSUER is required for oidc authentication");

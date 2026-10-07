@@ -73,6 +73,10 @@ enum AuditAction {
   AGENT_EVENT_INGESTED
   POLICY_SIMULATED
   RECEIPT_GENERATED
+  GITHUB_DELIVERY_ACCEPTED
+  GITHUB_INSTALLATION_UPDATED
+  GITHUB_CHECK_PUBLISHED
+  GITHUB_CHECK_FAILED
 }
 
 enum OrganizationRole {
@@ -165,6 +169,7 @@ model Scan {
   receipt        SecurityReceipt?
   advisories     Advisory[]
   githubDeliveries GitHubWebhookDelivery[]
+  githubCheck GitHubCheckPublication?
 
   @@unique([id, organizationId])
   @@index([status])
@@ -340,6 +345,7 @@ model Repository {
   externalId           String
   fullName             String
   defaultBranch        String              @default("main")
+  githubAccessible Boolean @default(true)
   githubInstallationId String?
   githubInstallation   GitHubInstallation? @relation(fields: [githubInstallationId], references: [id], onDelete: SetNull)
   createdAt            DateTime            @default(now())
@@ -643,6 +649,10 @@ model GitHubWebhookDelivery {
   eventName          String
   action             String?
   repositoryFullName String?
+  repositoryExternalId String?
+  pullRequestNumber Int?
+  commitSha String?
+  ref String?
   status             String             @default("RECEIVED")
   receivedAt         DateTime           @default(now())
   processedAt        DateTime?
@@ -715,4 +725,18 @@ model AgentBaseline {
 
   @@unique([organizationId, repositoryId, agentIdentifier])
   @@index([organizationId, agentIdentifier])
+}
+
+model GitHubCheckPublication {
+  scanId String @id
+  scan Scan @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  checkRunId String?
+  publishedState String?
+  status String @default("PENDING")
+  attempts Int @default(0)
+  nextAttemptAt DateTime @default(now())
+  failureCode String?
+  updatedAt DateTime @updatedAt
+
+  @@index([status, nextAttemptAt])
 }

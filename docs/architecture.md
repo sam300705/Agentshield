@@ -89,3 +89,15 @@ Scans/jobs follow `QUEUED -> RUNNING -> COMPLETED`, or `RUNNING -> FAILED` with 
 Known credential formats and sensitive evidence properties are redacted before persistence and receipt hashing. Review reasons and event text/resources are sanitized. Database query/error payload logging is disabled; API/worker failures use opaque messages rather than arbitrary exception contents. Validation errors return only bounded code/path/generic-message issues. Lists have limits up to 100 and bounded pages; repository listing is now paginated. Stable 400/401/403/404/409/429/500 envelopes retain correlation IDs.
 
 `pnpm test:backend-security` exercises real PostgreSQL and real JWT/JWKS verification, including concurrent claims/reviews, tenant access, retries, overlapping recovery, cancellation, rollback, audit, and separate-client persistence reads. It creates and removes only uniquely named synthetic tenants and does not reset existing data. Existing unit, gateway, GitHub lifecycle, scanner/SARIF and browser checks remain CI gates.
+
+## Phase 3 provider execution
+
+GitHub webhook acceptance and enqueue share a transaction. Installations establish tenant
+ownership; immutable numeric repository IDs and selected-access state authorize work. Jobs carry
+the accepted full commit SHA and installation ID. The production worker resolves that mapping,
+checks the remote numeric identity and extracts only that SHA into an isolated bounded workspace.
+Existing scanner/policy/evidence persistence and attempt fencing remain authoritative.
+`GitHubCheckPublication` independently schedules queued/in-progress/completed output and safe
+publication retries under a per-scan advisory lock. Provider faults preserve completed scan data.
+See [the GitHub architecture and owner setup](./github-app.md) for limits, permissions, external-ID
+reconciliation, provider caveats and the blocked real-provider gate.

@@ -14,6 +14,7 @@ export interface GitHubRepositoryBinding {
   repositoryId: string;
   fullName: string;
   installationId: number;
+  externalId: string;
 }
 
 export interface GitHubRepositoryBindingResolver {
@@ -29,6 +30,7 @@ export interface GitHubArchiveLimits {
   maxExtractedBytes: number;
   maxFiles: number;
   maxFileBytes: number;
+  maxDepth: number;
 }
 
 const DEFAULT_LIMITS: GitHubArchiveLimits = {
@@ -36,6 +38,7 @@ const DEFAULT_LIMITS: GitHubArchiveLimits = {
   maxExtractedBytes: 1_000 * 1024 * 1024,
   maxFiles: 100_000,
   maxFileBytes: 100 * 1024 * 1024,
+  maxDepth: 64,
 };
 
 export interface GitHubRepositoryMaterializerOptions {
@@ -48,7 +51,10 @@ export interface GitHubRepositoryMaterializerOptions {
 
 function splitRepositoryName(fullName: string): { owner: string; repository: string } {
   const parts = fullName.split("/");
-  if (parts.length !== 2 || parts.some((part) => !/^[A-Za-z0-9_.-]{1,100}$/.test(part))) {
+  if (
+    parts.length !== 2 ||
+    parts.some((part) => part === "." || part === ".." || !/^[A-Za-z0-9_.-]{1,100}$/.test(part))
+  ) {
     throw new Error("GITHUB_REPOSITORY_IDENTITY_INVALID");
   }
   return { owner: parts[0]!, repository: parts[1]! };
@@ -57,8 +63,9 @@ function splitRepositoryName(fullName: string): { owner: string; repository: str
 function validateRelativeArchivePath(workspacePath: string, archivePath: string): void {
   const normalized = archivePath.replaceAll("\\", "/");
   if (
+    normalized.length > 4096 ||
     normalized.startsWith("/") ||
-    /^[A-Za-z]:\//.test(normalized) ||
+    /^[A-Za-z]:/.test(normalized) ||
     normalized.split("/").some((segment) => segment === ".." || segment === "")
   ) {
     throw new Error("GITHUB_ARCHIVE_PATH_INVALID");
@@ -109,7 +116,6 @@ export class GitHubRepositoryMaterializer implements RepositoryMaterializer {
       binding == null ||
       binding.organizationId !== payload.organizationId ||
       binding.repositoryId !== payload.repositoryId ||
-      binding.fullName !== payload.repositoryName ||
       binding.installationId !== Number(payload.integrationId)
     ) {
       throw new Error("GITHUB_REPOSITORY_MAPPING_INVALID");
@@ -118,6 +124,9 @@ export class GitHubRepositoryMaterializer implements RepositoryMaterializer {
     const token = await this.options.tokenProvider.getInstallationToken(binding.installationId);
     if (token.length === 0) throw new Error("GITHUB_INSTALLATION_TOKEN_UNAVAILABLE");
     const { owner, repository } = splitRepositoryName(binding.fullName);
+    const remote = await this.options.archiveClient.getRepository(owner, repository, token);
+    if (String(remote.id) !== binding.externalId)
+      throw new Error("GITHUB_REPOSITORY_IDENTITY_MISMATCH");
     const archive = await this.options.archiveClient.downloadRepositoryArchive(
       owner,
       repository,
@@ -172,7 +181,9 @@ export class GitHubRepositoryMaterializer implements RepositoryMaterializer {
         }
         if (failure != null) return;
         try {
-          validateRelativeArchivePath(workspacePath, entry.path);
+          validateRelativeArchivePath(workspacePath, entry.path.replace(/\/$/, ""));
+          if (entry.path.split("/").length > thisLimits.maxDepth)
+            throw new Error("GITHUB_ARCHIVE_DEPTH_LIMIT");
         } catch (error) {
           fail(error instanceof Error ? error.message : "GITHUB_ARCHIVE_PATH_INVALID");
           return;
@@ -181,12 +192,12 @@ export class GitHubRepositoryMaterializer implements RepositoryMaterializer {
           fail("GITHUB_ARCHIVE_LINK_OR_DEVICE_REJECTED");
           return;
         }
+        files += 1;
+        if (files > thisLimits.maxFiles) {
+          fail("GITHUB_ARCHIVE_FILE_COUNT_LIMIT");
+          return;
+        }
         if (entry.type === "File") {
-          files += 1;
-          if (files > thisLimits.maxFiles) {
-            fail("GITHUB_ARCHIVE_FILE_COUNT_LIMIT");
-            return;
-          }
           if (entry.size > thisLimits.maxFileBytes) {
             fail("GITHUB_ARCHIVE_FILE_SIZE_LIMIT");
             return;

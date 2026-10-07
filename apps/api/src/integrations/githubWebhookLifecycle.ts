@@ -1,6 +1,6 @@
 import { createRepositoryScanSchema } from "@agentshield/schemas";
 
-import { assertInstallationOwnership, type VerifiedGitHubWebhook } from "./githubApp.js";
+import { type VerifiedGitHubWebhook } from "./githubApp.js";
 import type { GitHubDeliveryStore } from "./githubDeliveryStore.js";
 import { enqueueRepositoryScan } from "../services/scanQueue.js";
 
@@ -15,12 +15,14 @@ export interface GitHubWebhookLifecycleClient {
         organizationId: true;
         accountLogin: true;
         installationId: true;
+        status: true;
       };
     }): Promise<{
       id: string;
       organizationId: string;
       accountLogin: string;
       installationId: number;
+      status: string;
     } | null>;
   };
   repository: {
@@ -28,7 +30,8 @@ export interface GitHubWebhookLifecycleClient {
       where: {
         organizationId: string;
         provider: string;
-        fullName: string;
+        externalId: string;
+        githubAccessible: true;
         githubInstallationId: string;
       };
       select: { id: true; fullName: true; defaultBranch: true };
@@ -42,6 +45,7 @@ export interface GitHubWebhookLifecycleOptions {
   scanLifecycleEnabled: boolean;
   policyBundleVersion?: string;
   enqueueScan?: typeof enqueueRepositoryScan;
+  updateRepositoryMetadata?: (repositoryId: string, fullName: string) => Promise<void>;
 }
 
 export type GitHubWebhookLifecycleResult =
@@ -65,11 +69,18 @@ function readCommitContext(
   if (webhook.eventName === "push") {
     const ref = readString(payload.ref);
     const commitSha = readString(payload.after, 64);
-    return ref != null && commitSha != null && FULL_COMMIT_SHA.test(commitSha)
+    return payload.deleted !== true &&
+      ref?.startsWith("refs/heads/") === true &&
+      commitSha != null &&
+      !/^0{40}$/.test(commitSha) &&
+      FULL_COMMIT_SHA.test(commitSha)
       ? { ref, commitSha }
       : null;
   }
-  if (webhook.eventName === "pull_request") {
+  if (
+    webhook.eventName === "pull_request" &&
+    ["opened", "synchronize", "reopened", "ready_for_review"].includes(webhook.action ?? "")
+  ) {
     const pullRequest = readObject(payload.pull_request);
     const head = readObject(pullRequest?.head);
     const ref = readString(head?.ref);
@@ -105,7 +116,10 @@ export async function processGitHubWebhookDelivery(
     return { status: "IGNORED", reason: "UNSUPPORTED_EVENT", scanQueued: false };
   }
 
-  if (webhook.repositoryFullName == null) {
+  if (
+    webhook.repositoryFullName == null ||
+    !/^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/.test(webhook.repositoryFullName)
+  ) {
     await options.deliveryStore.markIgnored(
       organizationId,
       webhook.deliveryId,
@@ -116,9 +130,19 @@ export async function processGitHubWebhookDelivery(
 
   const installation = await options.client.gitHubInstallation.findUnique({
     where: { installationId: webhook.installationId },
-    select: { id: true, organizationId: true, accountLogin: true, installationId: true },
+    select: {
+      id: true,
+      organizationId: true,
+      accountLogin: true,
+      installationId: true,
+      status: true,
+    },
   });
-  if (installation == null || installation.organizationId !== organizationId) {
+  if (
+    installation == null ||
+    installation.organizationId !== organizationId ||
+    installation.status !== "ACTIVE"
+  ) {
     await options.deliveryStore.markIgnored(
       organizationId,
       webhook.deliveryId,
@@ -126,22 +150,23 @@ export async function processGitHubWebhookDelivery(
     );
     return { status: "IGNORED", reason: "UNKNOWN_INSTALLATION", scanQueued: false };
   }
-  try {
-    assertInstallationOwnership(installation, webhook);
-  } catch {
+  const repositoryPayload = readObject(webhook.payload.repository);
+  const externalId = repositoryPayload?.id;
+  if (typeof externalId !== "number" || !Number.isSafeInteger(externalId) || externalId <= 0) {
     await options.deliveryStore.markIgnored(
       organizationId,
       webhook.deliveryId,
-      "UNKNOWN_INSTALLATION",
+      "UNKNOWN_REPOSITORY",
     );
-    return { status: "IGNORED", reason: "UNKNOWN_INSTALLATION", scanQueued: false };
+    return { status: "IGNORED", reason: "UNKNOWN_REPOSITORY", scanQueued: false };
   }
 
   const repository = await options.client.repository.findFirst({
     where: {
       organizationId,
       provider: "GITHUB",
-      fullName: webhook.repositoryFullName,
+      externalId: String(externalId),
+      githubAccessible: true,
       githubInstallationId: installation.id,
     },
     select: { id: true, fullName: true, defaultBranch: true },
@@ -154,6 +179,9 @@ export async function processGitHubWebhookDelivery(
     );
     return { status: "IGNORED", reason: "UNKNOWN_REPOSITORY", scanQueued: false };
   }
+
+  if (repository.fullName !== webhook.repositoryFullName)
+    await options.updateRepositoryMetadata?.(repository.id, webhook.repositoryFullName);
 
   const commitContext = readCommitContext(webhook);
   if (commitContext == null) {

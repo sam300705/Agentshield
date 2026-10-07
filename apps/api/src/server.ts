@@ -41,7 +41,7 @@ export function createServer(): Express {
   );
   app.use(
     "/api/v1/integrations/github/webhooks",
-    express.raw({ type: "application/json", limit: "1mb" }),
+    express.raw({ type: "application/json", limit: "25mb" }),
   );
   app.use(express.json({ limit: "1mb" }));
 
