@@ -7,7 +7,7 @@ import {
 } from "@agentshield/policy-engine";
 import type { Request, Response } from "express";
 
-import { getCorrelationId } from "../security/auth.js";
+import { getCorrelationId, getActor } from "../security/auth.js";
 
 const startedAt = new Date("2026-08-19T10:42:01.000Z");
 const completedAt = new Date("2026-08-19T10:42:29.000Z");
@@ -86,6 +86,16 @@ const demoEventInputs: AgentEventInput[] = [
 ];
 
 export function getDemoControlPlaneController(_request: Request, response: Response): void {
+  if (!getActor(response).demo) {
+    response.status(403).json({
+      error: {
+        code: "DEMO_DISABLED",
+        message: "Demo data requires explicit demo mode.",
+        correlationId: getCorrelationId(response),
+      },
+    });
+    return;
+  }
   const events = createIntegrityChain(demoEventInputs);
   const graph = buildAttackGraph(events);
   const fingerprint = calculateAgentFingerprint(events, {

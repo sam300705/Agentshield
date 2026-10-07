@@ -1,3 +1,4 @@
+import { sanitizeText } from "@agentshield/schemas";
 import { ApprovalStatus, AuditAction } from "@prisma/client";
 import { type Request, type Response } from "express";
 import { z } from "zod";
@@ -12,16 +13,18 @@ import {
 
 const paginationQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(25),
-  page: z.coerce.number().int().min(1).default(1),
+  page: z.coerce.number().int().min(1).max(1_000_000).default(1),
 });
 
 const approvalParamsSchema = z.object({
   approvalId: z.string().min(1).max(128),
 });
 
-const approvalActionBodySchema = z.object({
-  reason: z.string().trim().min(1).max(1000).optional(),
-});
+const approvalActionBodySchema = z
+  .object({
+    reason: z.string().trim().min(1).max(1000).transform(sanitizeText).optional(),
+  })
+  .strict();
 
 function getPagination(query: Request["query"]) {
   const pagination = paginationQuerySchema.parse(query);
@@ -64,13 +67,13 @@ async function updateApprovalStatus(
   const approval = await prisma.approval.findFirst({
     where: {
       id: approvalId,
-      status: ApprovalStatus.PENDING,
       finding: { scan: { organizationId: actor.organizationId } },
     },
     include: { finding: true },
   });
 
   if (approval == null) return { kind: "NOT_FOUND" as const };
+  if (approval.status !== ApprovalStatus.PENDING) return { kind: "CONFLICT" as const };
   if (!canIndependentlyApprove(actor, approval.requestedBy)) return { kind: "FORBIDDEN" as const };
 
   const data = await prisma.$transaction(async (tx) => {

@@ -3,7 +3,7 @@ name: AgentShield CI
 on:
   pull_request:
   push:
-    branches: [main, "phase1/**"]
+    branches: [main, "phase1/**", "phase2/**"]
 
 permissions:
   contents: read
@@ -79,6 +79,7 @@ jobs:
           curl --fail --silent --header "x-agentshield-demo-user: maya" http://127.0.0.1:3001/api/v1/demo/control-plane >/dev/null
           WORKER_MODE=once pnpm --filter @agentshield/api worker
       - run: pnpm test:integration
+      - run: pnpm test:backend-security
       - run: pnpm test:gateway
       - run: pnpm test:github-lifecycle
       - name: Install Playwright browser

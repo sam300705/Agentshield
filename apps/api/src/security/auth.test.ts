@@ -13,6 +13,11 @@ describe("RBAC and separation of duties", () => {
   it("enforces role permissions", () => {
     expect(hasPermission("VIEWER", "scan:read")).toBe(true);
     expect(hasPermission("VIEWER", "scan:run")).toBe(false);
+    expect(hasPermission("VIEWER", "audit:read")).toBe(false);
+    expect(hasPermission("DEVELOPER", "approval:review")).toBe(false);
+    expect(hasPermission("SECURITY_REVIEWER", "audit:read")).toBe(true);
+    expect(hasPermission("SECURITY_REVIEWER", "organization:manage")).toBe(false);
+    expect(hasPermission("ORGANIZATION_ADMINISTRATOR", "organization:manage")).toBe(true);
     expect(hasPermission("POLICY_ADMINISTRATOR", "policy:manage")).toBe(true);
   });
 

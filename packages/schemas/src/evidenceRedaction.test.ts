@@ -51,6 +51,19 @@ describe("evidence redaction", () => {
     expect(sanitized).toContain("[REDACTED:BEARER_TOKEN]");
   });
 
+  it("redacts unrecognizable sensitive property values at any depth", () => {
+    const input = {
+      token: "tiny",
+      nested: { api_key: "custom-opaque-value", authorization: "short" },
+      safe: "hello",
+    };
+    const serialized = JSON.stringify(sanitizeEvidence(input));
+    expect(serialized).not.toContain("tiny");
+    expect(serialized).not.toContain("custom-opaque-value");
+    expect(serialized).not.toContain("short");
+    expect(serialized).toContain("hello");
+  });
+
   it("preserves safe text and public URLs", () => {
     expect(sanitizeText("See https://example.test/docs for details.")).toBe(
       "See https://example.test/docs for details.",

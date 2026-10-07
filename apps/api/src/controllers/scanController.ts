@@ -6,6 +6,7 @@ import {
 } from "@agentshield/schemas";
 import { z } from "zod";
 
+import { ServiceError } from "../security/serviceError.js";
 import { prisma } from "../db/prisma.js";
 import { getActor, getCorrelationId } from "../security/auth.js";
 import {
@@ -32,7 +33,10 @@ export async function listRepositoriesController(
   response: Response,
 ): Promise<void> {
   const actor = getActor(response);
+  const { limit, page, skip } = getPagination(request.query);
   const repositories = await prisma.repository.findMany({
+    take: limit,
+    skip,
     where: { organizationId: actor.organizationId },
     orderBy: { fullName: "asc" },
     select: {
@@ -45,7 +49,7 @@ export async function listRepositoriesController(
       updatedAt: true,
     },
   });
-  response.json({ data: repositories });
+  response.json({ page, limit, data: repositories });
 }
 
 export async function createRepositoryScanController(
@@ -55,6 +59,12 @@ export async function createRepositoryScanController(
   const actor = getActor(response);
   const body = createRepositoryScanSchema.parse(request.body);
   const suppliedKey = request.header("idempotency-key");
+  if (suppliedKey != null && !/^[A-Za-z0-9._:-]{8,128}$/.test(suppliedKey))
+    throw new ServiceError(
+      400,
+      "INVALID_IDEMPOTENCY_KEY",
+      "Idempotency key must contain 8 to 128 safe characters.",
+    );
   const idempotencyKey =
     suppliedKey != null && /^[A-Za-z0-9._:-]{8,128}$/.test(suppliedKey)
       ? suppliedKey
@@ -109,7 +119,15 @@ export async function cancelScanController(request: Request, response: Response)
     where: { scanId, scan: { organizationId: actor.organizationId } },
     select: { id: true },
   });
-  if (job == null || !(await requestJobCancellation(job.id, actor.organizationId))) {
+  if (
+    job == null ||
+    !(await requestJobCancellation(
+      job.id,
+      actor.organizationId,
+      actor.id,
+      getCorrelationId(response),
+    ))
+  ) {
     response.status(404).json({
       error: {
         code: "SCAN_JOB_NOT_FOUND",
@@ -128,7 +146,18 @@ export async function cancelScanController(request: Request, response: Response)
 
 export async function runDemoScanController(request: Request, response: Response): Promise<void> {
   const actor = getActor(response);
+  if (!actor.demo)
+    throw new ServiceError(403, "DEMO_DISABLED", "Demo scans require explicit demo mode.");
+  z.object({})
+    .strict()
+    .parse(request.body ?? {});
   const suppliedKey = request.header("idempotency-key");
+  if (suppliedKey != null && !/^[A-Za-z0-9._:-]{8,128}$/.test(suppliedKey))
+    throw new ServiceError(
+      400,
+      "INVALID_IDEMPOTENCY_KEY",
+      "Idempotency key must contain 8 to 128 safe characters.",
+    );
   const idempotencyKey =
     suppliedKey != null && /^[A-Za-z0-9._:-]{8,128}$/.test(suppliedKey)
       ? suppliedKey
@@ -137,6 +166,7 @@ export async function runDemoScanController(request: Request, response: Response
     idempotencyKey,
     actor.organizationId,
     getCorrelationId(response),
+    actor.id,
   );
 
   response.status(202).json({

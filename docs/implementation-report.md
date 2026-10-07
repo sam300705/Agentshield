@@ -158,3 +158,30 @@ The automated repository-hardening work is complete for the safe scope represent
 [5]: https://github.com/sam300705/Agentshield/actions/runs/33059409595 "Latest AgentShield CI quality run"
 [6]: https://vercel.com/sam300705s-projects/agentshield "AgentShield Vercel project"
 [7]: https://github.blog/changelog/2025-10-28-upcoming-deprecation-of-codeql-action-v3/ "GitHub CodeQL Action v3 deprecation notice"
+
+## Phase 2 backend integrity audit (2026-10-07)
+
+Base: `phase1/consolidate-stabilize@2a993b9a0bd8299d178ce2fc1c86803cef09acc4`. Working branch: `phase2/backend-core-security`. Phase 1 PR #9 remains unmerged; the Phase 2 PR is stacked on that branch. No old feature branch or production deployment is included.
+
+| Capability at audit                                                                       | Classification                                        | Disposition                                                                                                 |
+| ----------------------------------------------------------------------------------------- | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Real Prisma/PostgreSQL and four committed migrations                                      | VERIFIED CORRECT in Phase 1; preserved                | Add one integrity migration, no fake client or db-push release path.                                        |
+| Scanner, policy, remediation, redaction, receipt contracts                                | IMPLEMENTED / covered by existing tests               | Preserve categories and deterministic evaluation; strengthen sensitive-property handling.                   |
+| Scoped scan/finding/SBOM/receipt/approval/audit reads                                     | IMPLEMENTED; targetted adversarial verification added | Preserve tenant predicates; bound repository list and pagination.                                           |
+| OIDC verification, actor context, role permissions                                        | IMPLEMENTED BUT WEAK at demo edge/audit permission    | Prevent malformed-header fallback and inherited actor keys; add explicit audit permission.                  |
+| Scan + enqueue transaction                                                                | IMPLEMENTED BUT WEAK                                  | Add creation audit, concurrent uniqueness recovery, request-content conflict, unambiguous tenant key.       |
+| Approval atomic review and independent reviewer                                           | IMPLEMENTED BUT WEAK for finding conflict/reason      | Preserve CAS transaction; return 409 on already-reviewed finding approvals; redact reasons.                 |
+| Job retries, claim, heartbeat, stale recovery                                             | IMPLEMENTED BUT WEAK                                  | Stop exhausted claims; recheck expiry; bound recovery; unique per-claim owner; atomic paired state changes. |
+| Scan result transaction                                                                   | PARTIAL ownership guarantee                           | Fence completion and include job terminal status in evidence transaction.                                   |
+| Tenant parent relationship integrity                                                      | PARTIAL (single-column FKs)                           | Add database owner-consistency constraints on core scan/session/repository/installation links.              |
+| Demo control-plane response                                                               | DEMO ONLY                                             | Retain illustrative data, reject non-demo actors.                                                           |
+| Demo seed reset                                                                           | IMPLEMENTED BUT WEAK                                  | Remove global deletion; preserve existing history and skip existing seed.                                   |
+| Unit mocks                                                                                | MOCKED test isolation only                            | Retain; add actual PostgreSQL and JWT/JWKS integration instead of claiming mocks prove durability.          |
+| Policy administration, evidence storage, simulations, risk graph, baseline administration | PARTIAL / schema or library only                      | Preserve models; no new backend endpoints or infrastructure in this phase.                                  |
+| Production GitHub materialization/provider activation                                     | PARTIAL / explicitly configured integrations          | Preserve existing lifecycle; no Phase 3 expansion.                                                          |
+| Duplicate pagination schemas                                                              | DUPLICATED bounded helpers                            | Bound existing local helpers without broad contract rewrite.                                                |
+| Dead backend paths                                                                        | No verified unused domain path selected               | No speculative deletion.                                                                                    |
+
+Architecture, role matrix, migration constraints, state transitions and evidence boundaries are documented in `architecture.md`. The new `test:backend-security` gate executes real database races and rollback; all previous gates are retained. Final command outcomes and run links are recorded in the PR after CI completes. Database-dependent local commands require Docker/PostgreSQL unavailable in this sandbox; release verification uses the workflow's fresh PostgreSQL 16 service.
+
+Deferred: real provider/OIDC provisioning, broad GitHub lifecycle expansion, new scanner categories, automated patches, cloud/Redis/KMS/telemetry, UI redesign and LLM behavior. This phase does not claim production deployment readiness.

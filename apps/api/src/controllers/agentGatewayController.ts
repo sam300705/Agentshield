@@ -5,6 +5,7 @@ import {
   agentEventInputSchema,
 } from "@agentshield/schemas";
 import type { Request, Response } from "express";
+import { z } from "zod";
 import { prisma } from "../db/prisma.js";
 import { ensureAgentApproval } from "../services/agentApprovalService.js";
 import { ingestAgentEvent } from "../services/agentEventService.js";
@@ -135,17 +136,7 @@ export async function recordAgentEventController(
 
 export async function getReceiptController(request: Request, response: Response): Promise<void> {
   const actor = getActor(response);
-  const scanId = request.params.scanId;
-  if (scanId == null || scanId.length === 0) {
-    response.status(400).json({
-      error: {
-        code: "INVALID_SCAN_ID",
-        message: "A scan ID is required.",
-        correlationId: getCorrelationId(response),
-      },
-    });
-    return;
-  }
+  const { scanId } = z.object({ scanId: z.string().min(1).max(128) }).parse(request.params);
   const receipt = await prisma.securityReceipt.findFirst({
     where: { scanId, scan: { organizationId: actor.organizationId } },
   });

@@ -6,7 +6,7 @@ import { getActor } from "../security/auth.js";
 
 const paginationQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
-  page: z.coerce.number().int().min(1).default(1),
+  page: z.coerce.number().int().min(1).max(1_000_000).default(1),
 });
 
 function getPagination(query: Request["query"]) {

@@ -60,6 +60,10 @@ enum DependencyScope {
 
 enum AuditAction {
   SCAN_CREATED
+  SCAN_STARTED
+  SCAN_FAILED
+  SCAN_CANCELLED
+  SCAN_RECOVERED
   SCAN_COMPLETED
   FINDING_CREATED
   POLICY_DECIDED
@@ -162,6 +166,7 @@ model Scan {
   advisories     Advisory[]
   githubDeliveries GitHubWebhookDelivery[]
 
+  @@unique([id, organizationId])
   @@index([status])
   @@index([repositoryName])
   @@index([organizationId, createdAt])
@@ -343,6 +348,7 @@ model Repository {
   scans                Scan[]
   baselines            AgentBaseline[]
 
+  @@unique([id, organizationId])
   @@unique([organizationId, provider, externalId])
   @@index([organizationId, fullName])
 }
@@ -367,6 +373,7 @@ model AgentSession {
   simulations    PolicySimulation[]
   scans          Scan[]
 
+  @@unique([id, organizationId])
   @@unique([organizationId, correlationId])
   @@index([organizationId, startedAt])
   @@index([repositoryId, startedAt])
@@ -454,6 +461,7 @@ model ScanJob {
   createdAt           DateTime   @default(now())
   updatedAt           DateTime   @updatedAt
 
+  @@index([status, leaseExpiresAt])
   @@index([status, nextAttemptAt])
   @@index([lockedAt])
   @@index([provider, repositoryRef])
@@ -619,6 +627,8 @@ model GitHubInstallation {
   repositories   Repository[]
   deliveries     GitHubWebhookDelivery[]
 
+  @@unique([id, organizationId])
+  @@unique([installationId, organizationId])
   @@unique([organizationId, accountLogin])
   @@index([organizationId, status])
 }

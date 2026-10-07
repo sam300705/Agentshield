@@ -3,7 +3,6 @@ import "./env.js";
 import { hostname } from "node:os";
 import { randomUUID } from "node:crypto";
 
-import { sanitizeText } from "@agentshield/schemas";
 import { getRuntimeConfig } from "./config.js";
 import { prisma } from "./db/prisma.js";
 import { processNextScanJob } from "./services/scanQueue.js";
@@ -63,13 +62,13 @@ function shutdown(signal: string): void {
 process.on("SIGINT", () => shutdown("SIGINT"));
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 
-run().catch((error: unknown) => {
+run().catch(() => {
   console.error(
     JSON.stringify({
       level: "error",
       service: "agentshield-worker",
       workerId,
-      message: sanitizeText(error instanceof Error ? error.message : "Unknown worker error"),
+      message: "Worker stopped after an internal failure.",
     }),
   );
   process.exitCode = 1;

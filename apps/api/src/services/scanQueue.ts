@@ -1,19 +1,18 @@
-import { ScanStatus } from "@prisma/client";
+import { Prisma, ScanStatus } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 
 import {
   createRepositoryScanSchema,
-  sanitizeText,
   scanJobPayloadSchema,
   type CreateRepositoryScan,
   type ScanTrigger,
 } from "@agentshield/schemas";
 
 import { prisma } from "../db/prisma.js";
+import { ServiceError } from "../security/serviceError.js";
 import { defaultScanJobExecutor, type ScanJobExecutor } from "./scanJobExecutor.js";
 
 const STALE_LOCK_MS = 5 * 60 * 1000;
-const MAX_FAILURE_MESSAGE_LENGTH = 500;
 const RETRY_BASE_MS = 1_000;
 const RETRY_MAX_MS = 60_000;
 
@@ -36,102 +35,142 @@ export async function enqueueRepositoryScan(
   trigger: ScanTrigger = "MANUAL",
 ): Promise<{ id: string; scanId: string; status: ScanStatus }> {
   const request = createRepositoryScanSchema.parse(input);
-  const scopedIdempotencyKey = `${organizationId}:${idempotencyKey}`;
+  const scopedIdempotencyKey = JSON.stringify([organizationId, idempotencyKey]);
   const existing = await prisma.scanJob.findUnique({
     where: { idempotencyKey: scopedIdempotencyKey },
   });
-  if (existing != null)
-    return { id: existing.id, scanId: existing.scanId, status: existing.status };
+  const replay = (job: NonNullable<typeof existing>) => {
+    const payload = scanJobPayloadSchema.parse(job.payload);
+    if (
+      payload.repositoryId !== request.repositoryId ||
+      payload.ref !== request.ref ||
+      payload.commitSha !== request.commitSha ||
+      payload.policyBundleVersion !== request.policyBundleVersion ||
+      payload.requester !== requester ||
+      JSON.stringify(payload.options) !== JSON.stringify(request.options)
+    )
+      throw new ServiceError(
+        409,
+        "SCAN_IDEMPOTENCY_CONFLICT",
+        "Idempotency key is already bound to another scan request.",
+      );
+    return { id: job.id, scanId: job.scanId, status: job.status };
+  };
+  if (existing != null) return replay(existing);
 
-  return prisma.$transaction(async (tx) => {
-    const repository = await tx.repository.findFirst({
-      where: { id: request.repositoryId, organizationId },
-      select: {
-        id: true,
-        provider: true,
-        fullName: true,
-        defaultBranch: true,
-        githubInstallationId: true,
-      },
-    });
-    if (repository == null) throw new Error("Repository is not registered for this organization.");
-    const provider = repository.provider.toUpperCase();
-    if (provider !== "GITHUB" && provider !== "LOCAL") {
-      throw new Error("Repository provider is not supported.");
-    }
-    if (provider === "GITHUB") {
-      if (repository.githubInstallationId == null) {
-        throw new Error("GitHub repository installation mapping is missing.");
-      }
-      const installation = await tx.gitHubInstallation.findFirst({
-        where: { id: repository.githubInstallationId, organizationId },
-        select: { id: true },
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const repository = await tx.repository.findFirst({
+        where: { id: request.repositoryId, organizationId },
+        select: {
+          id: true,
+          provider: true,
+          fullName: true,
+          defaultBranch: true,
+          githubInstallationId: true,
+        },
       });
-      if (installation == null || installation.id !== repository.githubInstallationId) {
-        throw new Error("GitHub repository installation mapping is invalid.");
+      if (repository == null)
+        throw new ServiceError(404, "REPOSITORY_NOT_FOUND", "Repository was not found.");
+      const provider = repository.provider.toUpperCase();
+      if (provider !== "GITHUB" && provider !== "LOCAL") {
+        throw new Error("Repository provider is not supported.");
       }
-    }
-    const scan = await tx.scan.create({
-      data: {
-        repositoryName: repository.fullName,
-        repositoryUrl: provider === "GITHUB" ? `https://github.com/${repository.fullName}` : null,
-        branch: request.ref || repository.defaultBranch,
-        ...(request.commitSha == null ? {} : { commitSha: request.commitSha }),
-        status: ScanStatus.QUEUED,
+      if (provider === "GITHUB") {
+        if (repository.githubInstallationId == null) {
+          throw new Error("GitHub repository installation mapping is missing.");
+        }
+        const installation = await tx.gitHubInstallation.findFirst({
+          where: { id: repository.githubInstallationId, organizationId },
+          select: { id: true },
+        });
+        if (installation == null || installation.id !== repository.githubInstallationId) {
+          throw new Error("GitHub repository installation mapping is invalid.");
+        }
+      }
+      const scan = await tx.scan.create({
+        data: {
+          repositoryName: repository.fullName,
+          repositoryUrl: provider === "GITHUB" ? `https://github.com/${repository.fullName}` : null,
+          branch: request.ref || repository.defaultBranch,
+          ...(request.commitSha == null ? {} : { commitSha: request.commitSha }),
+          status: ScanStatus.QUEUED,
+          organizationId,
+          repositoryId: repository.id,
+          metadata: {
+            source: trigger,
+            triggeredBy: requester,
+            correlationId,
+            provider,
+            ref: request.ref,
+            policyBundleVersion: request.policyBundleVersion,
+          },
+        },
+      });
+      const payload = {
         organizationId,
         repositoryId: repository.id,
-        metadata: {
-          source: trigger,
-          triggeredBy: requester,
-          correlationId,
-          provider,
-          ref: request.ref,
-          policyBundleVersion: request.policyBundleVersion,
-        },
-      },
-    });
-    const payload = {
-      organizationId,
-      repositoryId: repository.id,
-      provider,
-      repositoryName: repository.fullName,
-      ...(provider === "GITHUB"
-        ? { repositoryUrl: `https://github.com/${repository.fullName}` }
-        : {}),
-      ref: request.ref,
-      ...(request.commitSha == null ? {} : { commitSha: request.commitSha }),
-      policyBundleVersion: request.policyBundleVersion,
-      trigger,
-      requester,
-      correlationId,
-      options: request.options,
-    };
-    const job = await tx.scanJob.create({
-      data: {
-        scanId: scan.id,
-        idempotencyKey: scopedIdempotencyKey,
-        status: ScanStatus.QUEUED,
         provider,
-        repositoryRef: request.ref,
+        repositoryName: repository.fullName,
+        ...(provider === "GITHUB"
+          ? { repositoryUrl: `https://github.com/${repository.fullName}` }
+          : {}),
+        ref: request.ref,
         ...(request.commitSha == null ? {} : { commitSha: request.commitSha }),
         policyBundleVersion: request.policyBundleVersion,
         trigger,
         requester,
         correlationId,
-        payload,
-      },
-      select: { id: true, scanId: true, status: true },
+        options: request.options,
+      };
+      const job = await tx.scanJob.create({
+        data: {
+          scanId: scan.id,
+          idempotencyKey: scopedIdempotencyKey,
+          status: ScanStatus.QUEUED,
+          provider,
+          repositoryRef: request.ref,
+          ...(request.commitSha == null ? {} : { commitSha: request.commitSha }),
+          policyBundleVersion: request.policyBundleVersion,
+          trigger,
+          requester,
+          correlationId,
+          payload,
+        },
+        select: { id: true, scanId: true, status: true },
+      });
+      await tx.auditEvent.create({
+        data: {
+          actor: requester,
+          action: "SCAN_CREATED",
+          entityType: "Scan",
+          entityId: scan.id,
+          scanId: scan.id,
+          organizationId,
+          correlationId,
+          metadata: { jobId: job.id, trigger },
+        },
+      });
+      return job;
     });
-    return job;
-  });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      const existing = await prisma.scanJob.findUnique({
+        where: { idempotencyKey: scopedIdempotencyKey },
+      });
+      if (existing != null) return replay(existing);
+    }
+    throw error;
+  }
 }
 
 export async function enqueueDemoScan(
   idempotencyKey: string,
   organizationId = "demo-organization",
   correlationId = "system",
+  requester = "demo",
 ) {
-  const scopedIdempotencyKey = `${organizationId}:${idempotencyKey}`;
+  const scopedIdempotencyKey = JSON.stringify([organizationId, idempotencyKey]);
   const existing = await prisma.scanJob.findUnique({
     where: { idempotencyKey: scopedIdempotencyKey },
   });
@@ -164,7 +203,7 @@ export async function enqueueDemoScan(
           metadata: { source: "LOCAL_EXAMPLE", queued: true, correlationId },
         },
       });
-      return tx.scanJob.create({
+      const job = await tx.scanJob.create({
         data: {
           scanId: scan.id,
           idempotencyKey: scopedIdempotencyKey,
@@ -174,7 +213,7 @@ export async function enqueueDemoScan(
           repositoryRef: "local-demo",
           policyBundleVersion: "demo",
           trigger: "MANUAL",
-          requester: "demo",
+          requester,
           correlationId,
           payload: {
             organizationId: organization.id,
@@ -184,14 +223,27 @@ export async function enqueueDemoScan(
             ref: "main",
             policyBundleVersion: "demo",
             trigger: "MANUAL",
-            requester: "demo",
+            requester,
             correlationId,
           },
         },
       });
+      await tx.auditEvent.create({
+        data: {
+          actor: requester,
+          action: "SCAN_CREATED",
+          entityType: "Scan",
+          entityId: scan.id,
+          scanId: scan.id,
+          organizationId: organization.id,
+          correlationId,
+          metadata: { source: "LOCAL_EXAMPLE", jobId: job.id },
+        },
+      });
+      return job;
     });
   } catch (error) {
-    if (error instanceof Error && error.message.includes("Unique constraint")) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       const concurrent = await prisma.scanJob.findUnique({
         where: { idempotencyKey: scopedIdempotencyKey },
       });
@@ -204,52 +256,116 @@ export async function enqueueDemoScan(
 export async function requestJobCancellation(
   jobId: string,
   organizationId: string,
+  actor = "system",
+  correlationId = "system",
 ): Promise<boolean> {
-  const updated = await prisma.scanJob.updateMany({
-    where: {
-      id: jobId,
-      scan: { organizationId },
-      status: { in: [ScanStatus.QUEUED, ScanStatus.RUNNING, ScanStatus.FAILED] },
-    },
-    data: { cancelRequestedAt: new Date() },
+  return prisma.$transaction(async (tx) => {
+    const job = await tx.scanJob.findFirst({ where: { id: jobId, scan: { organizationId } } });
+    if (
+      job == null ||
+      job.status === "COMPLETED" ||
+      job.status === "CANCELLED" ||
+      job.deadLetteredAt != null
+    )
+      return false;
+    const now = new Date();
+    const running = job.status === "RUNNING";
+    const changed = await tx.scanJob.updateMany({
+      where: { id: jobId, status: job.status, cancelRequestedAt: null },
+      data: {
+        cancelRequestedAt: now,
+        ...(running ? {} : { status: "CANCELLED", nextAttemptAt: null }),
+      },
+    });
+    if (changed.count !== 1) return false;
+    if (!running)
+      await tx.scan.updateMany({
+        where: { id: job.scanId, status: { in: ["QUEUED", "FAILED"] } },
+        data: { status: "CANCELLED", completedAt: now },
+      });
+    await tx.auditEvent.create({
+      data: {
+        actor,
+        action: "SCAN_CANCELLED",
+        entityType: "ScanJob",
+        entityId: job.id,
+        scanId: job.scanId,
+        organizationId,
+        correlationId,
+        metadata: { requested: true },
+      },
+    });
+    return true;
   });
-  return updated.count === 1;
 }
 
 export async function recoverAbandonedJobs(now = new Date()): Promise<number> {
-  const staleBefore = new Date(now.getTime() - STALE_LOCK_MS);
-  const staleJobs = await prisma.scanJob.findMany({
-    where: {
-      status: ScanStatus.RUNNING,
-      OR: [
-        { leaseExpiresAt: { lt: now } },
-        { leaseExpiresAt: null, lockedAt: { lt: staleBefore } },
-      ],
+  const staleWhere = {
+    status: ScanStatus.RUNNING,
+    OR: [
+      { leaseExpiresAt: { lt: now } },
+      { leaseExpiresAt: null, lockedAt: { lt: new Date(now.getTime() - STALE_LOCK_MS) } },
+    ],
+  };
+  const jobs = await prisma.scanJob.findMany({
+    where: staleWhere,
+    take: 100,
+    select: {
+      id: true,
+      scanId: true,
+      attempts: true,
+      maxAttempts: true,
+      cancelRequestedAt: true,
+      correlationId: true,
+      scan: { select: { organizationId: true } },
     },
-    select: { id: true, scanId: true },
   });
-  if (staleJobs.length === 0) return 0;
-
-  await prisma.$transaction([
-    prisma.scanJob.updateMany({
-      where: { id: { in: staleJobs.map((job) => job.id) }, status: ScanStatus.RUNNING },
-      data: {
-        status: ScanStatus.FAILED,
-        lockedAt: null,
-        lockedBy: null,
-        leaseExpiresAt: null,
-        lastHeartbeatAt: now,
-        nextAttemptAt: now,
-        failureCode: "WORKER_ABANDONED",
-        failureMessage: "The previous worker stopped responding; the job is eligible for retry.",
-      },
-    }),
-    prisma.scan.updateMany({
-      where: { id: { in: staleJobs.map((job) => job.scanId) }, status: ScanStatus.RUNNING },
-      data: { status: ScanStatus.FAILED },
-    }),
-  ]);
-  return staleJobs.length;
+  let recovered = 0;
+  for (const job of jobs) {
+    recovered += await prisma.$transaction(async (tx) => {
+      const exhausted = job.attempts >= job.maxAttempts;
+      const cancelled = job.cancelRequestedAt != null;
+      const changed = await tx.scanJob.updateMany({
+        where: { id: job.id, ...staleWhere },
+        data: {
+          status: cancelled ? "CANCELLED" : "FAILED",
+          lockedAt: null,
+          lockedBy: null,
+          leaseExpiresAt: null,
+          nextAttemptAt: exhausted || cancelled ? null : now,
+          deadLetteredAt: exhausted && !cancelled ? now : null,
+          failureCode: cancelled
+            ? "CANCELLED"
+            : exhausted
+              ? "RETRIES_EXHAUSTED"
+              : "WORKER_ABANDONED",
+          failureMessage: "Worker lease expired.",
+        },
+      });
+      if (changed.count !== 1) return 0;
+      await tx.scan.updateMany({
+        where: { id: job.scanId, status: { in: ["RUNNING", "QUEUED", "FAILED"] } },
+        data: {
+          status: cancelled ? "CANCELLED" : "FAILED",
+          completedAt: cancelled || exhausted ? now : null,
+        },
+      });
+      await tx.auditEvent.create({
+        data: {
+          actor: "worker:recovery",
+          action: "SCAN_RECOVERED",
+          entityType: "ScanJob",
+          entityId: job.id,
+          scanId: job.scanId,
+          organizationId: job.scan.organizationId,
+          correlationId: job.correlationId,
+          metadata: { exhausted, cancelled },
+        },
+      });
+      return 1;
+    });
+  }
+  return recovered;
 }
 
 export async function renewScanJobLease(
@@ -259,7 +375,12 @@ export async function renewScanJobLease(
   leaseMs = SCAN_LEASE_MS,
 ): Promise<boolean> {
   const updated = await prisma.scanJob.updateMany({
-    where: { id: jobId, status: ScanStatus.RUNNING, lockedBy: workerId },
+    where: {
+      id: jobId,
+      status: ScanStatus.RUNNING,
+      lockedBy: workerId,
+      leaseExpiresAt: { gt: now },
+    },
     data: {
       lockedAt: now,
       leaseExpiresAt: new Date(now.getTime() + leaseMs),
@@ -280,6 +401,9 @@ export async function processNextScanJob(
     where: {
       status: { in: [ScanStatus.QUEUED, ScanStatus.FAILED] },
       cancelRequestedAt: null,
+      deadLetteredAt: null,
+      attempts: { lt: prisma.scanJob.fields.maxAttempts },
+      scan: { status: { in: [ScanStatus.QUEUED, ScanStatus.FAILED] } },
       lockedAt: null,
       OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: new Date() } }],
     },
@@ -288,17 +412,47 @@ export async function processNextScanJob(
   });
   if (candidate == null) return false;
 
-  const claimed = await prisma.scanJob.updateMany({
-    where: { id: candidate.id, status: candidate.status, lockedAt: null },
-    data: {
-      status: ScanStatus.RUNNING,
-      lockedAt: new Date(),
-      lockedBy: workerId,
-      leaseExpiresAt: new Date(Date.now() + SCAN_LEASE_MS),
-      lastHeartbeatAt: new Date(),
-      attempts: { increment: 1 },
-      progress: 5,
-    },
+  const leaseOwner = `${workerId}:${randomUUID()}`;
+  const claimed = await prisma.$transaction(async (tx) => {
+    const result = await tx.scanJob.updateMany({
+      where: {
+        id: candidate.id,
+        status: candidate.status,
+        lockedAt: null,
+        cancelRequestedAt: null,
+        deadLetteredAt: null,
+        attempts: { lt: prisma.scanJob.fields.maxAttempts },
+      },
+      data: {
+        status: ScanStatus.RUNNING,
+        lockedAt: new Date(),
+        lockedBy: leaseOwner,
+        leaseExpiresAt: new Date(Date.now() + SCAN_LEASE_MS),
+        lastHeartbeatAt: new Date(),
+        attempts: { increment: 1 },
+        progress: 5,
+      },
+    });
+    if (result.count === 1) {
+      const scan = await tx.scan.updateMany({
+        where: { id: candidate.scanId, status: { in: ["QUEUED", "FAILED"] } },
+        data: { status: "RUNNING", startedAt: new Date(), completedAt: null },
+      });
+      if (scan.count !== 1) throw new Error("SCAN_STATE_CONFLICT");
+      await tx.auditEvent.create({
+        data: {
+          actor: `worker:${workerId}`,
+          action: "SCAN_STARTED",
+          entityType: "ScanJob",
+          entityId: candidate.id,
+          scanId: candidate.scanId,
+          organizationId: candidate.scan.organizationId,
+          correlationId: candidate.correlationId,
+          metadata: { attempt: candidate.attempts + 1 },
+        },
+      });
+    }
+    return result;
   });
   if (claimed.count !== 1) return true;
 
@@ -310,7 +464,7 @@ export async function processNextScanJob(
   let timeoutTriggered = false;
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   const heartbeat = setInterval(() => {
-    void renewScanJobLease(candidate.id, workerId)
+    void renewScanJobLease(candidate.id, leaseOwner)
       .then((owned) => {
         if (!owned) {
           leaseLost = true;
@@ -343,38 +497,57 @@ export async function processNextScanJob(
       scanId: candidate.scanId,
       payload: candidate.payload,
       signal: abortController.signal,
+      leaseOwner,
     });
     if (leaseLost) throw new Error("WORKER_LEASE_LOST");
     if (abortController.signal.aborted) throw new Error("CANCEL_REQUESTED");
-    const completed = await prisma.scanJob.updateMany({
-      where: { id: candidate.id, lockedBy: workerId, status: ScanStatus.RUNNING },
-      data: {
-        status: ScanStatus.COMPLETED,
-        progress: 100,
-        lockedAt: null,
-        lockedBy: null,
-        leaseExpiresAt: null,
-        lastHeartbeatAt: new Date(),
-        nextAttemptAt: null,
-      },
+    const alreadyCompleted = await prisma.scanJob.findFirst({
+      where: { id: candidate.id, status: "COMPLETED" },
+    });
+    if (alreadyCompleted != null) return true;
+    const completed = await prisma.$transaction(async (tx) => {
+      const result = await tx.scanJob.updateMany({
+        where: {
+          id: candidate.id,
+          lockedBy: leaseOwner,
+          status: ScanStatus.RUNNING,
+          leaseExpiresAt: { gt: new Date() },
+          cancelRequestedAt: null,
+        },
+        data: {
+          status: ScanStatus.COMPLETED,
+          progress: 100,
+          lockedAt: null,
+          lockedBy: null,
+          leaseExpiresAt: null,
+          lastHeartbeatAt: new Date(),
+          nextAttemptAt: null,
+        },
+      });
+      if (result.count === 1)
+        await tx.scan.updateMany({
+          where: { id: candidate.scanId, status: { in: ["QUEUED", "RUNNING", "FAILED"] } },
+          data: { status: "COMPLETED", completedAt: new Date() },
+        });
+      return result;
     });
     if (completed.count !== 1) throw new Error("WORKER_LEASE_LOST");
   } catch (error) {
     const latest = await prisma.scanJob.findUniqueOrThrow({ where: { id: candidate.id } });
     const cancelled =
       !timeoutTriggered &&
-      (abortController.signal.aborted ||
+      (latest.cancelRequestedAt != null ||
+        (!leaseLost && abortController.signal.aborted) ||
         (error instanceof Error && error.message === "CANCEL_REQUESTED"));
+    if (leaseLost) return true;
     const timedOut =
       timeoutTriggered || (error instanceof Error && error.message === "SCAN_TIMEOUT");
     const exhausted = latest.attempts >= latest.maxAttempts;
     const retryDelayMs = calculateRetryDelayMs(latest.attempts);
-    const failureMessage = sanitizeText(
-      error instanceof Error ? error.message : "Unknown worker failure",
-    ).slice(0, MAX_FAILURE_MESSAGE_LENGTH);
+    const failureMessage = "Scan execution failed; retry policy applied.";
     await prisma.$transaction(async (tx) => {
       const transitioned = await tx.scanJob.updateMany({
-        where: { id: candidate.id, lockedBy: workerId, status: ScanStatus.RUNNING },
+        where: { id: candidate.id, lockedBy: leaseOwner, status: ScanStatus.RUNNING },
         data: {
           status: cancelled ? ScanStatus.CANCELLED : ScanStatus.FAILED,
           lockedAt: null,
@@ -393,6 +566,18 @@ export async function processNextScanJob(
         },
       });
       if (transitioned.count !== 1) return;
+      await tx.auditEvent.create({
+        data: {
+          actor: `worker:${workerId}`,
+          action: cancelled ? "SCAN_CANCELLED" : "SCAN_FAILED",
+          entityType: "ScanJob",
+          entityId: candidate.id,
+          scanId: candidate.scanId,
+          organizationId: candidate.scan.organizationId,
+          correlationId: candidate.correlationId,
+          metadata: { exhausted, timedOut, attempt: latest.attempts },
+        },
+      });
       await tx.scan.update({
         where: { id: candidate.scanId },
         data: {

@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 
 import { canonicalJson, evaluateAgentAction } from "@agentshield/policy-engine";
 import {
+  sanitizeText,
   agentApprovalSchema,
   agentAuthorizationRequestSchema,
   type AgentApproval,
@@ -49,7 +50,7 @@ function sameAction(
     approval.sessionId === input.sessionId &&
     approval.actor === input.actor &&
     approval.actionType === input.action &&
-    (approval.resource ?? "") === input.resource.trim() &&
+    (approval.resource ?? "") === sanitizeText(input.resource.trim()) &&
     approval.actionDigest === digest
   );
 }
@@ -99,7 +100,9 @@ export async function ensureAgentApproval(
           sessionId: input.sessionId,
           actor: input.actor,
           actionType: input.action,
-          ...(input.resource.trim().length === 0 ? {} : { resource: input.resource.trim() }),
+          ...(input.resource.trim().length === 0
+            ? {}
+            : { resource: sanitizeText(input.resource.trim()) }),
           actionDigest: digest,
           status: ApprovalStatus.PENDING,
           requestedBy: input.actor,
@@ -171,7 +174,7 @@ export async function reviewAgentApproval(
       data: {
         status,
         reviewedBy: reviewerId,
-        ...(reason == null ? {} : { reason }),
+        ...(reason == null ? {} : { reason: sanitizeText(reason) }),
         reviewedAt: new Date(),
       },
     });

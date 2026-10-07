@@ -32,46 +32,60 @@ The remediation package turns blocking or approval-required findings into determ
 
 ### API
 
-The API composes the packages into an operational workflow. `POST /api/scans/run-demo` creates a scan, runs the scanner against `examples/vulnerable-repo`, evaluates policy, generates eligible remediation, creates pending approvals where needed, and persists all records in a transaction.
+The API composes the packages into an operational workflow. `POST /api/scans/run-demo` explicitly queues a demo scan and returns 202. The worker scans `examples/vulnerable-repo`, evaluates policy, generates eligible remediation, and commits results durably.
 
 ### Dashboard
 
 The dashboard presents operational state: Platform Risk Score, total findings, pending approvals, latest scan metrics, findings, SBOM inventory, remediation details, and audit events. It is intentionally dense and workflow-oriented rather than marketing-oriented.
 
-## Single Scan Data Flow
+## Durable backend and scan flow
 
-```mermaid
-sequenceDiagram
-  actor Operator
-  participant Dashboard as React Dashboard
-  participant API as Express API
-  participant DB as PostgreSQL
-  participant Scanner as Scanner Package
-  participant Policy as Policy Engine
-  participant Remediation as Remediation Package
+PostgreSQL through the generated Prisma client is authoritative. The API and worker are separate processes; their only scan/job coordination is through the database. There is no runtime in-memory substitute. JWKS caching and request rate counters are transient infrastructure state, not domain persistence.
 
-  Operator->>Dashboard: Click "Run Demo Scan"
-  Dashboard->>API: POST /api/scans/run-demo
-  API->>DB: Create Scan(status=RUNNING)
-  API->>DB: Write AuditEvent(SCAN_CREATED)
-  API->>Scanner: runScan(examples/vulnerable-repo, scanId)
-  Scanner-->>API: Findings + SBOM dependency records
-  API->>Policy: evaluateFindings(findings, scanId)
-  Policy-->>API: Policy decisions with rule snapshots
-  API->>Remediation: generateRemediation(blocked or approval-required findings)
-  Remediation-->>API: Deterministic remediation playbooks
-  API->>DB: Persist dependencies, findings, decisions, remediation, approvals
-  API->>DB: Update Scan(status=COMPLETED)
-  API->>DB: Write AuditEvent(SCAN_COMPLETED)
-  API-->>Dashboard: 201 { scanId }
-  Dashboard->>API: GET /api/scans/:scanId and related tables
-  API-->>Dashboard: Scan detail, findings, SBOM, approvals
-```
+1. The API validates the authenticated actor, role permission, repository tenant ownership, and strict request schema. Enqueue creates the scan, job, and `SCAN_CREATED` audit in one transaction. Concurrent requests with the same organization and idempotency key converge on one job; conflicting request content returns 409. The scope key uses an unambiguous JSON tuple.
+2. A worker conditionally claims an eligible job and starts its scan in one short transaction. Each claim has a unique ownership token. Attempts increment only when that claim succeeds.
+3. Workspace preparation, scanning, optional advisory lookup, policy evaluation, and remediation generation happen outside the write transaction.
+4. Completion first locks/fences the owned, uncancelled, unexpired job. Evidence, dependencies, decisions, eligible remediation, requested approvals, receipt, audit, and both terminal states then commit together. A failed receipt or database write rolls back every result.
+5. Failure records an opaque diagnostic code, attempts, bounded retry time, and audit. An exhausted job is dead-lettered and is never selected again. Cancellation completes queued/retry jobs immediately; running jobs receive a cancellation request that blocks result publication.
 
-## Data Model Notes
+### Persisted ownership and constraints
 
-- `Finding` has strict one-to-one relations with `PolicyDecision`, `Remediation`, and `Approval`.
-- `AuditEvent` and `Approval` include an `actor` field for accountability.
-- `PolicyDecision` stores a `ruleSnapshot` so historical decisions remain explainable even after rule changes.
-- `Dependency` records are scoped to SBOM inventory and do not imply CVE vulnerability detection.
-- Security-relevant history is modeled as immutable audit events rather than destructive updates.
+| Entity                                                                                                 | Ownership / durability rule                                                                                                                                                                                                                       |
+| ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Organization, User, Membership                                                                         | Durable provisioning records; trusted OIDC issuer supplies authenticated tenant/role claims. Membership administration is not exposed by this API.                                                                                                |
+| Repository, GitHubInstallation                                                                         | Required organization; owner-consistent installation reference, tenant-scoped service lookup.                                                                                                                                                     |
+| Scan, ScanJob                                                                                          | Scan carries tenant; job derives it through scan. One job per scan and unique scoped idempotency key. Attempts and progress have database bounds.                                                                                                 |
+| Finding, PolicyDecision, Remediation, Approval                                                         | Tenant derives through scan. Findings have scan-prefixed unique fingerprints. Each finding has at most one decision/remediation/approval. Completed scanner results always include decisions; remediation and approval are conditional on policy. |
+| Dependency, Advisory                                                                                   | Scan-scoped dependency identity; advisory records retain their existing organization ownership and optional scan/dependency references. No new advisory provider behavior.                                                                        |
+| AgentSession, AgentEvent, AgentApproval                                                                | Session belongs to tenant/repository; parent-owner constraints guard approval/session links. Event sequence and idempotency are unique per session.                                                                                               |
+| SecurityReceipt                                                                                        | Unique per scan; owner scoped through scan. Evidence is redacted before hashing/signing.                                                                                                                                                          |
+| AuditEvent                                                                                             | Tenant, actor, action, resource, correlation, safe metadata, timestamp. No update/delete endpoint. Seed preserves history.                                                                                                                        |
+| PolicyBundle/Version, Simulation/Decision, RiskNode/Edge, EvidenceArtifact, Integration, AgentBaseline | Existing durable schema models; no newly exposed write endpoint or provider activation in Phase 2.                                                                                                                                                |
+
+Legacy nullable scan/audit tenant fields remain compatible; tenantless rows are never returned by actor-scoped API reads. SQL owner-consistency foreign keys supplement Prisma single-column relations. Check constraints and these additional foreign keys are maintained by committed migrations; they must be preserved in future migrations. An existing inconsistent database must be reviewed before migration rather than silently assigning rows to tenants.
+
+### Authentication and permissions
+
+OIDC JWT signature, issuer, audience, subject, recognized role, and tenant claims are verified before creating `RequestActor`. Production startup refuses demo authentication or missing OIDC settings. Invalid or malformed Authorization headers cannot fall back to demo. Demo actor lookup accepts only own configured keys, and illustrative endpoints require `actor.demo`.
+
+| Role                       | Permissions                                                                                  |
+| -------------------------- | -------------------------------------------------------------------------------------------- |
+| VIEWER                     | Read scans, findings, SBOM, receipts, repositories                                           |
+| DEVELOPER                  | Viewer reads; create/cancel scans; agent event/request actions; policy simulation permission |
+| SECURITY_REVIEWER          | Viewer reads; independent approval review; audit read; simulation permission                 |
+| POLICY_ADMINISTRATOR       | Viewer reads; policy manage/simulate permissions; audit read                                 |
+| ORGANIZATION_ADMINISTRATOR | All existing permissions, including organization management and audit read                   |
+
+Policy/organization management permissions do not imply newly exposed admin endpoints. Deterministic remediation is created by the scan workflow; no automatic patch execution or separate remediation mutation API is introduced. Audit reads have their own permission. Agent request bodies must match both authenticated actor and tenant.
+
+### Approval and worker states
+
+Both approval types permit only `PENDING -> APPROVED` or `PENDING -> REJECTED`. Conditional update and corresponding audit share one transaction; a second/concurrent decision returns 409, and the requester cannot review their own request. Reviewed actor/time and sanitized reason are persisted.
+
+Scans/jobs follow `QUEUED -> RUNNING -> COMPLETED`, or `RUNNING -> FAILED` with eligible retries, or active state to `CANCELLED`. `FAILED` is retryable only while attempts remain and the job has no dead-letter marker. Terminal completed/cancelled scans cannot restart. Retry delay uses bounded exponential backoff with jitter. A lease is five minutes; heartbeat renewal occurs every one-third lease and requires the current unexpired ownership token. Recovery rechecks expiry inside each transaction, handles at most 100 jobs per pass, and records exhaustion/cancellation. Older workers cannot publish after recovery even when they resume later.
+
+### Evidence and API boundaries
+
+Known credential formats and sensitive evidence properties are redacted before persistence and receipt hashing. Review reasons and event text/resources are sanitized. Database query/error payload logging is disabled; API/worker failures use opaque messages rather than arbitrary exception contents. Validation errors return only bounded code/path/generic-message issues. Lists have limits up to 100 and bounded pages; repository listing is now paginated. Stable 400/401/403/404/409/429/500 envelopes retain correlation IDs.
+
+`pnpm test:backend-security` exercises real PostgreSQL and real JWT/JWKS verification, including concurrent claims/reviews, tenant access, retries, overlapping recovery, cancellation, rollback, audit, and separate-client persistence reads. It creates and removes only uniquely named synthetic tenants and does not reset existing data. Existing unit, gateway, GitHub lifecycle, scanner/SARIF and browser checks remain CI gates.

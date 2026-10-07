@@ -417,15 +417,15 @@ async function persistSecurityReceipt(
 async function markScanFailed(
   client: PrismaClient,
   scanId: string,
-  error: unknown,
+  _error: unknown,
   metadata: Pick<ScanRunOptions, "source" | "targetPathLabel" | "triggeredBy" | "labels">,
 ): Promise<void> {
-  const errorMessage = error instanceof Error ? error.message : "Unknown scan failure";
-  const sanitizedError = sanitizeEvidence(errorMessage);
-  const safeError = typeof sanitizedError === "string" ? sanitizedError : "Unknown scan failure";
-  await client.scan.update({
+  const safeError = "Scan execution failed.";
+  await client.scan.updateMany({
     where: {
       id: scanId,
+      status: "RUNNING",
+      job: { is: null },
     },
     data: {
       status: ScanStatus.FAILED,
@@ -456,6 +456,7 @@ export interface ScanRunOptions {
   policyBundleVersion: string;
   options: ScanOptions;
   signal?: AbortSignal;
+  leaseOwner?: string;
 }
 
 export async function runConfiguredScan(
@@ -470,47 +471,68 @@ export async function runConfiguredScan(
     policyBundleVersion: options.policyBundleVersion,
     correlationId: options.correlationId,
   };
-  const scan =
-    existingScanId == null
-      ? await prisma.scan.create({
-          data: {
-            repositoryName: options.repositoryName,
-            ...(options.repositoryUrl == null ? {} : { repositoryUrl: options.repositoryUrl }),
-            branch: options.branch,
-            ...(options.commitSha == null ? {} : { commitSha: options.commitSha }),
-            status: ScanStatus.RUNNING,
-            organizationId: options.organizationId,
-            metadata: initialMetadata,
+  const scan = await prisma.$transaction(async (tx) => {
+    if (existingScanId != null) {
+      if (options.leaseOwner != null) {
+        const lease = await tx.scanJob.updateMany({
+          where: {
+            scanId: existingScanId,
+            lockedBy: options.leaseOwner,
+            status: "RUNNING",
+            cancelRequestedAt: null,
+            leaseExpiresAt: { gt: new Date() },
+            scan: { organizationId: options.organizationId },
           },
-        })
-      : await prisma.scan.update({
-          where: { id: existingScanId },
-          data: {
-            status: ScanStatus.RUNNING,
-            startedAt: new Date(),
-            completedAt: null,
-            branch: options.branch,
-            ...(options.commitSha == null ? {} : { commitSha: options.commitSha }),
-            metadata: initialMetadata,
-          },
+          data: { progress: 10 },
         });
-
-  await prisma.auditEvent.create({
-    data: {
-      actor: options.triggeredBy,
-      action: AuditAction.SCAN_CREATED,
-      entityType: "Scan",
-      entityId: scan.id,
-      scanId: scan.id,
-      organizationId: options.organizationId,
-      correlationId: options.correlationId,
-      metadata: {
-        source: options.source,
-        repository: options.repositoryName,
-        ref: options.branch,
-        commitSha: options.commitSha ?? null,
-      },
-    },
+        if (lease.count !== 1) throw new Error("WORKER_LEASE_LOST");
+      }
+      const changed = await tx.scan.updateMany({
+        where: {
+          id: existingScanId,
+          organizationId: options.organizationId,
+          status: { in: options.leaseOwner == null ? ["QUEUED", "FAILED"] : ["RUNNING"] },
+          ...(options.leaseOwner == null ? { job: { is: null } } : {}),
+        },
+        data: {
+          status: "RUNNING",
+          startedAt: new Date(),
+          completedAt: null,
+          metadata: initialMetadata,
+        },
+      });
+      if (changed.count !== 1) throw new Error("SCAN_STATE_CONFLICT");
+    }
+    const record =
+      existingScanId == null
+        ? await tx.scan.create({
+            data: {
+              repositoryName: options.repositoryName,
+              repositoryUrl: options.repositoryUrl ?? null,
+              branch: options.branch,
+              commitSha: options.commitSha ?? null,
+              status: "RUNNING",
+              organizationId: options.organizationId,
+              metadata: initialMetadata,
+            },
+          })
+        : await tx.scan.findFirstOrThrow({
+            where: { id: existingScanId, organizationId: options.organizationId },
+          });
+    if (options.leaseOwner == null)
+      await tx.auditEvent.create({
+        data: {
+          actor: options.triggeredBy,
+          action: existingScanId == null ? "SCAN_CREATED" : "SCAN_STARTED",
+          entityType: "Scan",
+          entityId: record.id,
+          scanId: record.id,
+          organizationId: options.organizationId,
+          correlationId: options.correlationId,
+          metadata: { source: options.source },
+        },
+      });
+    return record;
   });
 
   try {
@@ -569,6 +591,35 @@ export async function runConfiguredScan(
 
     await prisma.$transaction(
       async (tx) => {
+        if (options.signal?.aborted === true) throw new Error("CANCEL_REQUESTED");
+        // Lock and fence the job before writing evidence; every writer uses job -> scan order.
+        if (options.leaseOwner != null) {
+          const finished = await tx.scanJob.updateMany({
+            where: {
+              scanId: scan.id,
+              lockedBy: options.leaseOwner,
+              status: "RUNNING",
+              cancelRequestedAt: null,
+              leaseExpiresAt: { gt: new Date() },
+            },
+            data: {
+              status: "COMPLETED",
+              progress: 100,
+              lockedAt: null,
+              lockedBy: null,
+              leaseExpiresAt: null,
+              nextAttemptAt: null,
+              failureCode: null,
+              failureMessage: null,
+            },
+          });
+          if (finished.count !== 1) throw new Error("WORKER_LEASE_LOST");
+        }
+        const finishedScan = await tx.scan.updateMany({
+          where: { id: scan.id, organizationId: options.organizationId, status: "RUNNING" },
+          data: { status: "COMPLETED", completedAt, metadata },
+        });
+        if (finishedScan.count !== 1) throw new Error("SCAN_STATE_CONFLICT");
         for (const dependency of scanResult.dependencies) await persistDependency(tx, dependency);
         await persistAdvisories(
           tx,
@@ -581,13 +632,25 @@ export async function runConfiguredScan(
         for (const decision of policyDecisions) await persistPolicyDecision(tx, decision);
         for (const remediation of remediations) await persistRemediation(tx, remediation);
         for (const findingId of approvalFindingIds) {
-          await tx.approval.create({
+          const approval = await tx.approval.create({
             data: {
               findingId,
               status: "PENDING",
               actor: options.triggeredBy,
               requestedBy: options.triggeredBy,
               reason: "Policy decision requires human approval before merge.",
+            },
+          });
+          await tx.auditEvent.create({
+            data: {
+              actor: options.triggeredBy,
+              action: "APPROVAL_REQUESTED",
+              entityType: "Approval",
+              entityId: approval.id,
+              scanId: scan.id,
+              organizationId: options.organizationId,
+              correlationId: options.correlationId,
+              metadata: { findingId },
             },
           });
         }
@@ -624,7 +687,7 @@ export async function runConfiguredScan(
     );
     return scan.id;
   } catch (error) {
-    await markScanFailed(prisma, scan.id, error, options);
+    if (options.leaseOwner == null) await markScanFailed(prisma, scan.id, error, options);
     throw error;
   }
 }
@@ -634,6 +697,8 @@ export async function runDemoScan(
   organizationId = "demo-organization",
   correlationId = "system",
   signal?: AbortSignal,
+  leaseOwner?: string,
+  requester = SYSTEM_ACTOR,
 ): Promise<string> {
   return runConfiguredScan(
     {
@@ -645,7 +710,7 @@ export async function runDemoScan(
       branch: "main",
       organizationId,
       correlationId,
-      triggeredBy: SYSTEM_ACTOR,
+      triggeredBy: requester,
       labels: ["demo", "api-run"],
       policyBundleVersion: "demo",
       options: {
@@ -656,6 +721,7 @@ export async function runDemoScan(
         includeOsv: false,
       },
       ...(signal == null ? {} : { signal }),
+      ...(leaseOwner == null ? {} : { leaseOwner }),
     },
     existingScanId,
   );

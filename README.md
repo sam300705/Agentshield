@@ -205,3 +205,7 @@ docs                 Architecture, threat model, demo and tradeoffs
 ## Engineering story
 
 See [deployment guidance](./docs/deployment.md), [security operations](./docs/SECURITY_OPERATIONS.md), [frontend authentication](./docs/frontend-authentication.md), [GitHub App integration](./docs/github-app.md), [vulnerability intelligence](./docs/vulnerability-intelligence.md), [rate limiting](./docs/rate-limiting.md), [resume bullets](./docs/resume-bullets.md), [interview demo](./docs/demo-script.md), [threat model](./docs/threat-model.md), and [engineering tradeoffs](./docs/control-plane.md).
+
+### Backend integrity verification
+
+The API and worker use real PostgreSQL persistence with tenant-scoped reads, conditional approval review, fenced job leases, bounded retries and atomic result completion. See [architecture](docs/architecture.md) for the role matrix and lifecycle guarantees. After `pnpm db:deploy` and `pnpm db:seed`, run `pnpm test:backend-security` against an isolated local database. The seed preserves existing tenant history; no reset is required. CI includes this database security gate alongside the existing tests.

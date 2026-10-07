@@ -13,6 +13,7 @@ export type Role = (typeof roles)[number];
 export type Permission =
   | "scan:read"
   | "scan:run"
+  | "audit:read"
   | "approval:review"
   | "policy:simulate"
   | "policy:manage"
@@ -21,8 +22,8 @@ export type Permission =
 const permissions: Record<Role, ReadonlySet<Permission>> = {
   VIEWER: new Set(["scan:read"]),
   DEVELOPER: new Set(["scan:read", "scan:run", "policy:simulate"]),
-  SECURITY_REVIEWER: new Set(["scan:read", "approval:review", "policy:simulate"]),
-  POLICY_ADMINISTRATOR: new Set(["scan:read", "policy:simulate", "policy:manage"]),
+  SECURITY_REVIEWER: new Set(["scan:read", "approval:review", "policy:simulate", "audit:read"]),
+  POLICY_ADMINISTRATOR: new Set(["scan:read", "policy:simulate", "policy:manage", "audit:read"]),
   ORGANIZATION_ADMINISTRATOR: new Set([
     "scan:read",
     "scan:run",
@@ -30,6 +31,7 @@ const permissions: Record<Role, ReadonlySet<Permission>> = {
     "policy:simulate",
     "policy:manage",
     "organization:manage",
+    "audit:read",
   ]),
 };
 
@@ -130,7 +132,9 @@ async function verifyOidcToken(token: string): Promise<RequestActor> {
 function demoActor(request: Request): RequestActor | null {
   const requestedDemoUser = request.header("x-agentshield-demo-user");
   if (requestedDemoUser == null) return null;
-  const user = demoUsers[requestedDemoUser as keyof typeof demoUsers];
+  const user = Object.hasOwn(demoUsers, requestedDemoUser)
+    ? demoUsers[requestedDemoUser as keyof typeof demoUsers]
+    : undefined;
   if (user == null) return null;
   return { ...user, organizationId: "demo-organization", demo: true };
 }
@@ -159,7 +163,7 @@ async function populateRequestContext(request: Request, response: Response): Pro
     const bearer = getBearerToken(request);
     if (bearer != null) {
       response.locals.actor = await verifyOidcToken(bearer);
-    } else if (isDemoAuthEnabled()) {
+    } else if (isDemoAuthEnabled() && request.header("authorization") == null) {
       const actor = demoActor(request);
       if (actor == null) {
         response.locals.failureCode = "AUTHENTICATION_REQUIRED";
