@@ -20,7 +20,7 @@ export interface OidcTokenSet {
   idTokenClaims?: {
     issuer: string;
     audience: string | string[];
-    nonce: string;
+    nonce?: string;
     subject: string;
     expiresAt: number;
   };
@@ -234,13 +234,17 @@ export class OidcSession {
     try {
       const tokens = await this.client.refresh({ refreshToken, clientId: this.config.clientId });
       if (tokens.idTokenClaims != null) {
-        const transaction = this.transaction ?? {
-          state: "refresh",
-          nonce: tokens.idTokenClaims.nonce,
-          codeVerifier: "refresh",
-          createdAt: this.now(),
-        };
-        validateClaims(this.config, transaction, tokens);
+        const claims = tokens.idTokenClaims;
+        if (
+          claims.issuer !== this.config.issuer ||
+          !audienceMatches(claims.audience, this.config.clientId) ||
+          claims.subject.length === 0 ||
+          claims.expiresAt * 1000 <= this.now() ||
+          (this.tokens?.idTokenClaims != null &&
+            claims.subject !== this.tokens.idTokenClaims.subject)
+        ) {
+          throw new Error("OIDC refresh ID-token claims are invalid.");
+        }
       }
       this.tokens = { ...tokens, refreshToken: tokens.refreshToken ?? refreshToken };
       return tokens.accessToken;
@@ -301,7 +305,8 @@ export function createFetchTokenClient(config: OidcConfig): OidcTokenClient {
         typeof exp !== "number" ||
         typeof iss !== "string" ||
         typeof sub !== "string" ||
-        typeof verifiedNonce !== "string"
+        (nonce != null && (typeof verifiedNonce !== "string" || verifiedNonce !== nonce)) ||
+        (verifiedNonce != null && typeof verifiedNonce !== "string")
       ) {
         throw new Error("OIDC ID-token claims are incomplete.");
       }
@@ -309,7 +314,7 @@ export function createFetchTokenClient(config: OidcConfig): OidcTokenClient {
       tokenSet.idTokenClaims = {
         issuer: iss,
         audience: aud,
-        nonce: verifiedNonce,
+        ...(typeof verifiedNonce === "string" ? { nonce: verifiedNonce } : {}),
         subject: sub,
         expiresAt: exp,
       };

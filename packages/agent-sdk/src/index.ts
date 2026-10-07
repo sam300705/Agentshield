@@ -1,4 +1,5 @@
 import {
+  canonicalAgentActionIdentity,
   agentApprovalSchema,
   agentAuthorizationRequestSchema,
   agentDecisionSchema,
@@ -8,6 +9,7 @@ import {
   type AgentDecision,
   type AgentEventInput,
 } from "@agentshield/schemas";
+import { createHash } from "node:crypto";
 
 export interface AgentShieldClientOptions {
   baseUrl: string;
@@ -39,10 +41,17 @@ export class AgentShieldClient {
   private readonly accessToken: string | undefined;
 
   constructor(options: AgentShieldClientOptions) {
-    const baseUrl = options.baseUrl.replace(/\/$/, "");
-    if (!/^https?:\/\//.test(baseUrl))
-      throw new Error("AgentShield baseUrl must be HTTPS or HTTP.");
-    this.baseUrl = baseUrl;
+    const baseUrl = new URL(options.baseUrl);
+    const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(baseUrl.hostname);
+    if (
+      baseUrl.username ||
+      baseUrl.password ||
+      baseUrl.search ||
+      baseUrl.hash ||
+      (baseUrl.protocol !== "https:" && !(baseUrl.protocol === "http:" && loopback))
+    )
+      throw new Error("AgentShield baseUrl requires HTTPS except for loopback development.");
+    this.baseUrl = baseUrl.href.replace(/\/$/, "");
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.accessToken = options.accessToken;
   }
@@ -50,6 +59,7 @@ export class AgentShieldClient {
   private async request<T>(path: string, method: "GET" | "POST", body?: unknown): Promise<T> {
     const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
       method,
+      redirect: "error",
       headers: {
         Accept: "application/json",
         ...(body == null ? {} : { "Content-Type": "application/json" }),
@@ -146,7 +156,9 @@ export function assertAgentApprovalMatches(
     approval.requestedBy !== input.actor ||
     approval.actionType !== input.action ||
     approval.idempotencyKey !== input.idempotencyKey ||
-    (approval.resource ?? "") !== input.resource.trim()
+    (approval.resource ?? "") !== input.resource.trim() ||
+    approval.actionDigest !==
+      createHash("sha256").update(canonicalAgentActionIdentity(input)).digest("hex")
   ) {
     throw new Error("Agent approval is not bound to this protected action.");
   }

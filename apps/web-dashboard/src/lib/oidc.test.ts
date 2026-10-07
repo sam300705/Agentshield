@@ -23,10 +23,10 @@ const config: OidcConfig = {
   audience: "agentshield-api",
 };
 
-const futureClaims = (nonce: string) => ({
+const futureClaims = (nonce?: string) => ({
   issuer: config.issuer,
   audience: config.clientId,
-  nonce,
+  ...(nonce == null ? {} : { nonce }),
   subject: "user-1",
   expiresAt: Math.floor(Date.now() / 1000) + 3600,
 });
@@ -36,6 +36,49 @@ afterEach(() => {
 });
 
 describe("provider-neutral OIDC session", () => {
+  it("accepts a signed refresh ID token without nonce while requiring it on login", async () => {
+    const { privateKey, publicKey } = await generateKeyPair("RS256");
+    const jwk = await exportJWK(publicKey);
+    jwk.kid = "refresh-key";
+    const idToken = await new SignJWT({})
+      .setProtectedHeader({ alg: "RS256", kid: "refresh-key" })
+      .setIssuer(config.issuer)
+      .setAudience(config.clientId)
+      .setSubject("user-1")
+      .setIssuedAt()
+      .setExpirationTime("1h")
+      .sign(privateKey);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>((input) => {
+        const url =
+          typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        return Promise.resolve(
+          new Response(
+            JSON.stringify(
+              url === config.tokenEndpoint
+                ? { access_token: "refresh-access", expires_in: 3600, id_token: idToken }
+                : { keys: [jwk] },
+            ),
+            { headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      }),
+    );
+    const client = createFetchTokenClient(config);
+    await expect(
+      client.refresh({ refreshToken: "synthetic-refresh", clientId: config.clientId }),
+    ).resolves.toMatchObject({ idTokenClaims: { subject: "user-1" } });
+    await expect(
+      client.exchangeCode({
+        code: "synthetic",
+        codeVerifier: "verifier",
+        redirectUri: config.redirectUri,
+        clientId: config.clientId,
+        nonce: "required-nonce",
+      }),
+    ).rejects.toThrow();
+  });
   it("builds an authorization-code PKCE URL without persisting tokens", async () => {
     vi.stubGlobal("crypto", webcrypto);
     const client: OidcTokenClient = {
@@ -224,7 +267,7 @@ describe("provider-neutral OIDC session", () => {
         expiresAt: now + 60_000,
         refreshToken: "refresh-token-2",
         idToken: "id-token-2",
-        idTokenClaims: futureClaims("refresh"),
+        idTokenClaims: futureClaims(),
       }),
     );
     const client: OidcTokenClient = {

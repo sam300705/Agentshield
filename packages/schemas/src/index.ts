@@ -4,6 +4,7 @@ export * from "./audit.schema.js";
 export * from "./control-plane.schema.js";
 export * from "./evidenceRedaction.js";
 export * from "./agent-gateway.schema.js";
+export * from "./agent-action-identity.js";
 export * from "./finding.schema.js";
 export * from "./json.schema.js";
 export * from "./policy.schema.js";

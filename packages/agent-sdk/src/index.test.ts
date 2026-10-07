@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { canonicalAgentActionIdentity } from "@agentshield/schemas";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -25,6 +27,51 @@ const approval = {
 };
 
 describe("AgentShield SDK", () => {
+  it.each([
+    "http://remote.example",
+    "http://localhost.evil.test",
+    "ftp://localhost",
+    "https://user:password@remote.example",
+    "https://remote.example?next=http://evil.test",
+  ])("rejects insecure or ambiguous endpoint %s before sending credentials", (baseUrl) => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    expect(() => new AgentShieldClient({ baseUrl, fetchImpl, accessToken: "synthetic" })).toThrow();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+  it.each([
+    "https://remote.example",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
+    "http://[::1]:3001",
+  ])("accepts qualified transport %s and refuses redirects", async (baseUrl) => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(JSON.stringify({ data: approval })));
+    await new AgentShieldClient({ baseUrl, fetchImpl, accessToken: "synthetic" }).getApproval(
+      approval.id,
+    );
+    expect(fetchImpl.mock.calls[0]?.[1]?.redirect).toBe("error");
+  });
+  it("rejects an approved action when only command evidence changes", () => {
+    const input = {
+      organizationId: approval.organizationId,
+      sessionId: approval.sessionId,
+      actor: approval.actor,
+      action: approval.actionType,
+      resource: approval.resource,
+      correlationId: approval.correlationId,
+      idempotencyKey: approval.idempotencyKey,
+      evidence: { command: "echo safe" },
+    };
+    const bound = {
+      ...approval,
+      actionDigest: createHash("sha256").update(canonicalAgentActionIdentity(input)).digest("hex"),
+    };
+    expect(() => assertAgentApprovalMatches(input, bound)).not.toThrow();
+    expect(() =>
+      assertAgentApprovalMatches({ ...input, evidence: { command: "rm -rf src" } }, bound),
+    ).toThrow("not bound");
+  });
   it("rejects blocked and approval-required actions before execution", () => {
     expect(() =>
       assertAgentActionAllowed("RUN_COMMAND", {
@@ -140,12 +187,25 @@ describe("AgentShield SDK", () => {
       correlationId: "corr-1",
       idempotencyKey: "authorize-1",
     };
-    expect(() => assertAgentApprovalMatches(input, approval)).not.toThrow();
+    expect(() =>
+      assertAgentApprovalMatches(input, {
+        ...approval,
+        actionDigest: createHash("sha256")
+          .update(canonicalAgentActionIdentity(input))
+          .digest("hex"),
+      }),
+    ).not.toThrow();
     expect(() =>
       assertAgentApprovalMatches(input, { ...approval, resource: "different-resource" }),
     ).toThrow("not bound");
-    expect(() => assertAgentApprovalMatches(input, { ...approval, status: "PENDING" })).toThrow(
-      "pending",
-    );
+    expect(() =>
+      assertAgentApprovalMatches(input, {
+        ...approval,
+        actionDigest: createHash("sha256")
+          .update(canonicalAgentActionIdentity(input))
+          .digest("hex"),
+        status: "PENDING",
+      }),
+    ).toThrow("pending");
   });
 });

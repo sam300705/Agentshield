@@ -31,6 +31,7 @@ const authorizationInput: AgentAuthorizationRequest = {
   resource: "synthetic/workspace",
   correlationId: `gateway-correlation-${suffix}`,
   idempotencyKey: `gateway-approval-${suffix}`,
+  evidence: { command: "echo synthetic", directory: "workspace" },
 };
 
 function eventInput(overrides: Partial<AgentEventInput> = {}): AgentEventInput {
@@ -97,6 +98,20 @@ async function main(): Promise<void> {
     const approval = approvals.find((result) => result.kind === "CREATED")?.approval;
     assert(approval != null, "approval was not created");
     assert(approval.status === ApprovalStatus.PENDING, "approval was not pending");
+    const conflict = await ensureAgentApproval(
+      { ...authorizationInput, evidence: { command: "rm -rf workspace", directory: "workspace" } },
+      "synthetic-conflict",
+    );
+    assert(conflict.kind === "IDEMPOTENCY_CONFLICT", "changed action evidence reused approval");
+    const wrongActor = await ensureAgentApproval(
+      { ...authorizationInput, actor: `${actor}-other` },
+      "synthetic-owner",
+    );
+    assert(wrongActor.kind === "SESSION_NOT_FOUND", "another actor accessed approval session");
+    assert(
+      (await prisma.agentApproval.count({ where: { organizationId } })) === 1,
+      "rejected requests persisted approvals",
+    );
 
     const selfReview = await reviewAgentApproval(
       organizationId,

@@ -1,5 +1,7 @@
 # Phase 1 Round 2 remediation — 2026-10-07
 
+Historical Round 2 evidence. Seven subsequent review findings are tracked in [Round 3](phase1-round3-report.md).
+
 Status: implementation and applicable verification **PASS**; independent security acceptance pending.
 
 Scope: the 16 current PR #9 findings, on `phase1/consolidate-stabilize` at starting head `88dd86406447165da53fbd989a5efcbef245a0ee`. This round retains all 21 Round 1 corrections and their regressions. PR #9 remains open and unmerged, based on main. No downstream PR, main branch, or deployment is changed. This is not a production-readiness claim.

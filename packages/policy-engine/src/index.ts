@@ -26,6 +26,7 @@ export {
 export { simulatePolicyBundle } from "./simulation.js";
 export {
   canonicalReceiptPayload,
+  verifyReceiptHash,
   generateEd25519KeyPair,
   signSecurityReceipt,
   verifySignedSecurityReceipt,

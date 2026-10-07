@@ -1,3 +1,4 @@
+import { sign as cryptoSign, createPrivateKey } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 import { createSecurityReceipt } from "./controlPlane.js";
@@ -5,6 +6,7 @@ import {
   generateEd25519KeyPair,
   signSecurityReceipt,
   verifySignedSecurityReceipt,
+  canonicalReceiptPayload,
 } from "./signedReceipt.js";
 
 const receipt = createSecurityReceipt({
@@ -25,6 +27,28 @@ const receipt = createSecurityReceipt({
 });
 
 describe("signed security receipts", () => {
+  it("rejects a false internal hash even when a trusted key signs the payload", () => {
+    const key = generateEd25519KeyPair("key-1");
+    const bad = { ...receipt, receiptHash: "0".repeat(64) };
+    expect(() =>
+      signSecurityReceipt(bad, { keyId: key.keyId, privateKey: key.privateKeyPem }),
+    ).toThrow("Receipt hash");
+    const signed = signSecurityReceipt(receipt, {
+      keyId: key.keyId,
+      privateKey: key.privateKeyPem,
+    });
+    const signature = cryptoSign(
+      null,
+      Buffer.from(canonicalReceiptPayload(bad)),
+      createPrivateKey(key.privateKeyPem),
+    ).toString("base64url");
+    expect(
+      verifySignedSecurityReceipt(
+        { ...signed, payload: bad, signature },
+        { [key.keyId]: key.publicKeyPem },
+      ),
+    ).toBe(false);
+  });
   it("signs and verifies a canonical receipt", () => {
     const key = generateEd25519KeyPair("key-1");
     const signed = signSecurityReceipt(receipt, {
