@@ -14,58 +14,8 @@ import {
 } from "./githubRepositoryMaterializer.js";
 import { TemporaryRepositoryWorkspaceProvider } from "../services/repositoryWorkspace.js";
 
-interface TarEntry {
-  name: string;
-  body?: string;
-  type?: "file" | "directory" | "symlink" | "hardlink" | "device";
-  linkname?: string;
-}
-
+import { createTar } from "../testing/githubArchiveFixture.js";
 const COMMIT_SHA = "0123456789abcdef0123456789abcdef01234567";
-
-function writeOctal(buffer: Buffer, offset: number, length: number, value: number): void {
-  const encoded = `${value.toString(8).padStart(length - 1, "0")} `;
-  buffer.write(encoded, offset, length, "ascii");
-}
-
-function createTar(entries: TarEntry[]): Buffer {
-  const blocks: Buffer[] = [];
-  for (const entry of entries) {
-    const header = Buffer.alloc(512);
-    header.write(entry.name, 0, 100, "utf8");
-    writeOctal(header, 100, 8, 0o644);
-    writeOctal(header, 108, 8, 0);
-    writeOctal(header, 116, 8, 0);
-    const type = entry.type ?? "file";
-    const body = Buffer.from(entry.body ?? "", "utf8");
-    writeOctal(header, 124, 12, type === "file" ? body.length : 0);
-    writeOctal(header, 136, 12, 0);
-    header.fill(0x20, 148, 156);
-    header[156] =
-      type === "directory"
-        ? 53
-        : type === "symlink"
-          ? 50
-          : type === "hardlink"
-            ? 49
-            : type === "device"
-              ? 51
-              : 48;
-    if (entry.linkname != null) header.write(entry.linkname, 157, 100, "utf8");
-    header.write("ustar\0", 257, 6, "ascii");
-    header.write("00", 263, 2, "ascii");
-    const checksum = header.reduce((sum, byte) => sum + byte, 0);
-    header.write(`${checksum.toString(8).padStart(6, "0")}\0 `, 148, 8, "ascii");
-    blocks.push(header);
-    if (type === "file") {
-      blocks.push(body);
-      const padding = (512 - (body.length % 512)) % 512;
-      if (padding > 0) blocks.push(Buffer.alloc(padding));
-    }
-  }
-  blocks.push(Buffer.alloc(1024));
-  return Buffer.concat(blocks);
-}
 
 function streamFrom(buffer: Buffer): ReadableStream<Uint8Array> {
   return Readable.toWeb(Readable.from(buffer)) as ReadableStream<Uint8Array>;
@@ -82,13 +32,25 @@ function makeFixture(options: {
     repositoryId: "repo-test",
     fullName: "octo/example",
     installationId: 42,
+    externalId: "123",
   };
   const downloadRepositoryArchive = vi.fn(() => Promise.resolve(streamFrom(options.archive)));
   const getInstallationToken = vi.fn(() => Promise.resolve("installation-token"));
   const resolve = vi.fn(() => Promise.resolve(options.binding === null ? null : binding));
   const materializer = new GitHubRepositoryMaterializer({
     enabled: options.enabled ?? true,
-    archiveClient: { downloadRepositoryArchive },
+    archiveClient: {
+      downloadRepositoryArchive,
+      getRepository: vi.fn(() =>
+        Promise.resolve({
+          id: 123,
+          fullName: "octo/example",
+          private: true,
+          defaultBranch: "main",
+          permissions: { admin: false, push: false, pull: true },
+        }),
+      ),
+    },
     tokenProvider: { getInstallationToken },
     bindingResolver: { resolve },
     ...(options.limits == null ? {} : { limits: options.limits }),

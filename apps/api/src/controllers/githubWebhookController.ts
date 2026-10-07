@@ -1,10 +1,16 @@
+import { ZodError } from "zod";
 import type { Request, Response } from "express";
 
 import { getRuntimeConfig } from "../config.js";
 import { prisma } from "../db/prisma.js";
 import { getCorrelationId } from "../security/auth.js";
-import { parseVerifiedGitHubWebhook } from "../integrations/githubApp.js";
+import {
+  parseVerifiedGitHubWebhook,
+  verifyGitHubWebhookSignature,
+} from "../integrations/githubApp.js";
 import { PrismaGitHubDeliveryStore } from "../integrations/githubDeliveryStore.js";
+import { applyGitHubInstallationEvent } from "../integrations/githubInstallationService.js";
+import { enqueueRepositoryScan } from "../services/scanQueue.js";
 import { processGitHubWebhookDelivery } from "../integrations/githubWebhookLifecycle.js";
 
 function sendWebhookError(response: Response, status: number, code: string, message: string): void {
@@ -30,6 +36,28 @@ export async function githubWebhookController(request: Request, response: Respon
     return;
   }
 
+  const eventHeader = request.header("x-github-event");
+  if (
+    eventHeader != null &&
+    !["installation", "installation_repositories", "push", "pull_request"].includes(eventHeader)
+  ) {
+    if (
+      !verifyGitHubWebhookSignature(
+        request.body,
+        request.header("x-hub-signature-256"),
+        config.GITHUB_WEBHOOK_SECRET,
+      )
+    ) {
+      sendWebhookError(response, 401, "INVALID_WEBHOOK", "GitHub webhook validation failed.");
+      return;
+    }
+    if (!/^[A-Za-z0-9._:-]{1,128}$/.test(request.header("x-github-delivery") ?? "")) {
+      sendWebhookError(response, 400, "INVALID_WEBHOOK", "GitHub webhook validation failed.");
+      return;
+    }
+    response.status(202).json({ status: "ignored" });
+    return;
+  }
   let webhook;
   try {
     const signature = request.header("x-hub-signature-256");
@@ -62,48 +90,81 @@ export async function githubWebhookController(request: Request, response: Respon
     return;
   }
 
-  const store = new PrismaGitHubDeliveryStore(prisma);
-  const claimed = await store.claim({
-    organizationId: installation.organizationId,
-    webhook,
-    rawPayload: request.body,
-    correlationId: getCorrelationId(response),
-  });
-  if (!claimed) {
-    response.status(200).json({
-      status: "duplicate",
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const store = new PrismaGitHubDeliveryStore(tx);
+      const claimed = await store.claim({
+        organizationId: installation.organizationId,
+        webhook,
+        rawPayload: request.body as Buffer,
+        correlationId: getCorrelationId(response),
+      });
+      if (!claimed) return { status: "DUPLICATE", scanQueued: false };
+      if (
+        webhook.eventName === "installation" ||
+        webhook.eventName === "installation_repositories"
+      ) {
+        await applyGitHubInstallationEvent(
+          tx,
+          installation.organizationId,
+          webhook,
+          getCorrelationId(response),
+        );
+        await store.markProcessed(installation.organizationId, webhook.deliveryId);
+        return { status: "PROCESSED", scanQueued: false };
+      }
+      const lifecycle = await processGitHubWebhookDelivery(
+        installation.organizationId,
+        webhook,
+        getCorrelationId(response),
+        {
+          client: tx,
+          deliveryStore: store,
+          scanLifecycleEnabled: config.githubScanLifecycleEnabled,
+          ...(config.GITHUB_SCAN_POLICY_BUNDLE_VERSION == null
+            ? {}
+            : { policyBundleVersion: config.GITHUB_SCAN_POLICY_BUNDLE_VERSION }),
+          enqueueScan: (input, key, org, requester, correlation, trigger) =>
+            enqueueRepositoryScan(input, key, org, requester, correlation, trigger, tx),
+        },
+      );
+      if (lifecycle.status === "FAILED") throw new Error("GITHUB_ENQUEUE_FAILED");
+      await tx.auditEvent.create({
+        data: {
+          organizationId: installation.organizationId,
+          actor: "github:webhook",
+          action: "GITHUB_DELIVERY_ACCEPTED",
+          entityType: "GitHubWebhookDelivery",
+          entityId: webhook.deliveryId,
+          correlationId: getCorrelationId(response),
+          ...(lifecycle.status === "QUEUED" ? { scanId: lifecycle.scanId } : {}),
+          metadata: {
+            installationId: webhook.installationId,
+            deliveryId: webhook.deliveryId,
+            event: webhook.eventName,
+            state: lifecycle.status,
+          },
+        },
+      });
+      return lifecycle;
+    });
+    response.status(result.status === "DUPLICATE" ? 200 : 202).json({
+      ...result,
+      status: result.status.toLowerCase(),
       deliveryId: webhook.deliveryId,
       correlationId: getCorrelationId(response),
     });
-    return;
+  } catch (error) {
+    if (error instanceof ZodError) {
+      sendWebhookError(response, 400, "INVALID_WEBHOOK", "GitHub webhook validation failed.");
+      return;
+    }
+    // The transaction includes delivery acceptance and enqueue. GitHub may redeliver safely.
+    sendWebhookError(
+      response,
+      503,
+      "WEBHOOK_UNAVAILABLE",
+      "Webhook processing is temporarily unavailable.",
+    );
   }
-
-  const lifecycleConfig = getRuntimeConfig();
-  const lifecycle = await processGitHubWebhookDelivery(
-    installation.organizationId,
-    webhook,
-    getCorrelationId(response),
-    {
-      client: prisma,
-      deliveryStore: store,
-      scanLifecycleEnabled: lifecycleConfig.githubScanLifecycleEnabled,
-      ...(lifecycleConfig.GITHUB_SCAN_POLICY_BUNDLE_VERSION == null
-        ? {}
-        : { policyBundleVersion: lifecycleConfig.GITHUB_SCAN_POLICY_BUNDLE_VERSION }),
-    },
-  );
-  response.status(lifecycle.status === "FAILED" ? 503 : 202).json({
-    status: lifecycle.status.toLowerCase(),
-    deliveryId: webhook.deliveryId,
-    event: webhook.eventName,
-    scanQueued: lifecycle.scanQueued,
-    ...(lifecycle.status === "QUEUED"
-      ? { scanId: lifecycle.scanId, jobId: lifecycle.jobId }
-      : lifecycle.status === "IGNORED"
-        ? { reason: lifecycle.reason }
-        : lifecycle.status === "FAILED"
-          ? { reason: lifecycle.reason }
-          : {}),
-    correlationId: getCorrelationId(response),
-  });
 }

@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 export interface GitHubAppConfig {
   appId: string;
-  clientId: string;
+  clientId?: string;
   webhookSecret: string;
   privateKey: string;
 }
@@ -57,11 +57,8 @@ export function verifyGitHubWebhookSignature(
   ) {
     return false;
   }
-  const expected = Buffer.from(
-    `sha256=${createHmac("sha256", webhookSecret).update(payload).digest("hex")}`,
-    "utf8",
-  );
-  const supplied = Buffer.from(signature, "utf8");
+  const expected = createHmac("sha256", webhookSecret).update(payload).digest();
+  const supplied = Buffer.from(signature.slice(7), "hex");
   return expected.length === supplied.length && timingSafeEqual(expected, supplied);
 }
 
@@ -112,8 +109,12 @@ export function parseVerifiedGitHubWebhook(
   const deliveryId = safeHeader(headers.delivery, "delivery");
   if (replayGuard != null && !replayGuard.accept(deliveryId))
     throw new Error("GitHub webhook delivery has already been processed.");
+  if (!/^[A-Za-z0-9._:-]{1,128}$/.test(deliveryId))
+    throw new Error("Invalid GitHub delivery header.");
   const eventName = safeHeader(headers.event, "event");
   const parsed = JSON.parse(rawPayload.toString("utf8")) as Record<string, unknown>;
+  if (parsed == null || typeof parsed !== "object" || Array.isArray(parsed))
+    throw new Error("Invalid GitHub payload.");
   const installation = parsed.installation;
   const installationId =
     typeof installation === "object" && installation != null

@@ -3,7 +3,7 @@ name: AgentShield CI
 on:
   pull_request:
   push:
-    branches: [main, "phase1/**", "phase2/**"]
+    branches: [main, "phase1/**", "phase2/**", "phase3/**"]
 
 permissions:
   contents: read
@@ -82,6 +82,7 @@ jobs:
       - run: pnpm test:backend-security
       - run: pnpm test:gateway
       - run: pnpm test:github-lifecycle
+      - run: pnpm test:github-e2e
       - name: Install Playwright browser
         run: pnpm exec playwright install --with-deps chromium
       - name: Browser E2E

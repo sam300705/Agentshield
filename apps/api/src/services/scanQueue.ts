@@ -33,10 +33,14 @@ export async function enqueueRepositoryScan(
   requester: string,
   correlationId: string,
   trigger: ScanTrigger = "MANUAL",
+  transaction?: Prisma.TransactionClient,
 ): Promise<{ id: string; scanId: string; status: ScanStatus }> {
+  const client = transaction ?? prisma;
+  const transact = <T>(fn: (tx: Prisma.TransactionClient) => Promise<T>) =>
+    transaction == null ? prisma.$transaction(fn) : fn(transaction);
   const request = createRepositoryScanSchema.parse(input);
   const scopedIdempotencyKey = JSON.stringify([organizationId, idempotencyKey]);
-  const existing = await prisma.scanJob.findFirst({
+  const existing = await client.scanJob.findFirst({
     where: {
       idempotencyKey: { in: [scopedIdempotencyKey, `${organizationId}:${idempotencyKey}`] },
       scan: { organizationId },
@@ -62,7 +66,7 @@ export async function enqueueRepositoryScan(
   if (existing != null) return replay(existing);
 
   try {
-    return await prisma.$transaction(async (tx) => {
+    return await transact(async (tx) => {
       const repository = await tx.repository.findFirst({
         where: { id: request.repositoryId, organizationId },
         select: {
@@ -71,6 +75,7 @@ export async function enqueueRepositoryScan(
           fullName: true,
           defaultBranch: true,
           githubInstallationId: true,
+          githubAccessible: true,
         },
       });
       if (repository == null)
@@ -84,6 +89,16 @@ export async function enqueueRepositoryScan(
         );
       }
       if (provider === "GITHUB") {
+        if (
+          !repository.githubAccessible ||
+          request.commitSha == null ||
+          !/^[a-f0-9]{40}$/i.test(request.commitSha)
+        )
+          throw new ServiceError(
+            409,
+            "GITHUB_REPOSITORY_UNAVAILABLE",
+            "Repository access and an immutable commit are required.",
+          );
         if (repository.githubInstallationId == null) {
           throw new ServiceError(
             409,
@@ -92,7 +107,7 @@ export async function enqueueRepositoryScan(
           );
         }
         const installation = await tx.gitHubInstallation.findFirst({
-          where: { id: repository.githubInstallationId, organizationId },
+          where: { id: repository.githubInstallationId, organizationId, status: "ACTIVE" },
           select: { id: true },
         });
         if (installation == null || installation.id !== repository.githubInstallationId) {
@@ -122,7 +137,17 @@ export async function enqueueRepositoryScan(
           },
         },
       });
+      const installationBinding =
+        provider === "GITHUB"
+          ? await tx.gitHubInstallation.findUniqueOrThrow({
+              where: { id: repository.githubInstallationId! },
+              select: { installationId: true },
+            })
+          : null;
       const payload = {
+        ...(installationBinding == null
+          ? {}
+          : { integrationId: String(installationBinding.installationId) }),
         organizationId,
         repositoryId: repository.id,
         provider,
@@ -154,6 +179,8 @@ export async function enqueueRepositoryScan(
         },
         select: { id: true, scanId: true, status: true },
       });
+      if (provider === "GITHUB")
+        await tx.gitHubCheckPublication.create({ data: { scanId: scan.id } });
       await tx.auditEvent.create({
         data: {
           actor: requester,
@@ -170,7 +197,7 @@ export async function enqueueRepositoryScan(
     });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      const existing = await prisma.scanJob.findUnique({
+      const existing = await client.scanJob.findUnique({
         where: { idempotencyKey: scopedIdempotencyKey },
       });
       if (existing != null) return replay(existing);

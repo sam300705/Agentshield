@@ -1,4 +1,5 @@
-import { importPKCS8, SignJWT } from "jose";
+import { SignJWT } from "jose";
+import { createPrivateKey } from "node:crypto";
 
 import type { GitHubAppClient, GitHubAppConfig, GitHubRepository } from "./githubApp.js";
 import type { GitHubCheckRunRequest, GitHubChecksClient } from "./githubChecks.js";
@@ -30,6 +31,7 @@ interface CheckRunResponse {
 }
 
 export interface GitHubArchiveClient {
+  getRepository(owner: string, repository: string, token: string): Promise<GitHubRepository>;
   downloadRepositoryArchive(
     owner: string,
     repository: string,
@@ -62,6 +64,8 @@ export class FetchGitHubAppClient
   ) {
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.apiBaseUrl = (options.apiBaseUrl ?? DEFAULT_API_BASE_URL).replace(/\/$/, "");
+    if (this.apiBaseUrl !== DEFAULT_API_BASE_URL && options.fetchImpl == null)
+      throw new Error("GITHUB_API_ORIGIN_INVALID");
     this.apiVersion = options.apiVersion ?? DEFAULT_API_VERSION;
     this.now = options.now ?? Date.now;
     this.installationToken = options.installationToken;
@@ -80,7 +84,7 @@ export class FetchGitHubAppClient
 
   private async createAppJwt(): Promise<string> {
     const issuedAt = Math.floor(this.now() / 1_000) - 60;
-    const key = await importPKCS8(this.config.privateKey, "RS256");
+    const key = validateGitHubPrivateKey(this.config.privateKey);
     return new SignJWT({ iss: this.config.appId })
       .setProtectedHeader({ alg: "RS256", typ: "JWT" })
       .setIssuedAt(issuedAt)
@@ -94,22 +98,45 @@ export class FetchGitHubAppClient
     token: string,
     body?: Record<string, unknown>,
   ): Promise<{ data: T; headers: Headers }> {
-    const response = await this.fetchImpl(`${this.apiBaseUrl}${path}`, {
-      method,
-      headers: {
-        Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${token}`,
-        "X-GitHub-Api-Version": this.apiVersion,
-        ...(body == null ? {} : { "Content-Type": "application/json" }),
-      },
-      ...(body == null ? {} : { body: JSON.stringify(body) }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`GitHub API request failed with status ${response.status}.`);
+    const headers = this.headers(token, body != null);
+    let response: Response | undefined;
+    for (let attempt = 0; attempt < (method === "POST" ? 1 : 3); attempt++) {
+      try {
+        response = await this.fetchImpl(`${this.apiBaseUrl}${path}`, {
+          method,
+          headers,
+          redirect: "error",
+          signal: AbortSignal.timeout(8_000),
+          ...(body == null ? {} : { body: JSON.stringify(body) }),
+        });
+      } catch {
+        if (attempt === 2 || method === "POST") throw new GitHubApiError(0, true);
+        continue;
+      }
+      if (response.ok) break;
+      const retryable =
+        [429, 502, 503, 504].includes(response.status) ||
+        (response.status === 403 &&
+          (response.headers.has("retry-after") ||
+            response.headers.get("x-ratelimit-remaining") === "0"));
+      const retryAfterMs = providerRetryDelay(response.headers);
+      if (!retryable || attempt === 2 || method === "POST")
+        throw new GitHubApiError(response.status, retryable, retryAfterMs);
+      const delay = retryAfterMs ?? 250 * 2 ** attempt;
+      // Long provider delays belong to the durable publisher, not a blocked worker.
+      if (!Number.isFinite(delay) || delay > 2_000)
+        throw new GitHubApiError(response.status, true, retryAfterMs);
+      await new Promise((resolve) => setTimeout(resolve, Math.max(0, delay)));
     }
+    if (response == null || !response.ok) throw new GitHubApiError(0, true);
 
-    return { data: (await response.json()) as T, headers: response.headers };
+    try {
+      const text = await response.text();
+      if (text.length > 2_000_000) throw new Error();
+      return { data: JSON.parse(text) as T, headers: response.headers };
+    } catch {
+      throw new GitHubApiError(0, false);
+    }
   }
 
   async downloadRepositoryArchive(
@@ -122,21 +149,35 @@ export class FetchGitHubAppClient
     if (!/^[a-f0-9]{40}$/i.test(commitSha)) {
       throw new Error("GitHub archive materialization requires a full commit SHA.");
     }
-    const response = await this.fetchImpl(
+    const requestSignal = AbortSignal.any([signal, AbortSignal.timeout(60_000)]);
+    let response = await this.fetchImpl(
       `${this.apiBaseUrl}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}/tarball/${encodeURIComponent(commitSha)}`,
-      {
-        method: "GET",
-        headers: {
-          Accept: "application/vnd.github+json",
-          Authorization: `Bearer ${token}`,
-          "X-GitHub-Api-Version": this.apiVersion,
-        },
-        signal,
-      },
+      { method: "GET", headers: this.headers(token), signal: requestSignal, redirect: "manual" },
     );
-    if (!response.ok || response.body == null) {
-      throw new Error(`GitHub archive request failed with status ${response.status}.`);
+    if ([301, 302, 303, 307, 308].includes(response.status)) {
+      const location = response.headers.get("location");
+      if (location == null) throw new GitHubApiError(0, false);
+      const target = new URL(location);
+      if (
+        target.protocol !== "https:" ||
+        target.hostname !== "codeload.github.com" ||
+        target.port !== "" ||
+        target.username !== "" ||
+        target.password !== "" ||
+        !target.pathname.startsWith(`/${owner}/${repository}/`)
+      )
+        throw new Error("GITHUB_ARCHIVE_REDIRECT_REJECTED");
+      // The signed archive URL carries its authorization; never forward the installation token.
+      response = await this.fetchImpl(target, {
+        method: "GET",
+        signal: requestSignal,
+        redirect: "error",
+        headers: { "User-Agent": "AgentShield" },
+      });
     }
+    if (!response.ok || response.body == null)
+      throw new GitHubApiError(response.status, [429, 502, 503, 504].includes(response.status));
+
     return response.body;
   }
 
@@ -150,7 +191,13 @@ export class FetchGitHubAppClient
       jwt,
     );
     const expiresAt = new Date(data.expires_at);
-    if (data.token.length === 0 || Number.isNaN(expiresAt.getTime())) {
+    if (
+      typeof data.token !== "string" ||
+      data.token.length === 0 ||
+      Number.isNaN(expiresAt.getTime()) ||
+      expiresAt.getTime() <= this.now() ||
+      expiresAt.getTime() > this.now() + 3_660_000
+    ) {
       throw new Error("GitHub returned an invalid installation token response.");
     }
     return { token: data.token, expiresAt };
@@ -179,9 +226,9 @@ export class FetchGitHubAppClient
         },
       }));
       repositories.push(...pageItems);
-      if (pageItems.length < 100) break;
+      if (pageItems.length < 100) return repositories;
     }
-    return repositories;
+    throw new Error("GITHUB_REPOSITORY_PAGE_LIMIT");
   }
 
   async getRepository(owner: string, repository: string, token: string): Promise<GitHubRepository> {
@@ -201,6 +248,76 @@ export class FetchGitHubAppClient
         pull: data.permissions?.pull === true,
       },
     };
+  }
+
+  private headers(token: string, json = false): Record<string, string> {
+    return {
+      Accept: "application/vnd.github+json",
+      Authorization: `Bearer ${token}`,
+      "User-Agent": "AgentShield",
+      "X-GitHub-Api-Version": this.apiVersion,
+      ...(json ? { "Content-Type": "application/json" } : {}),
+    };
+  }
+
+  async getInstallation(
+    installationId: number,
+  ): Promise<{ id: number; account: { login: string; type: string } }> {
+    const { data } = await this.request<{ id: number; account: { login: string; type: string } }>(
+      "GET",
+      `/app/installations/${installationId}`,
+      await this.createAppJwt(),
+    );
+    if (data.id !== installationId || typeof data.account?.login !== "string")
+      throw new Error("GITHUB_INSTALLATION_INVALID");
+    return data;
+  }
+
+  async findCheckRun(
+    owner: string,
+    repository: string,
+    headSha: string,
+    externalId: string,
+  ): Promise<number | null> {
+    for (let page = 1; page <= 10; page++) {
+      const { data } = await this.request<{
+        check_runs: Array<{ id: number; external_id: string }>;
+      }>(
+        "GET",
+        `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}/commits/${headSha}/check-runs?check_name=AgentShield%20Security&per_page=100&page=${page}`,
+        this.requireInstallationToken(),
+      );
+      const found = data.check_runs.find((run) => run.external_id === externalId);
+      if (found != null) return found.id;
+      if (data.check_runs.length < 100) return null;
+    }
+    throw new Error("GITHUB_CHECK_PAGE_LIMIT");
+  }
+
+  async getCheckRun(
+    owner: string,
+    repository: string,
+    checkRunId: number,
+  ): Promise<{
+    id: number;
+    head_sha: string;
+    external_id: string;
+    status: string;
+    conclusion: string;
+  }> {
+    return (
+      await this.request<{
+        id: number;
+        head_sha: string;
+        external_id: string;
+        status: string;
+        conclusion: string;
+      }>(
+        "GET",
+        `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}/check-runs/${checkRunId}`,
+        this.requireInstallationToken(),
+      )
+    ).data;
   }
 
   private checkBody(request: GitHubCheckRunRequest): Record<string, unknown> {
@@ -262,4 +379,39 @@ export class FetchGitHubAppClient
     }
     return this.installationToken;
   }
+}
+
+export class GitHubApiError extends Error {
+  constructor(
+    readonly status: number,
+    readonly retryable: boolean,
+    readonly retryAfterMs?: number,
+  ) {
+    super(`GitHub provider request failed (${status}).`);
+  }
+}
+
+export function validateGitHubPrivateKey(pem: string) {
+  try {
+    const key = createPrivateKey(pem.replaceAll("\\n", "\n"));
+    if (key.asymmetricKeyType !== "rsa" || (key.asymmetricKeyDetails?.modulusLength ?? 0) < 2048)
+      throw new Error();
+    return key;
+  } catch {
+    throw new Error("GITHUB_PRIVATE_KEY_INVALID");
+  }
+}
+
+function providerRetryDelay(headers: Headers): number | undefined {
+  const value = headers.get("retry-after");
+  const reset = headers.get("x-ratelimit-reset");
+  const duration =
+    value != null
+      ? /^\d+$/.test(value)
+        ? Number(value) * 1000
+        : Date.parse(value) - Date.now()
+      : reset != null
+        ? Number(reset) * 1000 - Date.now()
+        : NaN;
+  return Number.isFinite(duration) ? Math.min(86_400_000, Math.max(0, duration)) : undefined;
 }

@@ -34,7 +34,9 @@
     "db:push": "prisma db push",
     "db:seed": "prisma db seed",
     "dev:worker": "pnpm --filter @agentshield/api dev:worker",
-    "test:backend-security": "node --import tsx scripts/verify-backend-security.ts"
+    "test:backend-security": "node --import tsx scripts/verify-backend-security.ts",
+    "test:github-e2e": "node --import tsx scripts/verify-github-e2e.ts",
+    "github:operator": "node --import tsx apps/api/src/integrations/githubOperator.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.0.0"

@@ -23,11 +23,12 @@ export interface GitHubDeliveryStore {
 }
 
 export class PrismaGitHubDeliveryStore implements GitHubDeliveryStore {
-  constructor(private readonly client: PrismaClient) {}
+  constructor(private readonly client: PrismaClient | Prisma.TransactionClient) {}
 
   async claim(input: GitHubDeliveryClaim): Promise<boolean> {
     try {
-      await this.client.gitHubWebhookDelivery.create({
+      const result = await this.client.gitHubWebhookDelivery.createMany({
+        skipDuplicates: true,
         data: {
           id: randomUUID(),
           organizationId: input.organizationId,
@@ -35,13 +36,17 @@ export class PrismaGitHubDeliveryStore implements GitHubDeliveryStore {
           deliveryId: input.webhook.deliveryId,
           eventName: input.webhook.eventName,
           action: input.webhook.action,
-          repositoryFullName: input.webhook.repositoryFullName,
+          repositoryFullName:
+            input.webhook.repositoryFullName == null
+              ? null
+              : sanitizeText(input.webhook.repositoryFullName),
+          ...deliveryContext(input.webhook),
           correlationId: input.correlationId,
           payloadHash: createHash("sha256").update(input.rawPayload).digest("hex"),
           status: "RECEIVED",
         },
       });
-      return true;
+      return result.count === 1;
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
         return false;
@@ -93,4 +98,31 @@ export class PrismaGitHubDeliveryStore implements GitHubDeliveryStore {
       },
     });
   }
+}
+
+function deliveryContext(webhook: VerifiedGitHubWebhook) {
+  const object = (value: unknown): Record<string, unknown> =>
+    typeof value === "object" && value != null && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  const repository = object(webhook.payload.repository),
+    pr = object(webhook.payload.pull_request),
+    head = object(pr.head);
+  const sha = webhook.eventName === "push" ? webhook.payload.after : head.sha;
+  const ref = webhook.eventName === "push" ? webhook.payload.ref : head.ref;
+  return {
+    ...(typeof repository.id === "number" &&
+    Number.isSafeInteger(repository.id) &&
+    repository.id > 0
+      ? { repositoryExternalId: String(repository.id) }
+      : {}),
+    ...(typeof pr.number === "number" &&
+    Number.isSafeInteger(pr.number) &&
+    pr.number > 0 &&
+    pr.number <= 2147483647
+      ? { pullRequestNumber: pr.number }
+      : {}),
+    ...(typeof sha === "string" && /^[a-f0-9]{40}$/i.test(sha) ? { commitSha: sha } : {}),
+    ...(typeof ref === "string" && ref.length <= 256 ? { ref: sanitizeText(ref) } : {}),
+  };
 }
