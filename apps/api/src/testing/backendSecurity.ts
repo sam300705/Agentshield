@@ -227,6 +227,9 @@ async function main() {
   );
   pass("concurrent idempotent enqueue, scan+job+audit atomicity, separate-client durability");
 
+  // Optional blank values from .env.example must mean signing is disabled.
+  process.env.RECEIPT_SIGNING_PRIVATE_KEY = " ";
+  process.env.RECEIPT_SIGNING_KEY_ID = "";
   // A real scan exercises scanner -> policy -> remediation -> approval -> receipt persistence.
   const executor = new ConfiguredScanJobExecutor({
     prepare: () =>
@@ -390,6 +393,44 @@ async function main() {
     (await call(`/api/v1/agent/approvals/${approval.approval.id}`, { org: orgB })).status,
     404,
   );
+  // Inject an audit write failure only for this synthetic approval, then verify the
+  // real review transaction rolls back its decision. Always remove the test trigger.
+  const guard = `security_audit_${suffix.replaceAll("-", "")}`;
+  assert(/^[a-z0-9_]+$/.test(guard));
+  assert(/^[a-zA-Z0-9_-]+$/.test(approval.approval.id));
+  await prisma.$executeRawUnsafe(
+    `CREATE FUNCTION "${guard}"() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'Synthetic audit failure'; END; $$`,
+  );
+  try {
+    await prisma.$executeRawUnsafe(
+      `CREATE TRIGGER "${guard}" BEFORE INSERT ON "AuditEvent" FOR EACH ROW WHEN (NEW."entityId" = '${approval.approval.id}') EXECUTE FUNCTION "${guard}"()`,
+    );
+    await assert.rejects(
+      reviewAgentApproval(
+        orgA,
+        approval.approval.id,
+        "APPROVED",
+        reviewer,
+        undefined,
+        correlationId,
+      ),
+    );
+    assert.equal(
+      (await observer.agentApproval.findUniqueOrThrow({ where: { id: approval.approval.id } }))
+        .status,
+      "PENDING",
+    );
+    assert.equal(
+      await observer.auditEvent.count({
+        where: { entityId: approval.approval.id, action: "APPROVAL_UPDATED" },
+      }),
+      0,
+    );
+  } finally {
+    await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS "${guard}" ON "AuditEvent"`);
+    await prisma.$executeRawUnsafe(`DROP FUNCTION "${guard}"()`);
+  }
+  pass("actual approval decision rollback when its audit insert fails");
   const agentReviews = await Promise.all([
     reviewAgentApproval(orgA, approval.approval.id, "APPROVED", reviewer, secret, correlationId),
     reviewAgentApproval(
@@ -483,6 +524,23 @@ async function main() {
   assert.equal((await state(stale.id)).status, "COMPLETED");
   pass("expired lease cannot renew, stale recovery and next worker complete durably");
 
+  const abandonedFinal = await queue("abandoned-final");
+  await prisma.scanJob.update({
+    where: { id: abandonedFinal.id },
+    data: {
+      status: "RUNNING",
+      attempts: 3,
+      lockedAt: new Date(0),
+      lockedBy: "final-worker",
+      leaseExpiresAt: new Date(0),
+    },
+  });
+  await prisma.scan.update({ where: { id: abandonedFinal.scanId }, data: { status: "RUNNING" } });
+  assert.equal(await recoverAbandonedJobs(), 1);
+  assert((await state(abandonedFinal.id)).deadLetteredAt);
+  assert.equal(await processNextScanJob("abandoned-exhausted", counting), false);
+  pass("final abandoned attempt becomes terminal and is never retried");
+
   const fenced = await queue("fenced");
   let entered!: () => void, release!: () => void;
   const enteredPromise = new Promise<void>((resolve) => {
@@ -505,6 +563,8 @@ async function main() {
   await enteredPromise;
   const oldState = await state(fenced.id);
   assert(oldState.lockedBy);
+  assert(await renewScanJobLease(fenced.id, oldState.lockedBy));
+  assert.equal(await recoverAbandonedJobs(), 0);
   await prisma.scanJob.update({ where: { id: fenced.id }, data: { leaseExpiresAt: new Date(0) } });
   assert.equal(await recoverAbandonedJobs(), 1);
   await processNextScanJob("new-fenced", counting);

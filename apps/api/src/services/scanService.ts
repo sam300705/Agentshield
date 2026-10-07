@@ -365,8 +365,8 @@ async function persistSecurityReceipt(
     completedAt,
     gateResult: gateResultForDecisions(decisions),
   });
-  const privateKey = process.env.RECEIPT_SIGNING_PRIVATE_KEY;
-  const keyId = process.env.RECEIPT_SIGNING_KEY_ID;
+  const privateKey = process.env.RECEIPT_SIGNING_PRIVATE_KEY?.trim() || undefined;
+  const keyId = process.env.RECEIPT_SIGNING_KEY_ID?.trim() || undefined;
   if ((privateKey == null) !== (keyId == null)) {
     throw new Error("Receipt signing requires both private key and key ID.");
   }
