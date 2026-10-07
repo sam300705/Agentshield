@@ -3,6 +3,7 @@ set -euo pipefail
 # Only disposable CI infrastructure. Never point this script at a production database.
 task_tmp=$(mktemp -d)
 fixture_pid=''
+runtime_security=(--read-only --cap-drop ALL --security-opt no-new-privileges:true --tmpfs /tmp:rw,nosuid,nodev,noexec,size=1g)
 cleanup() {
   result=$?
   if test "$result" -ne 0; then
@@ -47,7 +48,7 @@ fixture_pid=$!
 for instance in a b; do
   port=3001
   if test "$instance" = b; then port=3002; fi
-  docker run -d --name "agentshield-ops-api-$instance" --network host --env-file "$task_tmp/runtime.env" -e PORT="$port" -v "$task_tmp/tls.crt:/test-ca.crt:ro" agentshield:ops >/dev/null
+  docker run "${runtime_security[@]}" -d --name "agentshield-ops-api-$instance" --network host --env-file "$task_tmp/runtime.env" -e PORT="$port" -v "$task_tmp/tls.crt:/test-ca.crt:ro" agentshield:ops >/dev/null
 done
 for port in 3001 3002; do
   ready=0
@@ -61,15 +62,15 @@ done
 test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3001/api/v1/repositories)" = 401
 test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3002/api/v1/repositories)" = 401
 test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3001/api/v1/repositories)" = 429
-docker run --rm --network host --env-file "$task_tmp/runtime.env" -v "$PWD/scripts/production-scan-fixture.mjs:/test/scan.mjs:ro" agentshield:ops node /test/scan.mjs prepare
+docker run "${runtime_security[@]}" --rm --network host --env-file "$task_tmp/runtime.env" -v "$PWD/scripts/production-scan-fixture.mjs:/test/scan.mjs:ro" agentshield:ops node /test/scan.mjs prepare
 for instance in a b; do
-  docker run -d --name "agentshield-ops-scan-$instance" --network host --env-file "$task_tmp/runtime.env" -v "$PWD/scripts/production-scan-fixture.mjs:/test/scan.mjs:ro" -v "$PWD/examples/vulnerable-repo:/fixture:ro" agentshield:ops node /test/scan.mjs work >/dev/null
+  docker run "${runtime_security[@]}" -d --name "agentshield-ops-scan-$instance" --network host --env-file "$task_tmp/runtime.env" -v "$PWD/scripts/production-scan-fixture.mjs:/test/scan.mjs:ro" -v "$PWD/examples/vulnerable-repo:/fixture:ro" agentshield:ops node /test/scan.mjs work >/dev/null
 done
 for instance in a b; do
   test "$(docker wait "agentshield-ops-scan-$instance")" = 0
 done
-docker run --rm --network host --env-file "$task_tmp/runtime.env" -v "$PWD/scripts/production-scan-fixture.mjs:/test/scan.mjs:ro" agentshield:ops node /test/scan.mjs verify
-docker run -d --name agentshield-ops-worker --network host --env-file "$task_tmp/runtime.env" agentshield:ops node apps/api/dist/worker.js >/dev/null
+docker run "${runtime_security[@]}" --rm --network host --env-file "$task_tmp/runtime.env" -v "$PWD/scripts/production-scan-fixture.mjs:/test/scan.mjs:ro" agentshield:ops node /test/scan.mjs verify
+docker run "${runtime_security[@]}" -d --name agentshield-ops-worker --network host --env-file "$task_tmp/runtime.env" agentshield:ops node apps/api/dist/worker.js >/dev/null
 sleep 2
 docker exec agentshield-ops-worker node apps/api/dist/workerProbe.js
 docker stop --time 120 agentshield-ops-worker agentshield-ops-api-a agentshield-ops-api-b >/dev/null

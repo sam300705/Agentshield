@@ -12,6 +12,10 @@ services:
       - "3001"
     restart: unless-stopped
     init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: ["/tmp:rw,nosuid,nodev,noexec,size=1g"]
     stop_grace_period: 120s
     healthcheck:
       test:
@@ -35,6 +39,10 @@ services:
       - ./azure.env
     restart: unless-stopped
     init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: ["/tmp:rw,nosuid,nodev,noexec,size=1g"]
     stop_grace_period: 120s
     healthcheck:
       test: ["CMD", "node", "apps/api/dist/workerProbe.js"]

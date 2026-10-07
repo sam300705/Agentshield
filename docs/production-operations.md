@@ -285,12 +285,41 @@ mutable old action tag. The complete all-severity report is uploaded as a 14-day
 
 ## Verified implementation checkpoint
 
-At `8ccff666bfff67d6a711b6261a57e697eceb9ec0`, both push and PR CI passed:
-141 unit tests, 15 existing backend security groups, seven GitHub end-to-end groups,
+At `91b887bf7ead9c694dcd0a6fdd54c6980617611f`, both push and PR CI passed:
+141 unit tests, 16 backend security groups, seven GitHub end-to-end groups,
 six browser tests, production dashboard build, source/fixture SARIF gates, and the actual
 container image smoke/security gate. The container check verified fresh TLS migrations,
 a shared Redis budget across API replicas, two parallel real fixture scans with persisted
 findings and cryptographically verified receipts, independent worker health and graceful
-shutdown. Subsequent shutdown-claim hardening adds a backend regression group and must
-pass the same required checks at the final PR head. These are CI results, not live
+shutdown. The shutdown-claim regression passes at this checkpoint; later container isolation
+changes must pass the same checks at the final PR head. These are CI results, not live
 provider evidence. Backup/restore and real GitHub deployment remain external setup.
+
+## Complete image advisory review
+
+The complete report at `91b887bf7ead9c694dcd0a6fdd54c6980617611f` contains
+50 HIGH and one CRITICAL vendor-unfixed OS findings (plus 103 MEDIUM, 81 LOW and
+one UNKNOWN); the fixable HIGH/CRITICAL gate and production npm audit pass.
+These are package findings, including repeated source advisories across binary packages,
+not 51 demonstrated application exploits. Do not describe the image as vulnerability-free.
+
+The CRITICAL zlib entry CVE-2023-45853 concerns contrib/minizip. The
+[Debian security tracker](https://security-tracker.debian.org/tracker/CVE-2023-45853)
+states that Debian bookworm does not build that affected component into its binary
+packages. Retain the finding and this vendor assessment rather than suppressing it.
+
+The HIGH entries concern util-linux privileged mount/nsenter helpers, gzip LZH parsing,
+libacl symlink handling, OpenSSL DTLS retransmission, systemd-homed, ncurses and Perl
+Archive::Tar. The application does not execute repository scripts or these utilities,
+does not run systemd-homed, and does not expose DTLS. Its archive processing uses Node
+and bounded workspace extraction. This review identifies no current application path
+to those affected operations; it is not proof that every OS issue is unexploitable.
+Track vendor patches and review the complete report for each release.
+
+Azure API/worker containers and CI runtime smoke now use a read-only root filesystem,
+no Linux capabilities, no-new-privileges and a private noexec/nosuid/nodev /tmp capped
+at 1 GiB. Account for scratch memory in the host budget; large concurrent workspaces
+can reach this limit and fail safely. Other hosting platforms must provide equivalent
+container isolation where available. Docker context and Git exclusions also cover
+named environment files such as deploy/azure/azure.env; tracked .env.example templates
+remain allowed in Git. No live secrets belong in the build context or repository.
