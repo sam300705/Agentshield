@@ -16,7 +16,11 @@ import {
 import { runConfiguredScan } from "../services/scanService.js";
 import { ConfiguredScanJobExecutor } from "../services/scanJobExecutor.js";
 import { ensureAgentApproval, reviewAgentApproval } from "../services/agentApprovalService.js";
-import { scanOptionsSchema, type AgentAuthorizationRequest } from "@agentshield/schemas";
+import {
+  sanitizeText,
+  scanOptionsSchema,
+  type AgentAuthorizationRequest,
+} from "@agentshield/schemas";
 
 const suffix = randomUUID();
 const orgA = `security-a-${suffix}`,
@@ -235,7 +239,18 @@ async function main() {
   const counting = {
     execute: async (input: Parameters<typeof executor.execute>[0]) => {
       executions++;
-      return executor.execute(input);
+      try {
+        return await executor.execute(input);
+      } catch (error) {
+        console.warn(
+          "Sanitized synthetic execution diagnostic:",
+          sanitizeText(error instanceof Error ? error.message : "Unknown execution error").slice(
+            0,
+            1_000,
+          ),
+        );
+        throw error;
+      }
     },
   };
   await Promise.all([

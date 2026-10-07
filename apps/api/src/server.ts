@@ -10,6 +10,7 @@ import express, {
 import helmet from "helmet";
 import { ZodError } from "zod";
 
+import { sanitizeText } from "@agentshield/schemas";
 import { ServiceError } from "./security/serviceError.js";
 
 import { getRuntimeConfig } from "./config.js";
@@ -69,6 +70,16 @@ export function createServer(): Express {
       });
       return;
     }
+    if (typeof error === "object" && error != null && "status" in error && error.status === 413) {
+      response.status(400).json({
+        error: {
+          code: "REQUEST_TOO_LARGE",
+          message: "Request body exceeds the allowed size.",
+          correlationId: getCorrelationId(response),
+        },
+      });
+      return;
+    }
     if (error instanceof SyntaxError && "status" in error && error.status === 400) {
       response.status(400).json({
         error: {
@@ -86,7 +97,11 @@ export function createServer(): Express {
           message: "Request validation failed.",
           issues: error.issues.slice(0, 100).map(({ code, path }) => ({
             code,
-            path: path.slice(0, 32),
+            path: path
+              .slice(0, 32)
+              .map((segment) =>
+                typeof segment === "string" ? sanitizeText(segment).slice(0, 128) : segment,
+              ),
             message: "Invalid value.",
           })),
           correlationId: getCorrelationId(response),

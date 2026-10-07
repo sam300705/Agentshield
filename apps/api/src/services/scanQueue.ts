@@ -36,8 +36,11 @@ export async function enqueueRepositoryScan(
 ): Promise<{ id: string; scanId: string; status: ScanStatus }> {
   const request = createRepositoryScanSchema.parse(input);
   const scopedIdempotencyKey = JSON.stringify([organizationId, idempotencyKey]);
-  const existing = await prisma.scanJob.findUnique({
-    where: { idempotencyKey: scopedIdempotencyKey },
+  const existing = await prisma.scanJob.findFirst({
+    where: {
+      idempotencyKey: { in: [scopedIdempotencyKey, `${organizationId}:${idempotencyKey}`] },
+      scan: { organizationId },
+    },
   });
   const replay = (job: NonNullable<typeof existing>) => {
     const payload = scanJobPayloadSchema.parse(job.payload);
@@ -74,18 +77,30 @@ export async function enqueueRepositoryScan(
         throw new ServiceError(404, "REPOSITORY_NOT_FOUND", "Repository was not found.");
       const provider = repository.provider.toUpperCase();
       if (provider !== "GITHUB" && provider !== "LOCAL") {
-        throw new Error("Repository provider is not supported.");
+        throw new ServiceError(
+          409,
+          "REPOSITORY_PROVIDER_UNSUPPORTED",
+          "Repository provider is not supported.",
+        );
       }
       if (provider === "GITHUB") {
         if (repository.githubInstallationId == null) {
-          throw new Error("GitHub repository installation mapping is missing.");
+          throw new ServiceError(
+            409,
+            "REPOSITORY_INSTALLATION_MISSING",
+            "Repository installation mapping is missing.",
+          );
         }
         const installation = await tx.gitHubInstallation.findFirst({
           where: { id: repository.githubInstallationId, organizationId },
           select: { id: true },
         });
         if (installation == null || installation.id !== repository.githubInstallationId) {
-          throw new Error("GitHub repository installation mapping is invalid.");
+          throw new ServiceError(
+            409,
+            "REPOSITORY_INSTALLATION_INVALID",
+            "Repository installation mapping is invalid.",
+          );
         }
       }
       const scan = await tx.scan.create({
@@ -170,9 +185,14 @@ export async function enqueueDemoScan(
   correlationId = "system",
   requester = "demo",
 ) {
+  if (process.env.NODE_ENV === "production")
+    throw new ServiceError(403, "DEMO_DISABLED", "Demo scans are disabled in production.");
   const scopedIdempotencyKey = JSON.stringify([organizationId, idempotencyKey]);
-  const existing = await prisma.scanJob.findUnique({
-    where: { idempotencyKey: scopedIdempotencyKey },
+  const existing = await prisma.scanJob.findFirst({
+    where: {
+      idempotencyKey: { in: [scopedIdempotencyKey, `${organizationId}:${idempotencyKey}`] },
+      scan: { organizationId },
+    },
   });
   if (existing != null) return existing;
 

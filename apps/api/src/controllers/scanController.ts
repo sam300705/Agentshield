@@ -114,20 +114,15 @@ export async function getScanProgressController(
 
 export async function cancelScanController(request: Request, response: Response): Promise<void> {
   const actor = getActor(response);
+  z.object({})
+    .strict()
+    .parse(request.body ?? {});
   const { scanId } = scanParamsSchema.parse(request.params);
   const job = await prisma.scanJob.findFirst({
     where: { scanId, scan: { organizationId: actor.organizationId } },
     select: { id: true },
   });
-  if (
-    job == null ||
-    !(await requestJobCancellation(
-      job.id,
-      actor.organizationId,
-      actor.id,
-      getCorrelationId(response),
-    ))
-  ) {
+  if (job == null) {
     response.status(404).json({
       error: {
         code: "SCAN_JOB_NOT_FOUND",
@@ -137,6 +132,19 @@ export async function cancelScanController(request: Request, response: Response)
     });
     return;
   }
+  if (
+    !(await requestJobCancellation(
+      job.id,
+      actor.organizationId,
+      actor.id,
+      getCorrelationId(response),
+    ))
+  )
+    throw new ServiceError(
+      409,
+      "SCAN_STATE_CONFLICT",
+      "Scan job is terminal or cancellation was already requested.",
+    );
   response.status(202).json({
     scanId,
     status: "CANCEL_REQUESTED",

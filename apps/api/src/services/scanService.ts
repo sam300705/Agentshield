@@ -417,27 +417,35 @@ async function persistSecurityReceipt(
 async function markScanFailed(
   client: PrismaClient,
   scanId: string,
-  _error: unknown,
-  metadata: Pick<ScanRunOptions, "source" | "targetPathLabel" | "triggeredBy" | "labels">,
+  metadata: ScanRunOptions,
 ): Promise<void> {
-  const safeError = "Scan execution failed.";
-  await client.scan.updateMany({
-    where: {
-      id: scanId,
-      status: "RUNNING",
-      job: { is: null },
-    },
-    data: {
-      status: ScanStatus.FAILED,
-      completedAt: new Date(),
-      metadata: {
-        source: metadata.source,
-        targetPath: metadata.targetPathLabel,
-        triggeredBy: metadata.triggeredBy,
-        labels: metadata.labels,
-        error: safeError,
+  await client.$transaction(async (tx) => {
+    const changed = await tx.scan.updateMany({
+      where: {
+        id: scanId,
+        organizationId: metadata.organizationId,
+        status: "RUNNING",
+        job: { is: null },
       },
-    },
+      data: {
+        status: "FAILED",
+        completedAt: new Date(),
+        metadata: { source: metadata.source, error: "Scan execution failed." },
+      },
+    });
+    if (changed.count === 1)
+      await tx.auditEvent.create({
+        data: {
+          actor: metadata.triggeredBy,
+          action: "SCAN_FAILED",
+          entityType: "Scan",
+          entityId: scanId,
+          scanId,
+          organizationId: metadata.organizationId,
+          correlationId: metadata.correlationId,
+          metadata: { source: metadata.source },
+        },
+      });
   });
 }
 
@@ -687,7 +695,7 @@ export async function runConfiguredScan(
     );
     return scan.id;
   } catch (error) {
-    if (options.leaseOwner == null) await markScanFailed(prisma, scan.id, error, options);
+    if (options.leaseOwner == null) await markScanFailed(prisma, scan.id, options);
     throw error;
   }
 }
@@ -700,6 +708,7 @@ export async function runDemoScan(
   leaseOwner?: string,
   requester = SYSTEM_ACTOR,
 ): Promise<string> {
+  if (process.env.NODE_ENV === "production") throw new Error("DEMO_DISABLED");
   return runConfiguredScan(
     {
       source: "LOCAL_EXAMPLE",

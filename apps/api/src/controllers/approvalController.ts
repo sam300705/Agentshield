@@ -11,10 +11,12 @@ import {
   type RequestActor,
 } from "../security/auth.js";
 
-const paginationQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(100).default(25),
-  page: z.coerce.number().int().min(1).max(1_000_000).default(1),
-});
+const paginationQuerySchema = z
+  .object({
+    limit: z.coerce.number().int().min(1).max(100).default(25),
+    page: z.coerce.number().int().min(1).max(1_000_000).default(1),
+  })
+  .strict();
 
 const approvalParamsSchema = z.object({
   approvalId: z.string().min(1).max(128),
