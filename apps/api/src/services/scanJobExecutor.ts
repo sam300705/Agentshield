@@ -1,5 +1,7 @@
 import { scanJobPayloadSchema, scanOptionsSchema, type ScanJobPayload } from "@agentshield/schemas";
 
+import { POLICY_RULE_VERSION } from "@agentshield/policy-engine";
+
 import { runConfiguredScan, runDemoScan } from "./scanService.js";
 
 export interface RepositoryWorkspace {
@@ -26,6 +28,8 @@ export class ConfiguredScanJobExecutor implements ScanJobExecutor {
 
   async execute(input: ScanJobExecutionInput): Promise<string> {
     const payload = scanJobPayloadSchema.parse(input.payload);
+    if (payload.policyBundleVersion !== POLICY_RULE_VERSION)
+      throw new Error("Unsupported policy bundle version.");
     if (payload.provider === "LOCAL" && payload.repositoryId === "local-demo") {
       if (payload.organizationId.length === 0) throw new Error("SCAN_ORGANIZATION_REQUIRED");
       return runDemoScan(input.scanId, payload.organizationId, payload.correlationId, input.signal);

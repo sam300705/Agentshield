@@ -1,7 +1,7 @@
 import { createServer, type Server } from "node:http";
 
 import express from "express";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createRateLimiter } from "./rateLimit.js";
 
@@ -56,4 +56,42 @@ describe("rate limiter", () => {
 
     expect(responses.map((response) => response.status)).toEqual([200, 200]);
   });
+});
+
+it("bounds active bucket cardinality without evicting existing limits", () => {
+  const limiter = createRateLimiter({
+    enabled: true,
+    max: 1,
+    windowMs: 60_000,
+    keyForRequest: (request) => request.ip ?? "unknown",
+  });
+  const res = {
+    locals: {},
+    getHeader: vi.fn(),
+    setHeader: vi.fn(),
+    status: vi.fn(),
+    json: vi.fn(),
+  };
+  res.status.mockReturnValue(res);
+  const next = vi.fn();
+  for (let index = 0; index < 10000; index++)
+    limiter(
+      { ip: `identity-${index}`, method: "GET", path: "/" } as unknown as express.Request,
+      res as unknown as express.Response,
+      next,
+    );
+  expect(next).toHaveBeenCalledTimes(10000);
+  limiter(
+    { ip: "overflow", method: "GET", path: "/" } as unknown as express.Request,
+    res as unknown as express.Response,
+    next,
+  );
+  expect(res.status).toHaveBeenLastCalledWith(429);
+  limiter(
+    { ip: "identity-0", method: "GET", path: "/" } as unknown as express.Request,
+    res as unknown as express.Response,
+    next,
+  );
+  expect(next).toHaveBeenCalledTimes(10000);
+  expect(res.status).toHaveBeenLastCalledWith(429);
 });

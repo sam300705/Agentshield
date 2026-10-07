@@ -59,6 +59,7 @@ export class ApiError extends Error {
 }
 
 export interface DashboardSummary {
+  platformRiskScore: "A" | "B" | "C" | "F";
   totalScans: number;
   totalFindings: number;
   pendingApprovalsCount: number;

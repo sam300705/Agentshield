@@ -32,7 +32,11 @@ export async function listRepositoriesController(
   response: Response,
 ): Promise<void> {
   const actor = getActor(response);
+  const { page, limit, skip } = getPagination(request.query);
+  const total = await prisma.repository.count({ where: { organizationId: actor.organizationId } });
   const repositories = await prisma.repository.findMany({
+    skip,
+    take: limit,
     where: { organizationId: actor.organizationId },
     orderBy: { fullName: "asc" },
     select: {
@@ -45,7 +49,7 @@ export async function listRepositoriesController(
       updatedAt: true,
     },
   });
-  response.json({ data: repositories });
+  response.json(paginatedResponseSchema.parse({ page, limit, total, data: repositories }));
 }
 
 export async function createRepositoryScanController(

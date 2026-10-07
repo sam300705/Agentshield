@@ -17,6 +17,7 @@ const REDACTED = "[REDACTED]";
 const SENSITIVE_KEY =
   /(secret|password|passwd|token|api[-_]?key|authorization|private[-_]?key|credential)/i;
 const SENSITIVE_VALUE_PATTERNS = [
+  /\b(?:gh[pousr]_[A-Za-z0-9]{12,}|github_pat_[A-Za-z0-9_]{12,})\b/g,
   /\bAKIA[0-9A-Z]{16}\b/g,
   /\b(?:ghp|github_pat|sk)-[A-Za-z0-9_-]{12,}\b/g,
   /Bearer\s+[A-Za-z0-9._~+/-]+=*/gi,
@@ -185,9 +186,11 @@ export function buildAttackGraph(events: AgentEvent[]): AttackGraph {
     }
   }
 
-  const highestRiskEvents = ordered
-    .filter((event) => event.riskLevel === "HIGH" || event.riskLevel === "CRITICAL")
-    .map((event) => `event:${event.id}`);
+  let lastRiskIndex = -1;
+  ordered.forEach((event, index) => {
+    if (event.riskLevel === "HIGH" || event.riskLevel === "CRITICAL") lastRiskIndex = index;
+  });
+  const highestRiskEvents = ordered.slice(0, lastRiskIndex + 1).map((event) => `event:${event.id}`);
   const riskTotal = ordered.reduce((sum, event) => sum + RISK_WEIGHT[event.riskLevel], 0);
   const blastRadiusScore = Math.min(100, riskTotal + resourceIds.size * 8);
 

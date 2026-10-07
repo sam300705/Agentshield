@@ -26,6 +26,20 @@ export function createRateLimiter(options: {
         ? `organization:${actor.organizationId}:user:${actor.id}:route:${request.method}:${request.path}`
         : `ip:${request.ip || "unknown"}:route:${request.method}:${request.path}`;
     const key = options.keyForRequest?.(request, response) ?? defaultKey;
+    if (!buckets.has(key) && buckets.size >= 10_000) {
+      for (const [bucketKey, value] of buckets) {
+        if (value.resetAt <= now) buckets.delete(bucketKey);
+      }
+      if (buckets.size >= 10_000) {
+        response.status(429).json({
+          error: {
+            code: "RATE_LIMITED",
+            message: "Too many active request identities. Try again later.",
+          },
+        });
+        return;
+      }
+    }
     const current = buckets.get(key);
     const bucket =
       current == null || current.resetAt <= now

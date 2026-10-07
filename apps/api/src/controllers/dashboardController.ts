@@ -45,22 +45,39 @@ export async function getDashboardSummaryController(
   ]);
 
   if (latestScan == null) {
-    response.json({ totalScans, totalFindings, pendingApprovalsCount, latestScan: null });
+    response.json({
+      totalScans,
+      totalFindings,
+      pendingApprovalsCount,
+      platformRiskScore: "A",
+      latestScan: null,
+    });
     return;
   }
 
-  const [severityRows, decisionRows] = await Promise.all([
-    prisma.finding.groupBy({
-      by: ["severity"],
-      where: { scanId: latestScan.id, scan: scanWhere },
-      _count: { _all: true },
-    }),
-    prisma.policyDecision.groupBy({
-      by: ["decision"],
-      where: { finding: { scanId: latestScan.id, scan: scanWhere } },
-      _count: { _all: true },
-    }),
-  ]);
+  const [severityRows, decisionRows, organizationSeverityRows, organizationDecisionRows] =
+    await Promise.all([
+      prisma.finding.groupBy({
+        by: ["severity"],
+        where: { scanId: latestScan.id, scan: scanWhere },
+        _count: { _all: true },
+      }),
+      prisma.policyDecision.groupBy({
+        by: ["decision"],
+        where: { finding: { scanId: latestScan.id, scan: scanWhere } },
+        _count: { _all: true },
+      }),
+      prisma.finding.groupBy({
+        by: ["severity"],
+        where: { scan: scanWhere },
+        _count: { _all: true },
+      }),
+      prisma.policyDecision.groupBy({
+        by: ["decision"],
+        where: { finding: { scan: scanWhere } },
+        _count: { _all: true },
+      }),
+    ]);
   const severityCounts = createEmptySeverityCounts();
   const decisionCounts = createEmptyDecisionCounts();
 
@@ -98,7 +115,15 @@ export async function getDashboardSummaryController(
     }
   }
 
+  const platformRiskScore = calculatePlatformRiskScore({
+    critical: organizationSeverityRows.find((row) => row.severity === "CRITICAL")?._count._all ?? 0,
+    high: organizationSeverityRows.find((row) => row.severity === "HIGH")?._count._all ?? 0,
+    block: organizationDecisionRows.find((row) => row.decision === "BLOCK")?._count._all ?? 0,
+    requireApproval:
+      organizationDecisionRows.find((row) => row.decision === "REQUIRE_APPROVAL")?._count._all ?? 0,
+  });
   response.json({
+    platformRiskScore,
     totalScans,
     totalFindings,
     pendingApprovalsCount,
@@ -113,12 +138,7 @@ export async function getDashboardSummaryController(
       dependenciesCount: latestScan._count.dependencies,
       severityCounts,
       decisionCounts,
-      platformRiskScore: calculatePlatformRiskScore({
-        critical: severityCounts.critical,
-        high: severityCounts.high,
-        block: decisionCounts.block,
-        requireApproval: decisionCounts.requireApproval,
-      }),
+      platformRiskScore,
     },
   });
 }

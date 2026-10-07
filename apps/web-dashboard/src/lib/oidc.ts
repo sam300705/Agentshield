@@ -242,7 +242,7 @@ export class OidcSession {
         };
         validateClaims(this.config, transaction, tokens);
       }
-      this.tokens = tokens;
+      this.tokens = { ...tokens, refreshToken: tokens.refreshToken ?? refreshToken };
       return tokens.accessToken;
     } catch {
       this.clear();

@@ -79,19 +79,31 @@ export async function githubWebhookController(request: Request, response: Respon
   }
 
   const lifecycleConfig = getRuntimeConfig();
-  const lifecycle = await processGitHubWebhookDelivery(
-    installation.organizationId,
-    webhook,
-    getCorrelationId(response),
-    {
-      client: prisma,
-      deliveryStore: store,
-      scanLifecycleEnabled: lifecycleConfig.githubScanLifecycleEnabled,
-      ...(lifecycleConfig.GITHUB_SCAN_POLICY_BUNDLE_VERSION == null
-        ? {}
-        : { policyBundleVersion: lifecycleConfig.GITHUB_SCAN_POLICY_BUNDLE_VERSION }),
-    },
-  );
+  let lifecycle;
+  try {
+    lifecycle = await processGitHubWebhookDelivery(
+      installation.organizationId,
+      webhook,
+      getCorrelationId(response),
+      {
+        client: prisma,
+        deliveryStore: store,
+        scanLifecycleEnabled: lifecycleConfig.githubScanLifecycleEnabled,
+        ...(lifecycleConfig.GITHUB_SCAN_POLICY_BUNDLE_VERSION == null
+          ? {}
+          : { policyBundleVersion: lifecycleConfig.GITHUB_SCAN_POLICY_BUNDLE_VERSION }),
+      },
+    );
+  } catch {
+    await store.markFailed(installation.organizationId, webhook.deliveryId, "PROCESSING_FAILED");
+    sendWebhookError(
+      response,
+      503,
+      "WEBHOOK_PROCESSING_FAILED",
+      "Webhook processing can be retried.",
+    );
+    return;
+  }
   response.status(lifecycle.status === "FAILED" ? 503 : 202).json({
     status: lifecycle.status.toLowerCase(),
     deliveryId: webhook.deliveryId,

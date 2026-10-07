@@ -140,3 +140,35 @@ describe("control plane primitives", () => {
     expect(fingerprint.drift.map((item) => item.metric)).toContain("infrastructureChanges");
   });
 });
+
+describe("Phase 1 evidence and graph regressions", () => {
+  it.each(["ghp", "gho", "ghu", "ghs", "ghr", "github_pat"])(
+    "redacts underscore-form %s tokens before chaining",
+    (prefix) => {
+      const credential = `${prefix}_${"a".repeat(40)}`;
+      expect(redactEvidence({ output: credential })).toEqual({ output: "[REDACTED]" });
+      const events = createIntegrityChain([
+        { ...baseEvents[0]!, evidence: { output: credential } },
+      ]);
+      expect(JSON.stringify(events)).not.toContain(credential);
+      expect(verifyIntegrityChain(events)).toBe(true);
+      expect(redactEvidence({ output: "ghp_short ordinary_identifier" })).toEqual({
+        output: "ghp_short ordinary_identifier",
+      });
+    },
+  );
+  it("keeps low-risk predecessors in a connected highest-risk path", () => {
+    const events = createIntegrityChain([{ ...baseEvents[0]!, riskLevel: "LOW" }, baseEvents[1]!]);
+    const graph = buildAttackGraph(events);
+    expect(graph.highestRiskPath).toEqual(["task", "event:evt-1", "event:evt-2"]);
+    for (let index = 1; index < graph.highestRiskPath.length; index++) {
+      expect(
+        graph.edges.some(
+          (edge) =>
+            edge.from === graph.highestRiskPath[index - 1] &&
+            edge.to === graph.highestRiskPath[index],
+        ),
+      ).toBe(true);
+    }
+  });
+});

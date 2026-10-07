@@ -2,7 +2,7 @@ import { ScanStatus } from "@prisma/client";
 import type { Request, Response } from "express";
 
 import { prisma } from "../db/prisma.js";
-import { getCorrelationId } from "../security/auth.js";
+import { getActor, getCorrelationId } from "../security/auth.js";
 
 export async function readinessController(_request: Request, response: Response): Promise<void> {
   try {
@@ -24,10 +24,11 @@ export async function readinessController(_request: Request, response: Response)
 }
 
 export async function metricsController(_request: Request, response: Response): Promise<void> {
+  const { organizationId } = getActor(response);
   const [queued, running, failed] = await Promise.all([
-    prisma.scanJob.count({ where: { status: ScanStatus.QUEUED } }),
-    prisma.scanJob.count({ where: { status: ScanStatus.RUNNING } }),
-    prisma.scanJob.count({ where: { status: ScanStatus.FAILED } }),
+    prisma.scanJob.count({ where: { scan: { organizationId }, status: ScanStatus.QUEUED } }),
+    prisma.scanJob.count({ where: { scan: { organizationId }, status: ScanStatus.RUNNING } }),
+    prisma.scanJob.count({ where: { scan: { organizationId }, status: ScanStatus.FAILED } }),
   ]);
   response
     .type("text/plain")

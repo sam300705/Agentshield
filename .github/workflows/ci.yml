@@ -50,6 +50,8 @@ jobs:
           docker compose config --quiet
           pnpm db:up
           pnpm db:down
+      - name: Verify production container generation and build
+        run: docker build --tag agentshield:phase1 .
       - run: pnpm db:generate
       - run: pnpm exec prisma validate
       - run: pnpm db:deploy

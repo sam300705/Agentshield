@@ -258,6 +258,36 @@ describe("provider-neutral OIDC session", () => {
     expect(session.isAuthenticated()).toBe(false);
   });
 
+  it("retains a non-rotated refresh token over successive refreshes", async () => {
+    vi.stubGlobal("crypto", webcrypto);
+    let now = 1_000_000;
+    const refresh = vi.fn(() => Promise.resolve({ accessToken: "new", expiresAt: now + 1 }));
+    const client: OidcTokenClient = { exchangeCode: vi.fn(), refresh };
+    const session = new OidcSession(config, client, () => now);
+    const params = new URL(await session.beginLogin()).searchParams;
+    client.exchangeCode = vi.fn(() =>
+      Promise.resolve({
+        accessToken: "old",
+        expiresAt: now + 1,
+        refreshToken: "retained",
+        idTokenClaims: futureClaims(params.get("nonce") ?? ""),
+      }),
+    );
+    const callback = new URL(config.redirectUri);
+    callback.searchParams.set("code", "code");
+    callback.searchParams.set("state", params.get("state") ?? "");
+    await session.handleCallback(callback.toString());
+    now += 5000;
+    expect(await session.getAccessToken()).toBe("new");
+    now += 5000;
+    expect(await session.getAccessToken()).toBe("new");
+    expect(refresh).toHaveBeenCalledTimes(2);
+    expect(refresh).toHaveBeenLastCalledWith({
+      refreshToken: "retained",
+      clientId: config.clientId,
+    });
+  });
+
   it("returns no live configuration when required owner values are absent", () => {
     expect(readOidcConfig({ VITE_APP_MODE: "demo" })).toBeNull();
     expect(

@@ -9,6 +9,7 @@ import { parseArgs } from "node:util";
 
 import { enrichDependencies } from "./vulnerabilityEnricher.js";
 import { runScan } from "./scanRunner.js";
+import { parsePositiveLimit } from "./limits.js";
 import { gateResult } from "./cliGate.js";
 
 const CLI_VERSION = "0.2.0";
@@ -117,6 +118,14 @@ async function main(): Promise<void> {
   const format = values.format;
   if (!new Set(["human", "json", "jsonl", "sarif"]).has(format))
     throw new Error(`Unsupported format: ${format}`);
+  for (const name of ["max-files", "max-bytes", "timeout"] as const) {
+    parsePositiveLimit(
+      values[name],
+      name,
+      name === "timeout" ? 2_147_483_647 : Number.MAX_SAFE_INTEGER,
+    );
+  }
+  if (values.policy !== POLICY_RULE_VERSION) throw new Error("Unsupported policy bundle version.");
   const target = path.resolve(values.path);
   const scanId = `cli-${createHash("sha256").update(`${target}:${CLI_VERSION}`).digest("hex").slice(0, 20)}`;
   const controller = new AbortController();

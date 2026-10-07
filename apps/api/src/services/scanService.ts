@@ -1,5 +1,6 @@
 import {
   createSecurityReceipt,
+  POLICY_RULE_VERSION,
   evaluateFindings,
   signSecurityReceipt,
 } from "@agentshield/policy-engine";
@@ -108,6 +109,7 @@ function createScanMetadata(input: {
   advisoryCount: number;
   advisoryStatus: "DISABLED" | "ENRICHED" | "UNAVAILABLE";
   advisoryDiagnostic?: string;
+  advisoryInventoryDiagnostics?: JsonValue;
   policyBundleVersion: string;
 }): Prisma.InputJsonValue {
   return toInputJson({
@@ -123,6 +125,7 @@ function createScanMetadata(input: {
       approvals: input.approvalCount,
       advisories: input.advisoryCount,
       advisoryStatus: input.advisoryStatus,
+      advisoryInventoryDiagnostics: input.advisoryInventoryDiagnostics ?? [],
       ...(input.advisoryDiagnostic == null ? {} : { advisoryDiagnostic: input.advisoryDiagnostic }),
     },
     policyBundleVersion: input.policyBundleVersion,
@@ -283,6 +286,27 @@ async function persistRemediation(
   });
 }
 
+export function partitionAdvisoryResults(results: DependencyAdvisoryResult[]) {
+  return {
+    confirmed: results.map((result) => ({
+      ...result,
+      advisories: result.advisories.filter((advisory) => advisory.match === "CONFIRMED"),
+    })),
+    diagnostics: sanitizeEvidence(
+      results.flatMap((result) =>
+        result.advisories
+          .filter((advisory) => advisory.match !== "CONFIRMED")
+          .map((advisory) => ({
+            packageName: result.packageName,
+            version: result.version,
+            match: advisory.match,
+            matchReason: advisory.matchReason,
+          })),
+      ),
+    ),
+  };
+}
+
 async function persistAdvisories(
   tx: Prisma.TransactionClient,
   organizationId: string,
@@ -299,6 +323,7 @@ async function persistAdvisories(
   let count = 0;
   for (const result of results) {
     for (const advisory of result.advisories) {
+      if (advisory.match !== "CONFIRMED") continue;
       const dependencyId = dependencyIds.get(
         `${result.packageName}:${result.version}:${result.packageManager}`,
       );
@@ -333,6 +358,15 @@ async function persistAdvisories(
   return count;
 }
 
+export function receiptSigningSettings(env: Record<string, string | undefined>) {
+  const privateKey = env.RECEIPT_SIGNING_PRIVATE_KEY?.trim() || undefined;
+  const keyId = env.RECEIPT_SIGNING_KEY_ID?.trim() || undefined;
+  if ((privateKey == null) !== (keyId == null)) {
+    throw new Error("Receipt signing requires both private key and key ID.");
+  }
+  return { privateKey, keyId };
+}
+
 async function persistSecurityReceipt(
   tx: Prisma.TransactionClient,
   options: ScanRunOptions,
@@ -365,11 +399,7 @@ async function persistSecurityReceipt(
     completedAt,
     gateResult: gateResultForDecisions(decisions),
   });
-  const privateKey = process.env.RECEIPT_SIGNING_PRIVATE_KEY;
-  const keyId = process.env.RECEIPT_SIGNING_KEY_ID;
-  if ((privateKey == null) !== (keyId == null)) {
-    throw new Error("Receipt signing requires both private key and key ID.");
-  }
+  const { privateKey, keyId } = receiptSigningSettings(process.env);
   const signed =
     privateKey != null && keyId != null
       ? signSecurityReceipt(receipt, { keyId, privateKey })
@@ -462,6 +492,9 @@ export async function runConfiguredScan(
   options: ScanRunOptions,
   existingScanId?: string,
 ): Promise<string> {
+  if (options.policyBundleVersion !== POLICY_RULE_VERSION) {
+    throw new Error("Unsupported policy bundle version.");
+  }
   const initialMetadata = {
     source: options.source,
     targetPath: options.targetPathLabel,
@@ -526,7 +559,8 @@ export async function runConfiguredScan(
       scanResult.dependencies,
       options.options.includeOsv,
     );
-    const advisoryResults = advisoryEnrichment.results;
+    const { confirmed: advisoryResults, diagnostics: advisoryInventoryDiagnostics } =
+      partitionAdvisoryResults(advisoryEnrichment.results);
     const advisoryStatus = advisoryEnrichment.status;
     const decisionsByFindingId = new Map(
       policyDecisions.map((decision) => [decision.findingId, decision]),
@@ -558,8 +592,13 @@ export async function runConfiguredScan(
       dependencyCount: scanResult.dependencies.length,
       remediationCount: remediations.length,
       approvalCount: approvalFindingIds.length,
-      advisoryCount: advisoryResults.reduce((count, result) => count + result.advisories.length, 0),
+      advisoryCount: advisoryResults.reduce(
+        (count, result) =>
+          count + result.advisories.filter((advisory) => advisory.match === "CONFIRMED").length,
+        0,
+      ),
       advisoryStatus,
+      advisoryInventoryDiagnostics,
       ...(advisoryEnrichment.diagnostic == null
         ? {}
         : { advisoryDiagnostic: advisoryEnrichment.diagnostic }),
@@ -647,7 +686,7 @@ export async function runDemoScan(
       correlationId,
       triggeredBy: SYSTEM_ACTOR,
       labels: ["demo", "api-run"],
-      policyBundleVersion: "demo",
+      policyBundleVersion: POLICY_RULE_VERSION,
       options: {
         maxFiles: 10_000,
         maxBytes: 100 * 1024 * 1024,

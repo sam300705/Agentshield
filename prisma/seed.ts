@@ -1,3 +1,5 @@
+import { clearSeedScans } from "../apps/api/src/services/seedCleanup.js";
+import { assertSafeSeedTarget } from "../apps/api/src/services/seedSafety.js";
 import {
   ApprovalStatus,
   AuditAction,
@@ -12,30 +14,9 @@ import {
 
 const prisma = new PrismaClient();
 
-function assertSafeSeedTarget(): void {
-  const nodeEnv = process.env.NODE_ENV ?? "development";
-  const databaseUrl = process.env.DATABASE_URL ?? "";
-  if (nodeEnv === "production") {
-    throw new Error("Refusing to seed when NODE_ENV=production.");
-  }
-  if (!databaseUrl.includes("localhost") && !databaseUrl.includes("127.0.0.1")) {
-    throw new Error("Refusing to seed a non-local database. Use an isolated local database.");
-  }
-}
-
-async function clearDatabase() {
-  await prisma.auditEvent.deleteMany();
-  await prisma.policyDecision.deleteMany();
-  await prisma.remediation.deleteMany();
-  await prisma.approval.deleteMany();
-  await prisma.dependency.deleteMany();
-  await prisma.finding.deleteMany();
-  await prisma.scan.deleteMany();
-}
-
 async function main() {
-  assertSafeSeedTarget();
-  await clearDatabase();
+  assertSafeSeedTarget(process.env.NODE_ENV, process.env.DATABASE_URL ?? "");
+  await clearSeedScans(prisma);
 
   const organization = await prisma.organization.upsert({
     where: { slug: "demo-organization" },

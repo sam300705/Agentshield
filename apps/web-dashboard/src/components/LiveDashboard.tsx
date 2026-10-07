@@ -1,3 +1,5 @@
+import { Link } from "react-router-dom";
+
 import { useCallback, useEffect, useState } from "react";
 
 import { ApiError, api, type DashboardSummary, type ScanListItem } from "../lib/api";
@@ -95,10 +97,11 @@ export function LiveDashboard() {
         <article>
           <span>Pending approvals</span>
           <strong>{summary?.pendingApprovalsCount ?? 0}</strong>
+          <Link to="/approvals">Review pending approvals</Link>
         </article>
         <article>
-          <span>Latest risk</span>
-          <strong>{summary?.latestScan?.platformRiskScore ?? "—"}</strong>
+          <span>Organization risk</span>
+          <strong>{summary?.platformRiskScore ?? "—"}</strong>
         </article>
       </section>
       <section className="panel live-panel">
