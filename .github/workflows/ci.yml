@@ -50,6 +50,7 @@ jobs:
           docker compose config --quiet
           pnpm db:up
           pnpm db:down
+      - run: pnpm audit --prod
       - run: pnpm db:generate
       - run: pnpm exec prisma validate
       - run: pnpm db:deploy

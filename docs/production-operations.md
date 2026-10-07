@@ -7,21 +7,21 @@ No production deployment, backup, restore, or real GitHub Check is claimed by CI
 
 ## Audit and selected topology
 
-| Area at Phase 3                             | Classification                       | Phase 4 response                                                                                         |
-| ------------------------------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------- |
-| Independent API and durable Postgres worker | IMPLEMENTED UNVERIFIED in production | Preserve tenant constraints, attempt fences, leases, retries and persisted Checks                        |
-| Vercel dashboard, live OIDC PKCE gate       | EXTERNAL CONFIG REQUIRED             | Preserve real login, validate live build config, add static security/cache headers                       |
-| Render blueprint                            | PARTIAL                              | Remove obsolete branch; manual main releases, generate Prisma before build, API-only predeploy migration |
-| Azure VM / Container Apps alternatives      | IMPLEMENTED UNVERIFIED               | Keep alternatives; remove per-API startup migration; use the same hardened image                         |
-| API rate protection                         | DEVELOPMENT ONLY                     | Shared Redis REST atomic Lua, ingress plus verified tenant/actor budgets; fail closed                    |
-| API / worker shutdown                       | PARTIAL                              | Drain requests and current scan; 110-second bound; forced exit uses existing lease recovery              |
-| Container                                   | PARTIAL                              | Pinned Node image digest, pruned API deployment, nonroot, no credentials/fixtures/dev server             |
-| Receipt key validation / custody            | PARTIAL                              | Ed25519 startup validation and signer interface; platform-secret custody accurately identified           |
-| Logs / metrics / traces                     | PARTIAL                              | Safe JSON HTTP and job correlation, bounded labels, W3C trace IDs, optional redacted error collector     |
-| API readiness / worker health               | PARTIAL                              | DB readiness deadline; private worker heartbeat file/probe                                               |
-| Managed backups / live release              | EXTERNAL CONFIG REQUIRED             | Owner provisioning, backup/restore/release procedures below                                              |
-| CI actual production image                  | MISSING                              | Fresh TLS Postgres, shared real Redis, two APIs, independent worker and graceful stop                    |
-| Demo UI / fixture source                    | DEMO ONLY                            | Separate demo mode; never activate in the production environment                                         |
+| Area at Phase 3                             | Classification                       | Phase 4 response                                                                                                                                           |
+| ------------------------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Independent API and durable Postgres worker | IMPLEMENTED UNVERIFIED in production | Preserve tenant constraints, attempt fences, leases, retries and persisted Checks                                                                          |
+| Vercel dashboard, live OIDC PKCE gate       | EXTERNAL CONFIG REQUIRED             | Preserve real login, validate live build config, add static security/cache headers                                                                         |
+| Render blueprint                            | PARTIAL                              | Remove obsolete branch; manual main releases, generate Prisma before build, API-only predeploy migration                                                   |
+| Azure VM / Container Apps alternatives      | IMPLEMENTED UNVERIFIED               | Keep alternatives; remove per-API startup migration; use the same hardened image                                                                           |
+| API rate protection                         | DEVELOPMENT ONLY                     | Shared Redis REST atomic Lua, ingress plus verified tenant/actor budgets; fail closed                                                                      |
+| API / worker shutdown                       | PARTIAL                              | Drain requests and current scan; 110-second bound; forced exit uses existing lease recovery                                                                |
+| Container                                   | PARTIAL                              | Pinned Node image digest, pruned API deployment, nonroot, no credentials/fixtures/dev server                                                               |
+| Receipt key validation / custody            | PARTIAL                              | Ed25519 startup validation and signer interface; platform-secret custody accurately identified                                                             |
+| Logs / metrics / traces                     | PARTIAL                              | Safe JSON HTTP and job correlation, bounded labels, W3C trace IDs, optional redacted error collector                                                       |
+| API readiness / worker health               | PARTIAL                              | DB readiness deadline; private worker heartbeat file/probe                                                                                                 |
+| Managed backups / live release              | EXTERNAL CONFIG REQUIRED             | Owner provisioning, backup/restore/release procedures below                                                                                                |
+| CI actual production image                  | MISSING                              | Fresh TLS Postgres, shared real Redis, two APIs, parallel representative fixture scans with verified signed receipts, independent worker and graceful stop |
+| Demo UI / fixture source                    | DEMO ONLY                            | Separate demo mode; never activate in the production environment                                                                                           |
 
 Canonical deployment: existing **Vercel dashboard + Render API and background worker +
 Neon Postgres + Upstash Redis REST**. This preserves the existing Blueprint and needs
@@ -277,7 +277,7 @@ prove implementation behavior only, not a public deployment or real provider Che
 
 The Phase 4 production audit initially reported eight advisories (one critical, one high,
 five moderate, one low). Targeted HTTP transitive overrides patch body-parser, qs,
-proxy-addr and deepmerge-ts. React Router is updated to the patched 7.18 release while
+proxy-addr and deepmerge-ts. React Router is updated to the patched 7.18.2 release while
 preserving the existing BrowserRouter API and UI. Run `pnpm audit --prod` after frozen
 installation; CI also scans the actual runtime image for fixable HIGH/CRITICAL issues.
 Trivy uses the verified v0.36.0 action commit and an explicit scanner version, not a

@@ -11,7 +11,7 @@ cleanup() {
     done
   fi
   if test -n "$fixture_pid"; then kill "$fixture_pid" 2>/dev/null || true; fi
-  docker rm -f agentshield-ops-api-a agentshield-ops-api-b agentshield-ops-worker agentshield-ops-db agentshield-ops-redis >/dev/null 2>&1 || true
+  docker rm -f agentshield-ops-api-a agentshield-ops-api-b agentshield-ops-worker agentshield-ops-scan-a agentshield-ops-scan-b agentshield-ops-db agentshield-ops-redis >/dev/null 2>&1 || true
   rm -rf "$task_tmp"
 }
 trap cleanup EXIT
@@ -61,6 +61,14 @@ done
 test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3001/api/v1/repositories)" = 401
 test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3002/api/v1/repositories)" = 401
 test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3001/api/v1/repositories)" = 429
+docker run --rm --network host --env-file "$task_tmp/runtime.env" -v "$PWD/scripts/production-scan-fixture.mjs:/test/scan.mjs:ro" agentshield:ops node /test/scan.mjs prepare
+for instance in a b; do
+  docker run -d --name "agentshield-ops-scan-$instance" --network host --env-file "$task_tmp/runtime.env" -v "$PWD/scripts/production-scan-fixture.mjs:/test/scan.mjs:ro" -v "$PWD/examples/vulnerable-repo:/fixture:ro" agentshield:ops node /test/scan.mjs work >/dev/null
+done
+for instance in a b; do
+  test "$(docker wait "agentshield-ops-scan-$instance")" = 0
+done
+docker run --rm --network host --env-file "$task_tmp/runtime.env" -v "$PWD/scripts/production-scan-fixture.mjs:/test/scan.mjs:ro" agentshield:ops node /test/scan.mjs verify
 docker run -d --name agentshield-ops-worker --network host --env-file "$task_tmp/runtime.env" agentshield:ops node apps/api/dist/worker.js >/dev/null
 sleep 2
 docker exec agentshield-ops-worker node apps/api/dist/workerProbe.js
