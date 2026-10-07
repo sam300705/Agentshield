@@ -1,3 +1,5 @@
+> Use the [Phase 4 configuration and release runbook](../../docs/production-operations.md). Shared Redis and receipt signing are now required in production; this provider alternative is not provisioned or live-verified.
+
 # Azure VM deployment
 
 This directory describes a **credit-funded, self-managed deployment** for AgentShield. It runs the API and durable scan worker on one Azure Linux VM and uses Neon for managed PostgreSQL. It does not create cloud resources, request credentials, or enable billing by itself.

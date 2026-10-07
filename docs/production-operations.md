@@ -255,7 +255,7 @@ volumes before removal. No automated irreversible retention deletion is added he
 4. In identity-provider settings register the public SPA, exact redirect/logout origins,
    API audience and recognized organization/role claims. Enter backend OIDC*\* fields
    and public VITE_OIDC*\* fields in Vercel; never enter client/private keys in Vercel
-   frontend variables. Set VITE_APP_MODE=live and VITE_API_BASE_URL to the HTTPS API.
+   frontend variables. Set VITE_APP_MODE=live and VITE_API_BASE_URL to the HTTPS API. Before public production traffic, narrow the dashboard CSP connect-src in apps/web-dashboard/vercel.json from the HTTPS bootstrap allowance to the exact API, OIDC token and JWKS origins. The default protects script/frame/object sources but cannot know owner-specific network origins.
 5. Generate/manage an Ed25519 receipt key outside Git/chat; save private key in backend
    secrets, key ID and public verification key in the operator key ring. Keep signing
    required. Verify a newly signed receipt and an old receipt before/after rotation.
@@ -281,5 +281,16 @@ proxy-addr and deepmerge-ts. React Router is updated to the patched 7.18.2 relea
 preserving the existing BrowserRouter API and UI. Run `pnpm audit --prod` after frozen
 installation; CI also scans the actual runtime image for fixable HIGH/CRITICAL issues.
 Trivy uses the verified v0.36.0 action commit and an explicit scanner version, not a
-mutable old action tag. Unfixed OS issues remain visible for review rather than being
-represented as patched. Release only after reviewing the current image report.
+mutable old action tag. The complete all-severity report is uploaded as a 14-day CI artifact; unfixed issues remain visible for review rather than being represented as patched. Release only after reviewing the current image report.
+
+## Verified implementation checkpoint
+
+At `8ccff666bfff67d6a711b6261a57e697eceb9ec0`, both push and PR CI passed:
+141 unit tests, 15 existing backend security groups, seven GitHub end-to-end groups,
+six browser tests, production dashboard build, source/fixture SARIF gates, and the actual
+container image smoke/security gate. The container check verified fresh TLS migrations,
+a shared Redis budget across API replicas, two parallel real fixture scans with persisted
+findings and cryptographically verified receipts, independent worker health and graceful
+shutdown. Subsequent shutdown-claim hardening adds a backend regression group and must
+pass the same required checks at the final PR head. These are CI results, not live
+provider evidence. Backup/restore and real GitHub deployment remain external setup.

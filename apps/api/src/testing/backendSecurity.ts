@@ -659,6 +659,33 @@ async function main() {
   await requestJobCancellation(rollback.id, orgA, actor, correlationId);
   pass("evidence+receipt+completion rollback on actual database transaction failure");
 
+  const drainJob = await queue("drain-on-shutdown");
+  const shutdown = new AbortController();
+  await processNextScanJob(
+    "draining-worker",
+    {
+      execute: async (input) => {
+        shutdown.abort();
+        assert.equal(input.signal.aborted, false);
+        return counting.execute(input);
+      },
+    },
+    shutdown.signal,
+    { drainOnShutdown: true },
+  );
+  assert.equal((await state(drainJob.id)).status, "COMPLETED");
+  assert.equal((await state(drainJob.id)).scan.status, "COMPLETED");
+  const afterShutdown = await queue("no-claim-after-shutdown");
+  assert.equal(
+    await processNextScanJob("stopped-worker", counting, shutdown.signal, {
+      drainOnShutdown: true,
+    }),
+    false,
+  );
+  assert.equal((await state(afterShutdown.id)).status, "QUEUED");
+  await requestJobCancellation(afterShutdown.id, orgA, actor, correlationId);
+  pass("deployment shutdown drains a real scan and prevents subsequent claims");
+
   const durable = JSON.stringify(
     await observer.scan.findMany({
       where: { organizationId: orgA },

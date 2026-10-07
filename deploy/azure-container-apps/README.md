@@ -1,3 +1,5 @@
+> Use the [Phase 4 configuration and release runbook](../../docs/production-operations.md). Shared Redis and receipt signing are now required in production; this provider alternative is not provisioned or live-verified.
+
 # Azure Container Apps deployment
 
 This is the **no-card alternative** to the VM deployment. It uses Azure Container Apps Consumption for the API and a scheduled Container Apps Job for the PostgreSQL-backed scan worker. Azure provides the API HTTPS hostname; no VM, public IP, Caddy container, or custom domain is required for the first deployment.
@@ -15,7 +17,7 @@ The Container Apps Consumption plan currently includes monthly free grants of 18
 Clone the production branch in Cloud Shell and enter the repository:
 
 ```bash
-git clone --branch agent/production-hardening https://github.com/sam300705/Agentshield.git
+git clone --branch main https://github.com/sam300705/Agentshield.git
 cd Agentshield
 ```
 

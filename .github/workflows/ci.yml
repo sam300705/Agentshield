@@ -141,6 +141,34 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build and run production API and worker images
         run: bash scripts/verify-production-container.sh
+      - name: Record complete production image vulnerability report
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0 verified release
+        with:
+          version: v0.75.0
+          image-ref: agentshield:ops
+          scanners: vuln
+          format: json
+          output: agentshield-image-report.json
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+          exit-code: "0"
+      - name: Summarize image review
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const report = JSON.parse(fs.readFileSync('agentshield-image-report.json', 'utf8'));
+          const counts = {};
+          for (const result of report.Results ?? []) for (const vulnerability of result.Vulnerabilities ?? []) {
+            const key = `${vulnerability.Severity}:${vulnerability.FixedVersion ? 'fixable' : 'unfixed'}`;
+            counts[key] = (counts[key] ?? 0) + 1;
+          }
+          console.log(JSON.stringify({ imageReview: counts }));
+          NODE
+      - name: Preserve image review artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: agentshield-image-review
+          path: agentshield-image-report.json
+          retention-days: 14
       - name: Scan production image for fixable high and critical vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0 verified release
         with:

@@ -46,8 +46,11 @@ async function run(): Promise<void> {
       }
       if (github != null && process.env.GITHUB_CHECKS_PAUSED !== "true")
         await publishGitHubChecks(prisma, github);
-      const processed = await processNextScanJob(workerId, executor, shutdownController.signal);
-      if (github != null && process.env.GITHUB_CHECKS_PAUSED !== "true")
+      if (stopping) break;
+      const processed = await processNextScanJob(workerId, executor, shutdownController.signal, {
+        drainOnShutdown: true,
+      });
+      if (!stopping && github != null && process.env.GITHUB_CHECKS_PAUSED !== "true")
         await publishGitHubChecks(prisma, github);
       if (!processed && runOnce) break;
       if (!processed) await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -73,6 +76,7 @@ async function run(): Promise<void> {
 function shutdown(signal: string): void {
   if (stopping) return;
   stopping = true;
+  shutdownController.abort();
   console.warn(
     JSON.stringify({
       level: "info",
