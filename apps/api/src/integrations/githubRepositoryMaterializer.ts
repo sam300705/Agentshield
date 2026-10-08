@@ -141,6 +141,7 @@ export class GitHubRepositoryMaterializer implements RepositoryMaterializer {
     let compressedBytes = 0;
     let extractedBytes = 0;
     let files = 0;
+    let entries = 0;
     let aborted = false;
     let failure: Error | undefined;
     const thisLimits = this.limits;
@@ -184,6 +185,12 @@ export class GitHubRepositoryMaterializer implements RepositoryMaterializer {
         }
         if (entry.type !== "File" && entry.type !== "Directory") {
           fail("GITHUB_ARCHIVE_LINK_OR_DEVICE_REJECTED");
+          return;
+        }
+        // Directories consume inodes too; count all accepted archive entries.
+        entries += 1;
+        if (entries > thisLimits.maxFiles) {
+          fail("GITHUB_ARCHIVE_ENTRY_COUNT_LIMIT");
           return;
         }
         if (entry.type === "File") {
