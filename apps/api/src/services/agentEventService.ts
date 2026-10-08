@@ -1,8 +1,8 @@
 import { Prisma } from "@prisma/client";
 import { createHash, randomUUID } from "node:crypto";
 
-import { canonicalJson, createIntegrityChain, redactEvidence } from "@agentshield/policy-engine";
-import { agentEventInputSchema, type AgentEventInput } from "@agentshield/schemas";
+import { canonicalJson, createIntegrityChain } from "@agentshield/policy-engine";
+import { agentEventInputSchema, sanitizeText, type AgentEventInput } from "@agentshield/schemas";
 
 import { prisma } from "../db/prisma.js";
 
@@ -37,6 +37,7 @@ type PersistedAgentEvent = {
   correlationId: string;
   eventHash: string;
   previousHash: string | null;
+  rawPayloadHash: string | null;
 };
 
 export type AgentEventIngestResult =
@@ -82,7 +83,8 @@ function payloadValue(input: {
     riskLevel: input.riskLevel,
     summary: input.summary,
     resource: input.resource ?? null,
-    evidence: redactEvidence(input.evidence),
+    // The digest binds the original sensitive preimage; never persist this value.
+    evidence: input.evidence,
     correlationId: input.correlationId,
   };
 }
@@ -90,12 +92,6 @@ function payloadValue(input: {
 function payloadHash(input: ParsedAgentEvent): string {
   return createHash("sha256")
     .update(canonicalJson(payloadValue(input)))
-    .digest("hex");
-}
-
-function persistedPayloadHash(event: PersistedAgentEvent): string {
-  return createHash("sha256")
-    .update(canonicalJson(payloadValue(event)))
     .digest("hex");
 }
 
@@ -107,7 +103,9 @@ function isConcurrencyConflict(error: unknown): boolean {
 }
 
 function samePayload(event: PersistedAgentEvent, expectedHash: string): boolean {
-  return persistedPayloadHash(event) === expectedHash;
+  // Historical rows lack a raw digest. Never pretend their redacted evidence
+  // establishes equality with an unredacted retry: require a new event key.
+  return event.rawPayloadHash != null && event.rawPayloadHash === expectedHash;
 }
 
 async function findExisting(input: ParsedAgentEvent): Promise<PersistedAgentEvent | null> {
@@ -142,7 +140,7 @@ export async function ingestAgentEvent(
   const expectedHash = payloadHash(input);
 
   const owner = await prisma.agentSession.findFirst({
-    where: { id: input.sessionId, organizationId: input.organizationId, actor: input.actor },
+    where: { id: input.sessionId, organizationId: input.organizationId, actor: input.actor, status: "ACTIVE" },
     select: { id: true },
   });
   if (owner == null) return { kind: "SESSION_NOT_FOUND" };
@@ -160,7 +158,7 @@ export async function ingestAgentEvent(
           Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${input.sessionId}))`,
         );
         const session = await tx.agentSession.findFirst({
-          where: { id: input.sessionId, organizationId: input.organizationId, actor: input.actor },
+          where: { id: input.sessionId, organizationId: input.organizationId, actor: input.actor, status: "ACTIVE" },
           select: { id: true },
         });
         if (session == null) return { kind: "SESSION_NOT_FOUND" as const };
@@ -200,7 +198,7 @@ export async function ingestAgentEvent(
               type: input.type,
               riskLevel: input.riskLevel,
               summary: input.summary,
-              ...(input.resource == null ? {} : { resource: input.resource }),
+              ...(input.resource == null ? {} : { resource: sanitizeText(input.resource) }),
               evidence: input.evidence,
               correlationId: input.correlationId,
             },
@@ -226,6 +224,7 @@ export async function ingestAgentEvent(
             correlationId: event.correlationId,
             previousHash: event.integrity.previousHash,
             eventHash: event.integrity.eventHash,
+            rawPayloadHash: expectedHash,
           },
         });
         await tx.auditEvent.create({
@@ -241,6 +240,7 @@ export async function ingestAgentEvent(
               sessionId: input.sessionId,
               sequence: input.sequence,
               eventHash: event.integrity.eventHash,
+            rawPayloadHash: expectedHash,
               payloadHash: expectedHash,
             },
           },
@@ -250,6 +250,7 @@ export async function ingestAgentEvent(
           {
             id: event.id,
             eventHash: event.integrity.eventHash,
+            rawPayloadHash: expectedHash,
             previousHash: event.integrity.previousHash,
           },
           expectedHash,
