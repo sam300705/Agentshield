@@ -179,10 +179,30 @@ async function main() {
           nextAttemptAt: new Date(Date.now() + 60000),
         },
       });
-      assert.equal(await requestJobCancellation(job.id, organizationId), true);
+      assert.equal(
+        await requestJobCancellation(job.id, organizationId, {
+          actor: "round5-owner",
+          correlationId: "round5-cancellation",
+        }),
+        true,
+      );
       const cancelled = await prisma.scanJob.findUniqueOrThrow({ where: { id: job.id } });
       assert.equal(cancelled.status, "CANCELLED");
       assert.equal(cancelled.nextAttemptAt, null);
+      const audits = await prisma.auditEvent.findMany({
+        where: { organizationId, scanId: scan.id, action: "SCAN_CANCELLATION_REQUESTED" },
+      });
+      assert.equal(audits.length, 1);
+      assert.equal(audits[0]!.actor, "round5-owner");
+      assert.equal(audits[0]!.correlationId, "round5-cancellation");
+      assert.equal(await requestJobCancellation(job.id, organizationId), false);
+      assert.equal(
+        await prisma.auditEvent.count({
+          where: { organizationId, scanId: scan.id, action: "SCAN_CANCELLATION_REQUESTED" },
+        }),
+        1,
+      );
+
       assert.equal(
         (await prisma.scan.findUniqueOrThrow({ where: { id: scan.id } })).status,
         "CANCELLED",

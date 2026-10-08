@@ -1,4 +1,4 @@
-import { lstat, readdir, realpath } from "node:fs/promises";
+import { lstat, opendir, realpath } from "node:fs/promises";
 import path from "node:path";
 
 const DEFAULT_EXCLUDED_DIRECTORIES = new Set([
@@ -50,38 +50,29 @@ export async function walkRepository(
 
   async function visitDirectory(directoryPath: string): Promise<void> {
     checkCancelled();
-    const entries = await readdir(directoryPath, {
-      withFileTypes: true,
-    });
-
-    await Promise.all(
-      entries.map(async (entry) => {
-        const entryPath = path.join(directoryPath, entry.name);
-
-        if (isIgnored(entryPath)) return;
-
-        if (entry.isDirectory()) {
-          if (!excludedDirectories.has(entry.name)) {
-            await visitDirectory(entryPath);
-          }
-
-          return;
-        }
-
-        if (entry.isFile()) {
-          const resolved = await realpath(entryPath);
-          if (resolved !== rootPath && !resolved.startsWith(`${rootPath}${path.sep}`))
-            throw new Error(`Path escaped scan root: ${entry.name}`);
-          const stats = await lstat(resolved);
-          if (stats.size > maxFileSizeBytes) return;
-          totalBytes += stats.size;
-          if (totalBytes > maxTotalBytes)
-            throw new Error(`Scan exceeds total byte limit of ${maxTotalBytes}`);
-          files.push(entryPath);
-          if (files.length > maxFiles) throw new Error(`Scan exceeds file limit of ${maxFiles}`);
-        }
-      }),
-    );
+    const directory = await opendir(directoryPath);
+    // Streaming sequential traversal bounds both buffered entries and filesystem work.
+    for await (const entry of directory) {
+      checkCancelled();
+      const entryPath = path.join(directoryPath, entry.name);
+      if (isIgnored(entryPath)) continue;
+      if (entry.isDirectory()) {
+        if (!excludedDirectories.has(entry.name)) await visitDirectory(entryPath);
+        continue;
+      }
+      if (entry.isFile()) {
+        if (files.length >= maxFiles) throw new Error(`Scan exceeds file limit of ${maxFiles}`);
+        const resolved = await realpath(entryPath);
+        if (resolved !== rootPath && !resolved.startsWith(`${rootPath}${path.sep}`))
+          throw new Error(`Path escaped scan root: ${entry.name}`);
+        const stats = await lstat(resolved);
+        if (stats.size > maxFileSizeBytes) continue;
+        totalBytes += stats.size;
+        if (totalBytes > maxTotalBytes)
+          throw new Error(`Scan exceeds total byte limit of ${maxTotalBytes}`);
+        files.push(entryPath);
+      }
+    }
   }
 
   await visitDirectory(rootPath);

@@ -54,7 +54,7 @@ async function findExisting(input: AgentAuthorizationRequest): Promise<AgentAppr
       organizationId: input.organizationId,
       sessionId: input.sessionId,
       idempotencyKey: input.idempotencyKey,
-      session: { actor: input.actor, organizationId: input.organizationId },
+      session: { actor: input.actor, organizationId: input.organizationId, status: "ACTIVE" },
     },
   });
   return existing == null ? null : toAgentApproval(existing);
@@ -72,7 +72,12 @@ export async function ensureAgentApproval(
 
   const digest = createAgentActionDigest(input);
   const owner = await prisma.agentSession.findFirst({
-    where: { id: input.sessionId, organizationId: input.organizationId, actor: input.actor },
+    where: {
+      id: input.sessionId,
+      organizationId: input.organizationId,
+      actor: input.actor,
+      status: "ACTIVE",
+    },
     select: { id: true },
   });
   if (owner == null) return { kind: "SESSION_NOT_FOUND" };
@@ -86,7 +91,12 @@ export async function ensureAgentApproval(
   try {
     const created = await prisma.$transaction(async (tx) => {
       const session = await tx.agentSession.findFirst({
-        where: { id: input.sessionId, organizationId: input.organizationId, actor: input.actor },
+        where: {
+          id: input.sessionId,
+          organizationId: input.organizationId,
+          actor: input.actor,
+          status: "ACTIVE",
+        },
         select: { id: true },
       });
       if (session == null) return null;

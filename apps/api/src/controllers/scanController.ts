@@ -105,7 +105,13 @@ export async function cancelScanController(request: Request, response: Response)
     where: { scanId, scan: { organizationId: actor.organizationId } },
     select: { id: true },
   });
-  if (job == null || !(await requestJobCancellation(job.id, actor.organizationId))) {
+  if (
+    job == null ||
+    !(await requestJobCancellation(job.id, actor.organizationId, {
+      actor: actor.id,
+      correlationId: getCorrelationId(response),
+    }))
+  ) {
     response.status(404).json({
       error: {
         code: "SCAN_JOB_NOT_FOUND",

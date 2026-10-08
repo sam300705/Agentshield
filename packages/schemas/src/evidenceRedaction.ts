@@ -8,6 +8,7 @@ const PRIVATE_KEY_PATTERN =
 const BEARER_PATTERN = /\bBearer\s+[A-Za-z0-9._~+/=-]{12,}/gi;
 const JWT_PATTERN = /\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\b/g;
 const GITHUB_TOKEN_PATTERN = /\bgh[pousr]_[A-Za-z0-9_]{20,255}\b/g;
+const STRIPE_KEY_PATTERN = /\bsk_live_[A-Za-z0-9]{20,255}\b/g;
 const AWS_ACCESS_KEY_PATTERN = /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g;
 const CONNECTION_STRING_PATTERN = /\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?):\/\/[^\s"'<>]+/gi;
 const CREDENTIAL_URL_PATTERN =
@@ -31,6 +32,7 @@ function sanitizeString(value: string): string {
   sanitized = sanitized.replace(BEARER_PATTERN, redact("BEARER_TOKEN"));
   sanitized = sanitized.replace(JWT_PATTERN, redact("JWT"));
   sanitized = sanitized.replace(GITHUB_TOKEN_PATTERN, redact("GITHUB_TOKEN"));
+  sanitized = sanitized.replace(STRIPE_KEY_PATTERN, redact("STRIPE_KEY"));
   sanitized = sanitized.replace(AWS_ACCESS_KEY_PATTERN, redact("AWS_ACCESS_KEY_ID"));
   return sanitized;
 }

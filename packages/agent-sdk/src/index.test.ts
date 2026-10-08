@@ -26,6 +26,23 @@ const approval = {
   reviewedAt: new Date("2026-01-01T00:01:00.000Z"),
 };
 
+const protectedInput = {
+  organizationId: approval.organizationId,
+  sessionId: approval.sessionId,
+  actor: approval.actor,
+  action: approval.actionType,
+  resource: approval.resource,
+  correlationId: approval.correlationId,
+  idempotencyKey: approval.idempotencyKey,
+  evidence: { command: "echo safe" },
+};
+const boundApproval = {
+  ...approval,
+  actionDigest: createHash("sha256")
+    .update(canonicalAgentActionIdentity(protectedInput))
+    .digest("hex"),
+};
+
 describe("AgentShield SDK", () => {
   it.each([
     "http://remote.example",
@@ -74,7 +91,7 @@ describe("AgentShield SDK", () => {
   });
   it("rejects blocked and approval-required actions before execution", () => {
     expect(() =>
-      assertAgentActionAllowed("RUN_COMMAND", {
+      assertAgentActionAllowed(protectedInput, {
         decision: "BLOCK",
         allowed: false,
         reason: "The action is prohibited.",
@@ -85,19 +102,22 @@ describe("AgentShield SDK", () => {
     ).toThrow("denied");
 
     expect(() =>
-      assertAgentActionAllowed("WRITE_FILE", {
-        decision: "REQUIRE_APPROVAL",
-        allowed: true,
-        reason: "A reviewer must approve this action.",
-        ruleId: "file.write.review",
-        ruleVersion: "1.0.0",
-        correlationId: "corr-1",
-      }),
+      assertAgentActionAllowed(
+        { ...protectedInput, action: "WRITE_FILE" },
+        {
+          decision: "REQUIRE_APPROVAL",
+          allowed: true,
+          reason: "A reviewer must approve this action.",
+          ruleId: "file.write.review",
+          ruleVersion: "1.0.0",
+          correlationId: "corr-1",
+        },
+      ),
     ).toThrow("requires human approval");
 
     expect(() =>
       assertAgentActionAllowed(
-        "RUN_COMMAND",
+        protectedInput,
         {
           decision: "REQUIRE_APPROVAL",
           allowed: true,
@@ -108,7 +128,7 @@ describe("AgentShield SDK", () => {
           approvalId: approval.id,
           approvalStatus: "APPROVED",
         },
-        approval,
+        boundApproval,
       ),
     ).not.toThrow();
   });
@@ -208,4 +228,39 @@ describe("AgentShield SDK", () => {
       }),
     ).toThrow("pending");
   });
+});
+
+it("the final execution guard rejects modified evidence, resource, and session", () => {
+  const decision = {
+    decision: "REQUIRE_APPROVAL" as const,
+    allowed: true,
+    reason: "Reviewed",
+    ruleId: "review",
+    ruleVersion: "1",
+    correlationId: "corr",
+    approvalId: approval.id,
+  };
+  expect(() => assertAgentActionAllowed(protectedInput, decision, boundApproval)).not.toThrow();
+  for (const input of [
+    { ...protectedInput, evidence: { command: "changed" } },
+    { ...protectedInput, resource: "other" },
+    { ...protectedInput, sessionId: "other" },
+  ])
+    expect(() => assertAgentActionAllowed(input, decision, boundApproval)).toThrow("not bound");
+});
+it.each(["fetch", "body"])("bounds approval polling when %s never resolves", async (stage) => {
+  let signal: AbortSignal | null | undefined;
+  const fetchImpl = vi.fn<typeof fetch>((_url, options) => {
+    signal = options?.signal;
+    return stage === "fetch"
+      ? new Promise(() => {})
+      : Promise.resolve(new Response(new ReadableStream({ start() {} })));
+  });
+  const client = new AgentShieldClient({ baseUrl: "https://control.test", fetchImpl });
+  const started = Date.now();
+  await expect(
+    client.waitForApproval("approval-1", { timeoutMs: 30, intervalMs: 100 }),
+  ).rejects.toThrow("Timed out");
+  expect(Date.now() - started).toBeLessThan(1000);
+  expect(signal?.aborted).toBe(true);
 });

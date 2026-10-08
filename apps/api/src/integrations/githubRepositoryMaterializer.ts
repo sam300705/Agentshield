@@ -54,12 +54,17 @@ function splitRepositoryName(fullName: string): { owner: string; repository: str
   return { owner: parts[0]!, repository: parts[1]! };
 }
 
-function validateRelativeArchivePath(workspacePath: string, archivePath: string): void {
-  const normalized = archivePath.replaceAll("\\", "/");
+function validateRelativeArchivePath(
+  workspacePath: string,
+  archivePath: string,
+  directory: boolean,
+): void {
+  const raw = archivePath.replaceAll("\\", "/");
+  const normalized = directory && raw.endsWith("/") ? raw.slice(0, -1) : raw;
   if (
     normalized.startsWith("/") ||
     /^[A-Za-z]:\//.test(normalized) ||
-    normalized.split("/").some((segment) => segment === ".." || segment === "")
+    normalized.split("/").some((segment) => segment === ".." || segment === "." || segment === "")
   ) {
     throw new Error("GITHUB_ARCHIVE_PATH_INVALID");
   }
@@ -172,7 +177,7 @@ export class GitHubRepositoryMaterializer implements RepositoryMaterializer {
         }
         if (failure != null) return;
         try {
-          validateRelativeArchivePath(workspacePath, entry.path);
+          validateRelativeArchivePath(workspacePath, entry.path, entry.type === "Directory");
         } catch (error) {
           fail(error instanceof Error ? error.message : "GITHUB_ARCHIVE_PATH_INVALID");
           return;

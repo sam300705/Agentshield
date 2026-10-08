@@ -98,3 +98,29 @@ it.each(["true", "1", "loopback", "0.0.0.0/99", "0.0.0.0/0", "::/0", "192.0.2.1/
     expect(() => getRuntimeConfig({ ...validProductionEnv, TRUSTED_PROXY_CIDRS: value })).toThrow();
   },
 );
+
+it.each([
+  "http://issuer.test/keys",
+  "http://localhost/keys",
+  "https://user:password@issuer.test/keys",
+])("rejects insecure production JWKS %s", (url) => {
+  expect(() => getRuntimeConfig({ ...validProductionEnv, OIDC_JWKS_URL: url })).toThrow(
+    "requires HTTPS",
+  );
+});
+it("allows only explicit loopback HTTP JWKS in development", () => {
+  expect(() =>
+    getRuntimeConfig({
+      ...validProductionEnv,
+      NODE_ENV: "development",
+      OIDC_JWKS_URL: "http://127.0.0.1/keys",
+    }),
+  ).not.toThrow();
+  expect(() =>
+    getRuntimeConfig({
+      ...validProductionEnv,
+      NODE_ENV: "development",
+      OIDC_JWKS_URL: "http://remote.test/keys",
+    }),
+  ).toThrow();
+});

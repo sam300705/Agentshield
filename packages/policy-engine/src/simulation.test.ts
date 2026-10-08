@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Finding, PolicyDecision, PolicyRule } from "@agentshield/schemas";
 
+import { evaluateCondition } from "./evaluator.js";
 import { simulatePolicyBundle } from "./simulation.js";
 
 const finding: Finding = {
@@ -66,3 +67,30 @@ describe("policy time machine", () => {
     expect(simulation.decisions[0]?.traces[0]?.matched).toBe(true);
   });
 });
+
+it.each(["EQUALS", "NOT_EQUALS", "IN", "NOT_IN"] as const)(
+  "simulation preserves live %s semantics for reordered objects",
+  (operator) => {
+    const inputFinding = { ...finding, evidence: { data: { b: 2, a: 1 } } };
+    const value = operator === "IN" || operator === "NOT_IN" ? [{ a: 1, b: 2 }] : { a: 1, b: 2 };
+    const condition = { field: "evidence.data", operator, value };
+    const testRule = { ...strictRule, conditions: [condition] };
+    const fallback = {
+      ...original.ruleSnapshot,
+      id: "fallback",
+      conditions: [{ field: "category", operator: "EXISTS" as const }],
+    };
+    const simulation = simulatePolicyBundle({
+      sourceId: "scan-1",
+      bundleId: "test",
+      bundleVersion: "1",
+      findings: [inputFinding],
+      originalDecisions: [original],
+      rules: [testRule, fallback],
+      createdAt: new Date(),
+    });
+    expect(simulation.decisions[0]?.simulatedDecision).toBe(
+      evaluateCondition(inputFinding, condition) ? "BLOCK" : "WARN",
+    );
+  },
+);

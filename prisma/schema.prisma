@@ -59,6 +59,7 @@ enum DependencyScope {
 }
 
 enum AuditAction {
+  SCAN_CANCELLATION_REQUESTED
   SCAN_CREATED
   SCAN_COMPLETED
   FINDING_CREATED

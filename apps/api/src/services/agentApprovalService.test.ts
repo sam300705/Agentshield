@@ -110,7 +110,12 @@ describe("AgentApproval service", () => {
         kind: "SESSION_NOT_FOUND",
       });
       expect(prismaMock.agentSession.findFirst).toHaveBeenCalledWith({
-        where: { id: input.sessionId, organizationId: input.organizationId, actor: input.actor },
+        where: {
+          id: input.sessionId,
+          organizationId: input.organizationId,
+          actor: input.actor,
+          status: "ACTIVE",
+        },
         select: { id: true },
       });
       expect(prismaMock.agentApproval.findFirst).not.toHaveBeenCalled();

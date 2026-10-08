@@ -230,6 +230,7 @@ export async function enqueueDemoScan(
 export async function requestJobCancellation(
   jobId: string,
   organizationId: string,
+  context: { actor: string; correlationId: string } = { actor: "System", correlationId: "system" },
 ): Promise<boolean> {
   return prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "ScanJob" WHERE "id" = ${jobId} FOR UPDATE`;
@@ -267,6 +268,24 @@ export async function requestJobCancellation(
         where: { id: job.scanId },
         data: { status: "CANCELLED", completedAt: now },
       });
+    await tx.auditEvent.create({
+      data: {
+        actor: context.actor,
+        correlationId: context.correlationId,
+        organizationId,
+        action: "SCAN_CANCELLATION_REQUESTED",
+        entityType: "Scan",
+        entityId: job.scanId,
+        scanId: job.scanId,
+        metadata: {
+          jobId: job.id,
+          previousStatus: job.status,
+          terminal,
+          requestedBy: job.requester,
+          requestedAt: now.toISOString(),
+        },
+      },
+    });
     return true;
   });
 }

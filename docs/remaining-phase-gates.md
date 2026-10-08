@@ -20,3 +20,7 @@ ingress, production OIDC endpoints, provider secrets, telemetry/alerts and isola
 backup recovery. Credentials must stay in approved secret stores, never in chat or
 source. Do not provision or deploy based solely on this inventory. Detailed operator
 procedures remain on their own phase branches.
+
+## Round 5 follow-up
+
+The eleven new Phase 1 findings on `39a922465beca2237796dee27f5f213fe44b42f3` are addressed in `phase1-round5-report.md`; published-head CI and independent acceptance remain distinct. The earlier table is a historical snapshot. Figma frame IDs are now available in `phase5-design-handoff.md`; no manual frame discovery is needed. This does not authorize advancing past predecessor gates.

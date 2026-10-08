@@ -81,6 +81,37 @@ export function createServer(): Express {
       return;
     }
 
+    const parserType =
+      error != null && typeof error === "object" && "type" in error ? error.type : undefined;
+    if (
+      [
+        "entity.parse.failed",
+        "entity.too.large",
+        "request.aborted",
+        "request.size.invalid",
+        "encoding.unsupported",
+        "charset.unsupported",
+      ].includes(String(parserType))
+    ) {
+      const tooLarge = parserType === "entity.too.large";
+      const unsupported =
+        parserType === "encoding.unsupported" || parserType === "charset.unsupported";
+      response.status(tooLarge ? 413 : unsupported ? 415 : 400).json({
+        error: {
+          code: tooLarge
+            ? "PAYLOAD_TOO_LARGE"
+            : unsupported
+              ? "UNSUPPORTED_ENCODING"
+              : "VALIDATION_ERROR",
+          message: tooLarge
+            ? "Request payload exceeds the permitted size."
+            : "Request body is invalid or unsupported.",
+          correlationId: getCorrelationId(response),
+        },
+      });
+      return;
+    }
+
     console.error(
       JSON.stringify({
         level: "error",

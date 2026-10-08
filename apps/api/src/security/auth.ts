@@ -2,6 +2,8 @@ import type { NextFunction, Request, RequestHandler, Response } from "express";
 import { randomUUID } from "node:crypto";
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 
+import { assertOidcKeyTransport } from "../config.js";
+
 export const roles = [
   "VIEWER",
   "DEVELOPER",
@@ -116,6 +118,7 @@ async function verifyOidcToken(token: string): Promise<RequestActor> {
     throw new Error("OIDC authentication is not configured.");
   }
 
+  assertOidcKeyTransport(jwksUrl, isProduction());
   const verified = await jwtVerify(token, getJwks(jwksUrl), { issuer, audience });
   const claims = verified.payload as AuthClaims;
   const subject = typeof claims.sub === "string" ? claims.sub : null;

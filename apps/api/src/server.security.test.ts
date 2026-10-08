@@ -55,3 +55,21 @@ it("isolates clients through an explicitly trusted proxy and ignores spoofed lef
   expect(await request("198.51.100.9, 192.0.2.1")).toBe(429);
   expect(authentication).toHaveBeenCalledTimes(2);
 });
+
+it.each([
+  ["/api/scans", "{synthetic-private-body", 400, "VALIDATION_ERROR"],
+  ["/api/scans", '"' + "x".repeat(1024 * 1024) + '"', 413, "PAYLOAD_TOO_LARGE"],
+  ["/api/v1/integrations/github/webhooks", "x".repeat(1024 * 1024 + 1), 413, "PAYLOAD_TOO_LARGE"],
+])("returns a safe parser error for %s", async (path, body, status, code) => {
+  const origin = await start("");
+  authentication.mockImplementation((_req, _res, next) => next());
+  const response = await fetch(origin + path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body,
+  });
+  expect(response.status).toBe(status);
+  const payload = (await response.json()) as { error: { code: string } };
+  expect(payload.error.code).toBe(code);
+  expect(JSON.stringify(payload)).not.toContain("synthetic-private-body");
+});

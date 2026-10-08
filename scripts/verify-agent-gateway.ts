@@ -1,3 +1,4 @@
+import { authorizeAgentActionController } from "../apps/api/src/controllers/agentGatewayController.js";
 import { ApprovalStatus, PrismaClient } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 
@@ -202,6 +203,52 @@ async function main(): Promise<void> {
     assert(
       previousEvent != null && sequential.previousHash === previousEvent.eventHash,
       "event hash continuity failed",
+    );
+
+    async function authorize(input: AgentAuthorizationRequest): Promise<number> {
+      let status = 200;
+      const response = {
+        locals: { actor: { id: actor, organizationId, role: "AGENT" } },
+        getHeader: () => "round5-gateway",
+        status(code: number) {
+          status = code;
+          return this;
+        },
+        json() {
+          return this;
+        },
+      } as unknown as Parameters<typeof authorizeAgentActionController>[1];
+      await authorizeAgentActionController(
+        { body: input } as Parameters<typeof authorizeAgentActionController>[0],
+        response,
+      );
+      return status;
+    }
+    for (const action of ["READ_FILE", "WRITE_FILE", "RUN_COMMAND"] as const) {
+      assert(
+        (await authorize({ ...authorizationInput, action, sessionId: "nonexistent" })) === 404,
+        "nonexistent session was authorized",
+      );
+      await prisma.agentSession.update({
+        where: { id: sessionId },
+        data: { actor: "another-actor" },
+      });
+      assert(
+        (await authorize({ ...authorizationInput, action })) === 404,
+        "foreign actor session was authorized",
+      );
+      for (const status of ["COMPLETED", "BLOCKED", "FAILED", "CANCELLED"] as const) {
+        await prisma.agentSession.update({ where: { id: sessionId }, data: { actor, status } });
+        assert(
+          (await authorize({ ...authorizationInput, action })) === 404,
+          "inactive session was authorized",
+        );
+      }
+      await prisma.agentSession.update({ where: { id: sessionId }, data: { status: "ACTIVE" } });
+    }
+    assert(
+      (await authorize({ ...authorizationInput, action: "READ_FILE" })) === 200,
+      "active owned session was rejected",
     );
 
     console.warn(

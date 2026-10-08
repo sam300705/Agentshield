@@ -1,3 +1,4 @@
+import { useNavigate } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 
 import { configureApiAuth } from "../lib/auth";
@@ -21,6 +22,7 @@ function envConfig(): OidcConfig | null {
 }
 
 export function AuthGate({ children }: AuthGateProps) {
+  const navigate = useNavigate();
   const liveMode = import.meta.env.VITE_APP_MODE === "live";
   const config = useMemo(envConfig, []);
   const session = useMemo(
@@ -46,11 +48,7 @@ export function AuthGate({ children }: AuthGateProps) {
       session
         .handleCallback(callback.toString())
         .then(() => {
-          window.history.replaceState(
-            {},
-            document.title,
-            `${window.location.pathname}${window.location.hash}`,
-          );
+          navigate("/", { replace: true });
           setState("authenticated");
         })
         .catch((error: unknown) => {
@@ -61,7 +59,7 @@ export function AuthGate({ children }: AuthGateProps) {
     }
     setState(session.isAuthenticated() ? "authenticated" : "unauthenticated");
     return () => configureApiAuth(null);
-  }, [session]);
+  }, [session, navigate]);
 
   const login = async () => {
     if (session == null) return;

@@ -61,6 +61,18 @@ const baseSchema = z.object({
   GITHUB_SCAN_POLICY_BUNDLE_VERSION: optionalString,
 });
 
+export function assertOidcKeyTransport(value: string, production: boolean): void {
+  const url = new URL(value);
+  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+  if (
+    url.username ||
+    url.password ||
+    url.hash ||
+    (url.protocol !== "https:" && !(url.protocol === "http:" && loopback && !production))
+  )
+    throw new Error("OIDC_JWKS_URL requires HTTPS; HTTP is allowed only for loopback development.");
+}
+
 export type RuntimeConfig = z.infer<typeof baseSchema> & {
   corsOrigin: string;
   rateLimitEnabled: boolean;
@@ -78,6 +90,7 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
   const value = parsed.data;
   const issues: string[] = [];
   const isProduction = value.NODE_ENV === "production";
+  if (value.OIDC_JWKS_URL != null) assertOidcKeyTransport(value.OIDC_JWKS_URL, isProduction);
   const demoEnabled = value.DEMO_AUTH_ENABLED === true;
   const corsOrigin = value.CORS_ORIGIN ?? (isProduction ? undefined : "http://localhost:5173");
 

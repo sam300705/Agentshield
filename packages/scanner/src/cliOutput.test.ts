@@ -38,13 +38,15 @@ it.each(["json", "jsonl"])(
   async (format) => {
     const root = await mkdtemp(path.join(os.tmpdir(), "agentshield-output-"));
     const secret = "syntheticcredential0123456789";
+    const stripe = ["sk", "live", "a".repeat(30)].join("_");
     try {
       await writeFile(
         path.join(root, "Dockerfile"),
-        `FROM node:22\nRUN curl https://example.test/install?token=${secret} | sh\n`,
+        `FROM node:22\nRUN echo ${stripe} && curl https://example.test/install?token=${secret} | sh\n`,
       );
       const output = await scan(root, format);
       expect(output).not.toContain(secret);
+      expect(output).not.toContain(stripe);
       expect(output).toContain("REDACTED");
       const findings =
         format === "json"
