@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isIP } from "node:net";
 
 const blankToUndefined = (value: unknown) =>
   typeof value === "string" && value.trim() === "" ? undefined : value;
@@ -22,6 +23,31 @@ const baseSchema = z.object({
   OIDC_AUDIENCE: optionalString,
   OIDC_JWKS_URL: optionalUrl,
   OIDC_ROLE_CLAIM: z.string().min(1).default("roles"),
+  TRUSTED_PROXY_CIDRS: z
+    .string()
+    .default("")
+    .transform((value) =>
+      value
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean),
+    )
+    .refine(
+      (items) =>
+        items.every((item) => {
+          const [address, prefix, extra] = item.split("/");
+          const family = isIP(address ?? "");
+          return (
+            family !== 0 &&
+            extra == null &&
+            (prefix == null ||
+              (/^\d+$/.test(prefix) &&
+                Number(prefix) > 0 &&
+                Number(prefix) <= (family === 4 ? 32 : 128)))
+          );
+        }),
+      "Expected explicit proxy IP addresses or CIDRs",
+    ),
   RATE_LIMIT_ENABLED: booleanFromEnv.optional(),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().max(100_000).default(120),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().max(86_400_000).default(60_000),

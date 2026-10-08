@@ -2,6 +2,7 @@
 /* eslint-disable no-console -- CLI output is the intended public interface. */
 import { createSecurityReceipt } from "@agentshield/policy-engine";
 import { evaluateFindings, POLICY_RULE_VERSION } from "@agentshield/policy-engine";
+import { findingSchema, sanitizeEvidence, sanitizeText } from "@agentshield/schemas";
 import type { Finding, PolicyDecision, PolicyDecisionType } from "@agentshield/schemas";
 import { createHash } from "node:crypto";
 import path from "node:path";
@@ -81,6 +82,7 @@ function printHuman(
   gate: PolicyDecisionType,
   receiptHash: string,
   advisoryCount = 0,
+  unresolvedCount = 0,
 ): void {
   console.log(
     `AgentShield ${CLI_VERSION}\nTarget: ${target}\nGate: ${gate}\nFindings: ${findings.length}`,
@@ -92,6 +94,7 @@ function printHuman(
     );
   console.log(`Receipt: ${receiptHash}`);
   if (advisoryCount > 0) console.log(`OSV advisories: ${advisoryCount}`);
+  if (unresolvedCount > 0) console.log(`Unresolved dependency versions: ${unresolvedCount}`);
 }
 
 async function main(): Promise<void> {
@@ -159,7 +162,24 @@ async function main(): Promise<void> {
         )
       : undefined;
     const advisoryCount =
-      advisories?.reduce((count, item) => count + item.advisories.length, 0) ?? 0;
+      advisories?.reduce(
+        (count, item) =>
+          count + item.advisories.filter((advisory) => advisory.match === "CONFIRMED").length,
+        0,
+      ) ?? 0;
+    const unresolvedCount =
+      advisories?.filter((item) =>
+        item.advisories.some((advisory) => advisory.match === "UNCERTAIN"),
+      ).length ?? 0;
+    // Every public output format crosses the same evidence-redaction boundary.
+    result.findings = result.findings.map((finding) =>
+      findingSchema.parse({
+        ...finding,
+        title: sanitizeText(finding.title),
+        description: sanitizeText(finding.description),
+        evidence: sanitizeEvidence(finding.evidence),
+      }),
+    );
     controller.signal.throwIfAborted();
     const completedAt = new Date();
     const findingCounts = Object.fromEntries(
@@ -191,7 +211,15 @@ async function main(): Promise<void> {
       gateResult: gate,
     });
     if (format === "human")
-      printHuman(target, result.findings, decisions, gate, receipt.receiptHash, advisoryCount);
+      printHuman(
+        target,
+        result.findings,
+        decisions,
+        gate,
+        receipt.receiptHash,
+        advisoryCount,
+        unresolvedCount,
+      );
     else if (format === "sarif")
       console.log(JSON.stringify(sarif(result.findings, decisions), null, 2));
     else if (format === "jsonl") {
@@ -206,6 +234,8 @@ async function main(): Promise<void> {
       console.log(
         JSON.stringify({
           type: "summary",
+          advisoryCount,
+          unresolvedCount,
           gate,
           receipt,
           ...(advisories === undefined ? {} : { advisories }),
@@ -217,6 +247,8 @@ async function main(): Promise<void> {
           {
             scanId,
             target,
+            advisoryCount,
+            unresolvedCount,
             findings: result.findings,
             decisions,
             dependencies: result.dependencies,

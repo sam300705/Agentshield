@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { canIndependentlyApprove, hasPermission, type RequestActor } from "./auth.js";
+import { canIndependentlyApprove, hasPermission, mapRole, type RequestActor } from "./auth.js";
 
 const reviewer: RequestActor = {
   id: "reviewer-1",
@@ -20,4 +20,14 @@ describe("RBAC and separation of duties", () => {
     expect(canIndependentlyApprove(reviewer, "reviewer-1")).toBe(false);
     expect(canIndependentlyApprove(reviewer, "developer-1")).toBe(true);
   });
+});
+
+afterEach(() => vi.unstubAllEnvs());
+it("uses exclusively the configured role claim and fails closed when absent", () => {
+  vi.stubEnv("OIDC_ROLE_CLAIM", "agentshield_roles");
+  expect(mapRole({ roles: ["ORGANIZATION_ADMINISTRATOR"], role: "DEVELOPER" })).toBeNull();
+  expect(mapRole({ agentshield_roles: [], roles: ["ORGANIZATION_ADMINISTRATOR"] })).toBeNull();
+  expect(mapRole({ agentshield_roles: ["VIEWER"], roles: ["ORGANIZATION_ADMINISTRATOR"] })).toBe(
+    "VIEWER",
+  );
 });

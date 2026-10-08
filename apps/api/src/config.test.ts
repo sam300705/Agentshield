@@ -91,3 +91,10 @@ it.each(["GITHUB_SCAN_LIFECYCLE_ENABLED", "GITHUB_MATERIALIZATION_ENABLED"])(
     );
   },
 );
+
+it.each(["true", "1", "loopback", "0.0.0.0/99", "0.0.0.0/0", "::/0", "192.0.2.1/24/1"])(
+  "refuses ambiguous proxy trust %s",
+  (value) => {
+    expect(() => getRuntimeConfig({ ...validProductionEnv, TRUSTED_PROXY_CIDRS: value })).toThrow();
+  },
+);

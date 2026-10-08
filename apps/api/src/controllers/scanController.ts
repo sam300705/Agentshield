@@ -133,6 +133,7 @@ export async function runDemoScanController(request: Request, response: Response
     idempotencyKey,
     actor.organizationId,
     getCorrelationId(response),
+    actor.id,
   );
 
   response.status(202).json({

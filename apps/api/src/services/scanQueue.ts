@@ -155,6 +155,7 @@ export async function enqueueDemoScan(
   idempotencyKey: string,
   organizationId = "demo-organization",
   correlationId = "system",
+  requester = "System",
 ) {
   const scopedIdempotencyKey = `${organizationId}:${idempotencyKey}`;
   const existing = await prisma.scanJob.findUnique({
@@ -199,7 +200,7 @@ export async function enqueueDemoScan(
           repositoryRef: "local-demo",
           policyBundleVersion: POLICY_RULE_VERSION,
           trigger: "MANUAL",
-          requester: "demo",
+          requester,
           correlationId,
           payload: {
             organizationId: organization.id,
@@ -209,7 +210,7 @@ export async function enqueueDemoScan(
             ref: "main",
             policyBundleVersion: POLICY_RULE_VERSION,
             trigger: "MANUAL",
-            requester: "demo",
+            requester,
             correlationId,
           },
         },

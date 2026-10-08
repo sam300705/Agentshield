@@ -79,10 +79,12 @@ function toClaimValues(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [value];
 }
 
-function mapRole(claims: AuthClaims): Role | null {
+export function mapRole(claims: AuthClaims): Role | null {
   const configuredClaim = process.env.OIDC_ROLE_CLAIM?.trim();
   const configuredValue = configuredClaim == null ? undefined : claims[configuredClaim];
-  const values = [configuredValue, claims.role, claims.roles].flatMap(toClaimValues);
+  const values = (configuredClaim ? [configuredValue] : [claims.role, claims.roles]).flatMap(
+    toClaimValues,
+  );
   const role = values.find(
     (value): value is string => typeof value === "string" && recognizedRoleClaims.has(value),
   );

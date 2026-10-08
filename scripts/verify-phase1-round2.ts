@@ -6,9 +6,11 @@ import { persistAdvisories } from "../apps/api/src/services/scanService.js";
 import { assertSafeSeedTarget } from "../apps/api/src/services/seedSafety.js";
 import {
   enqueueRepositoryScan,
+  enqueueDemoScan,
   requestJobCancellation,
   recoverAbandonedJobs,
 } from "../apps/api/src/services/scanQueue.js";
+import { ConfiguredScanJobExecutor } from "../apps/api/src/services/scanJobExecutor.js";
 import { scanJobPayloadSchema } from "@agentshield/schemas";
 import type { DependencyAdvisoryResult } from "@agentshield/scanner";
 
@@ -215,11 +217,40 @@ async function main() {
       (await prisma.scan.findUniqueOrThrow({ where: { id: running.id } })).status,
       "CANCELLED",
     );
+    const demo = await enqueueDemoScan(
+      `demo-${randomUUID()}`,
+      organizationId,
+      "round4-correlation",
+      "round4-caller",
+    );
+    assert.equal(demo.requester, "round4-caller");
+    assert.equal(scanJobPayloadSchema.parse(demo.payload).requester, "round4-caller");
+    await new ConfiguredScanJobExecutor().execute({
+      scanId: demo.scanId,
+      payload: demo.payload,
+      signal: new AbortController().signal,
+    });
+    const audits = await prisma.auditEvent.findMany({
+      where: { organizationId, scanId: demo.scanId },
+    });
+    assert.ok(audits.some((audit) => audit.action === "SCAN_CREATED"));
+    assert.ok(audits.some((audit) => audit.action === "SCAN_COMPLETED"));
+    assert.ok(audits.every((audit) => audit.actor === "round4-caller"));
+    console.warn(
+      "Round 4 PostgreSQL demo attribution passed: persisted queue requester and scan audits identify the caller.",
+    );
     console.warn(
       "Phase 1 Round 2 PostgreSQL checks passed: populated upgrade, immutable scan observations, and terminal nonrunning cancellation.",
     );
   } finally {
     if (organizationCreated) {
+      await prisma.securityReceipt.deleteMany({ where: { scan: { organizationId } } });
+      await prisma.auditEvent.deleteMany({ where: { organizationId } });
+      await prisma.policyDecision.deleteMany({ where: { finding: { scan: { organizationId } } } });
+      await prisma.remediation.deleteMany({ where: { finding: { scan: { organizationId } } } });
+      await prisma.approval.deleteMany({ where: { finding: { scan: { organizationId } } } });
+      await prisma.dependency.deleteMany({ where: { scan: { organizationId } } });
+      await prisma.finding.deleteMany({ where: { scan: { organizationId } } });
       await prisma.advisory.deleteMany({ where: { organizationId } });
       await prisma.scan.deleteMany({ where: { organizationId } });
       await prisma.repository.deleteMany({ where: { organizationId } });

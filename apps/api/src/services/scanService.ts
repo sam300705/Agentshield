@@ -679,6 +679,7 @@ export async function runDemoScan(
   organizationId = "demo-organization",
   correlationId = "system",
   signal?: AbortSignal,
+  triggeredBy = SYSTEM_ACTOR,
 ): Promise<string> {
   return runConfiguredScan(
     {
@@ -690,7 +691,7 @@ export async function runDemoScan(
       branch: "main",
       organizationId,
       correlationId,
-      triggeredBy: SYSTEM_ACTOR,
+      triggeredBy,
       labels: ["demo", "api-run"],
       policyBundleVersion: POLICY_RULE_VERSION,
       options: {

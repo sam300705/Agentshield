@@ -349,3 +349,44 @@ describe("provider-neutral OIDC session", () => {
     ).toMatchObject({ issuer: config.issuer, clientId: config.clientId });
   });
 });
+
+it.each([false, true])(
+  "discards a refresh completion after logout (reject=%s)",
+  async (rejectRefresh) => {
+    vi.stubGlobal("crypto", webcrypto);
+    let finish!: (value: { accessToken: string; expiresAt: number }) => void;
+    let fail!: (error: Error) => void;
+    const pending = new Promise<{ accessToken: string; expiresAt: number }>((resolve, reject) => {
+      finish = resolve;
+      fail = reject;
+    });
+    const client: OidcTokenClient = { exchangeCode: vi.fn(), refresh: vi.fn(() => pending) };
+    const session = new OidcSession(config, client);
+    async function login(accessToken: string, expiresAt: number) {
+      const params = new URL(await session.beginLogin()).searchParams;
+      client.exchangeCode = vi.fn(() =>
+        Promise.resolve({
+          accessToken,
+          expiresAt,
+          refreshToken: "synthetic-refresh",
+          idTokenClaims: futureClaims(params.get("nonce") ?? ""),
+        }),
+      );
+      const callback = new URL(config.redirectUri);
+      callback.searchParams.set("code", "code");
+      callback.searchParams.set("state", params.get("state") ?? "");
+      await session.handleCallback(callback.toString());
+    }
+    await login("expired", 1);
+    const refresh = session.getAccessToken();
+    session.logout();
+    // A stale success or failure must also leave a subsequently established session intact.
+    await login("new-session", Date.now() + 3600000);
+    if (rejectRefresh) fail(new Error("old refresh failed"));
+    else finish({ accessToken: "stale", expiresAt: Date.now() + 3600000 });
+    expect(await refresh).toBeNull();
+    expect(await session.getAccessToken()).toBe("new-session");
+    session.logout();
+    expect(session.isAuthenticated()).toBe(false);
+  },
+);

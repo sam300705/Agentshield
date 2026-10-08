@@ -24,10 +24,20 @@ export function createServer(): Express {
   const app = express();
 
   app.disable("x-powered-by");
+  app.set("trust proxy", config.TRUSTED_PROXY_CIDRS);
   app.use(helmet());
   app.use(
     cors({
       origin: config.corsOrigin,
+    }),
+  );
+  // Reject exhausted IP budgets before signature verification or remote JWKS work.
+  app.use(
+    createRateLimiter({
+      enabled: config.rateLimitEnabled,
+      max: config.RATE_LIMIT_MAX,
+      windowMs: config.RATE_LIMIT_WINDOW_MS,
+      keyForRequest: (request) => `preauth:${request.ip || "unknown"}`,
     }),
   );
   app.use(requestContext);

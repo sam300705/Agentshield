@@ -108,6 +108,7 @@ function validateClaims(
 
 export class OidcSession {
   private tokens: OidcTokenSet | null = null;
+  private generation = 0;
   private transaction: LoginTransaction | null = null;
   private refreshInFlight: Promise<string | null> | null = null;
 
@@ -119,6 +120,7 @@ export class OidcSession {
   ) {}
 
   async beginLogin(): Promise<string> {
+    this.clear();
     const transaction: LoginTransaction = {
       state: randomBase64Url(32),
       nonce: randomBase64Url(32),
@@ -160,6 +162,7 @@ export class OidcSession {
     if (this.now() - transaction.createdAt > TRANSACTION_TTL_MS || state !== transaction.state) {
       throw new Error("OIDC state validation failed or the transaction expired.");
     }
+    const generation = this.generation;
     const tokens = await this.client.exchangeCode({
       code,
       codeVerifier: transaction.codeVerifier,
@@ -167,6 +170,7 @@ export class OidcSession {
       clientId: this.config.clientId,
       nonce: transaction.nonce,
     });
+    if (generation !== this.generation) return;
     validateClaims(this.config, transaction, tokens);
     this.tokens = tokens;
   }
@@ -179,9 +183,10 @@ export class OidcSession {
       return null;
     }
     if (this.refreshInFlight == null) {
-      this.refreshInFlight = this.refreshAccessToken().finally(() => {
-        this.refreshInFlight = null;
+      const pending = this.refreshAccessToken().finally(() => {
+        if (this.refreshInFlight === pending) this.refreshInFlight = null;
       });
+      this.refreshInFlight = pending;
     }
     return this.refreshInFlight;
   }
@@ -196,6 +201,7 @@ export class OidcSession {
   }
 
   clear(): void {
+    this.generation += 1;
     this.tokens = null;
     this.transaction = null;
     this.storage?.removeItem(transactionStorageKey(this.config));
@@ -226,6 +232,7 @@ export class OidcSession {
   }
 
   private async refreshAccessToken(): Promise<string | null> {
+    const generation = this.generation;
     const refreshToken = this.tokens?.refreshToken;
     if (refreshToken == null) {
       this.clear();
@@ -233,6 +240,7 @@ export class OidcSession {
     }
     try {
       const tokens = await this.client.refresh({ refreshToken, clientId: this.config.clientId });
+      if (generation !== this.generation) return null;
       if (tokens.idTokenClaims != null) {
         const claims = tokens.idTokenClaims;
         if (
@@ -249,7 +257,7 @@ export class OidcSession {
       this.tokens = { ...tokens, refreshToken: tokens.refreshToken ?? refreshToken };
       return tokens.accessToken;
     } catch {
-      this.clear();
+      if (generation === this.generation) this.clear();
       return null;
     }
   }

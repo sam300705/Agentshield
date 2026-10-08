@@ -32,7 +32,13 @@ export class ConfiguredScanJobExecutor implements ScanJobExecutor {
       throw new Error("Unsupported policy bundle version.");
     if (payload.provider === "LOCAL" && payload.repositoryId === "local-demo") {
       if (payload.organizationId.length === 0) throw new Error("SCAN_ORGANIZATION_REQUIRED");
-      return runDemoScan(input.scanId, payload.organizationId, payload.correlationId, input.signal);
+      return runDemoScan(
+        input.scanId,
+        payload.organizationId,
+        payload.correlationId,
+        input.signal,
+        payload.requester,
+      );
     }
 
     if (this.workspaceProvider == null) {
