@@ -32,3 +32,26 @@ it.each([Infinity, () => "value", new Date()])("rejects non-JSON action evidence
     }),
   ).toThrow();
 });
+
+it("preserves reserved property names in the raw JSON action identity", () => {
+  const input = {
+    organizationId: "org",
+    sessionId: "session",
+    actor: "actor",
+    action: "RUN_COMMAND" as const,
+    resource: "workspace",
+    correlationId: "transport",
+    idempotencyKey: "key",
+  };
+  const first = canonicalAgentActionIdentity({
+    ...input,
+    evidence: JSON.parse('{"command":"safe","__proto__":{"value":"one"}}') as unknown,
+  });
+  const second = canonicalAgentActionIdentity({
+    ...input,
+    evidence: JSON.parse('{"command":"safe","__proto__":{"value":"two"}}') as unknown,
+  });
+  expect(first).toContain('"__proto__":{"value":"one"}');
+  expect(first).not.toBe(second);
+  expect(Object.prototype).not.toHaveProperty("value");
+});

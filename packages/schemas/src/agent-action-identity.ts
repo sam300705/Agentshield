@@ -20,6 +20,9 @@ function stable(value: unknown): unknown {
 // Sensitive preimage: hash in memory only. Never persist or log this canonical string.
 export function canonicalAgentActionIdentity(raw: AgentAuthorizationRequest): string {
   const input = agentAuthorizationRequestSchema.parse(raw);
+  const evidence = input.evidence ?? null;
+  // Validate without using a parser clone that can omit reserved JSON property names.
+  jsonValueSchema.parse(evidence);
   return JSON.stringify(
     stable({
       version: "agent-action@3",
@@ -28,7 +31,7 @@ export function canonicalAgentActionIdentity(raw: AgentAuthorizationRequest): st
       actor: input.actor,
       actionType: input.action,
       resource: input.resource.trim(),
-      evidence: jsonValueSchema.parse(input.evidence ?? null),
+      evidence,
     }),
   );
 }
