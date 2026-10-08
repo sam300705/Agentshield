@@ -50,16 +50,24 @@ it("audits permissive gateway decisions before returning authorization", async (
   const res = { status: vi.fn(), json: vi.fn() };
   res.status.mockReturnValue(res);
   await authorizeAgentActionController(
-    { body: {
-      organizationId: "org", actor: "caller", sessionId: "session",
-      action: "READ_FILE", resource: "README.md", correlationId: "corr",
-      idempotencyKey: "audit-idempotency",
-    } } as Request,
+    {
+      body: {
+        organizationId: "org",
+        actor: "caller",
+        sessionId: "session",
+        action: "READ_FILE",
+        resource: "README.md",
+        correlationId: "corr",
+        idempotencyKey: "audit-idempotency",
+      },
+    } as Request,
     res as unknown as Response,
   );
   expect(db.auditEvent.create).toHaveBeenCalledWith({
     data: expect.objectContaining({
-      organizationId: "org", actor: "caller", action: "POLICY_DECIDED",
+      organizationId: "org",
+      actor: "caller",
+      action: "POLICY_DECIDED",
       entityId: "session",
     }) as unknown,
   });
