@@ -213,9 +213,9 @@ it("rejects append and retry when a session is no longer active", async () => {
   fakePrisma.reset();
   await ingestAgentEvent(input());
   fakePrisma.prisma.agentSession.findFirst.mockResolvedValue(null);
-  await expect(
-    ingestAgentEvent(input({ sequence: 1, idempotencyKey: "late" })),
-  ).resolves.toEqual({ kind: "SESSION_NOT_FOUND" });
+  await expect(ingestAgentEvent(input({ sequence: 1, idempotencyKey: "late" }))).resolves.toEqual({
+    kind: "SESSION_NOT_FOUND",
+  });
   await expect(ingestAgentEvent(input())).resolves.toEqual({ kind: "SESSION_NOT_FOUND" });
   expect(fakePrisma.events).toHaveLength(1);
 });
