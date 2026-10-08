@@ -19,6 +19,7 @@ import { getDashboardSummaryController } from "./dashboardController.js";
 import { metricsController } from "./systemController.js";
 import { listRepositoriesController, createRepositoryScanController } from "./scanController.js";
 import { getReceiptController } from "./agentGatewayController.js";
+import { createSecurityReceipt, verifyReceiptHash } from "@agentshield/policy-engine";
 function response() {
   const res = { json: vi.fn(), type: vi.fn(), send: vi.fn() };
   res.type.mockReturnValue(res);
@@ -129,4 +130,29 @@ it("includes pending agent approvals even without a repository scan", async () =
   expect(db.agentApproval.count).toHaveBeenCalledWith({
     where: { organizationId: "tenant-a", status: "PENDING" },
   });
+});
+
+it("exports canonical verifiable receipts even when signing is disabled", async () => {
+  const startedAt = new Date("2026-01-01T10:00:00.000Z");
+  const completedAt = new Date("2026-01-01T10:01:00.000Z");
+  const canonical = createSecurityReceipt({
+    id: "receipt:scan-1", scanId: "scan-1",
+    repository: "example/repo", branch: "main", commitSha: "abcd",
+    scannerVersion: "scanner", policyBundleVersion: "policy",
+    findingCounts: { total: 0 }, decisionCounts: { ALLOW: 1 },
+    approvalState: "NONE", gateResult: "ALLOW", evidence: [],
+    startedAt, completedAt,
+  });
+  db.securityReceipt.findFirst.mockResolvedValue({
+    scanId: "scan-1", signedPayload: null,
+    ...canonical,
+    scan: { repositoryName: "example/repo", branch: "main",
+      commitSha: "abcd", startedAt, completedAt },
+  });
+  const res = response();
+  await getReceiptController({ params: { scanId: "scan-1" } } as unknown as Request, res);
+  const result = res.json as ReturnType<typeof vi.fn>;
+  const payload = (result.mock.calls[0]?.[0] as { data: typeof canonical }).data;
+  expect(verifyReceiptHash(payload)).toBe(true);
+  expect(payload).toEqual(canonical);
 });
