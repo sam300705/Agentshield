@@ -10,18 +10,45 @@ No downstream PR was merged, rebased, retargeted, or advanced.
 
 ## Root causes and remediations
 
-| Finding | Fix and regression |
-| --- | --- |
-| Redacted agent-event replay collisions | New nullable `AgentEvent.rawPayloadHash` stores SHA-256 of the canonical unredacted event input without storing the preimage. Replay matches only the stored raw hash; historical NULL rows fail closed and require a new idempotency key. Unit coverage exercises different secrets with identical redactions and legacy replay. |
-| Seed cleanup deletes other users' data | Cleanup now filters **every deletion** by both `demo-organization` and the `phase-2-seed` scan marker. Other tenants and unmarked local records survive. Scope assertions are in `seedCleanup.test.ts`. |
-| Missing OSV results silently appear clean | Batch response length, entries, vulnerability arrays and IDs are validated. Malformed successful HTTP responses fail enrichment rather than producing empty advisory arrays. Regression covers truncated and malformed replies. |
-| Archive directory exhaustion | Archive extraction enforces an entry budget including directories, not just regular files. Regression rejects directory-only floods. |
-| Post-terminal event writes | Both the owner lookup and the transaction-locked session lookup now require ACTIVE status; terminated sessions cannot append or replay events. Regression covers the terminal path. |
-| Permissive decisions lack an audit | The gateway records tenant-scoped `POLICY_DECIDED` with safe metadata before returning, independent of caller event submission. Controller regression verifies the audit call. |
-| Receipt export lacks canonical fields | The API reconstructs the canonical receipt from durable scan/receipt metadata when unsigned, parses the signed payload when present, and checks the persisted hash before return. Missing or inconsistent evidence produces an explicit 409 rather than an unverifiable success. Regression verifies unsigned hash integrity. |
-| Approval resources leak via direct reads | Sanitize resources before persistence, sanitize historical values at every service-return boundary, bind identity to the original action digest, and validate the post-redaction contract before transaction. Review reasons are also sanitized before persistence. Tests cover sensitive new/legacy resources and redaction expansion. |
-| CORS accepts non-origins | Require an exact bare HTTP(S) origin, with HTTPS mandatory in production. Configuration regression covers paths, queries, credentials, fragments, trailing slash and HTTP. |
-| Azure scheduled worker missing configuration | Worker command now supplies the exact configured `CORS_ORIGIN` required by Phase 1 startup validation. |
+### Redacted event replay collisions
+
+Store a nullable SHA-256 commitment for canonical unredacted event input, without storing the preimage. Changed secrets conflict on replay; legacy NULL records require a fresh idempotency key.
+
+### Seed cleanup ownership
+
+Scope all seed cleanup mutations to the marked demo scans and preserve other organization and unmarked records.
+
+### Incomplete OSV responses
+
+Reject incomplete or malformed successful batch results instead of returning false-clean dependency findings.
+
+### Archive directory exhaustion
+
+Count accepted directories as well as files toward the extraction entry budget.
+
+### Terminal session events
+
+Check ACTIVE session ownership again inside the event transaction before inserting any event.
+
+### Gateway audit coverage
+
+Write tenant-scoped POLICY_DECIDED audit evidence before returning permissive gateway results.
+
+### Canonical receipt exports
+
+Reconstruct unsigned receipts from persisted scan metadata, parse signed payloads, and validate receipt hashes before responding.
+
+### Approval resource redaction
+
+Sanitize new and historic approval resources and reasons; validate their post-redaction schema size.
+
+### Exact CORS origin validation
+
+Reject CORS values containing paths, queries, fragments, credentials or an unexpected scheme. Require HTTPS in production.
+
+### Azure worker configuration
+
+Supply the configured CORS_ORIGIN to the scheduled worker as required by current startup validation.
 
 ## Migration and compatibility
 
