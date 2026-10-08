@@ -4,11 +4,17 @@ import { clearSeedScans } from "./seedCleanup.js";
 
 it("deletes only marker-labelled demo scans while preserving unrelated tenant history", async () => {
   const tx = Object.fromEntries(
-    ["securityReceipt", "policySimulation", "auditEvent", "policyDecision", "remediation",
-      "approval", "dependency", "finding", "scan"].map((key) => [
-      key,
-      { deleteMany: vi.fn().mockResolvedValue({ count: 1 }) },
-    ]),
+    [
+      "securityReceipt",
+      "policySimulation",
+      "auditEvent",
+      "policyDecision",
+      "remediation",
+      "approval",
+      "dependency",
+      "finding",
+      "scan",
+    ].map((key) => [key, { deleteMany: vi.fn().mockResolvedValue({ count: 1 }) }]),
   ) as Record<string, { deleteMany: ReturnType<typeof vi.fn> }>;
   const transaction = vi.fn((callback: (client: typeof tx) => Promise<void>) => callback(tx));
   await clearSeedScans({ $transaction: transaction } as unknown as PrismaClient);
