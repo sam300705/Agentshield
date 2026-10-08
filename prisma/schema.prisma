@@ -417,6 +417,7 @@ model AgentEvent {
   correlationId  String
   previousHash   String?
   eventHash      String
+  rawPayloadHash String? // SHA-256 of the original canonical event payload; raw evidence is never stored
   createdAt      DateTime       @default(now())
 
   @@unique([sessionId, sequence])
