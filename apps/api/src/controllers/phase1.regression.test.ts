@@ -136,18 +136,31 @@ it("exports canonical verifiable receipts even when signing is disabled", async 
   const startedAt = new Date("2026-01-01T10:00:00.000Z");
   const completedAt = new Date("2026-01-01T10:01:00.000Z");
   const canonical = createSecurityReceipt({
-    id: "receipt:scan-1", scanId: "scan-1",
-    repository: "example/repo", branch: "main", commitSha: "abcd",
-    scannerVersion: "scanner", policyBundleVersion: "policy",
-    findingCounts: { total: 0 }, decisionCounts: { ALLOW: 1 },
-    approvalState: "NONE", gateResult: "ALLOW", evidence: [],
-    startedAt, completedAt,
+    id: "receipt:scan-1",
+    scanId: "scan-1",
+    repository: "example/repo",
+    branch: "main",
+    commitSha: "abcd",
+    scannerVersion: "scanner",
+    policyBundleVersion: "policy",
+    findingCounts: { total: 0 },
+    decisionCounts: { ALLOW: 1 },
+    approvalState: "NONE",
+    gateResult: "ALLOW",
+    evidence: [],
+    startedAt,
+    completedAt,
   });
   db.securityReceipt.findFirst.mockResolvedValue({
     ...canonical,
     signedPayload: null,
-    scan: { repositoryName: "example/repo", branch: "main",
-      commitSha: "abcd", startedAt, completedAt },
+    scan: {
+      repositoryName: "example/repo",
+      branch: "main",
+      commitSha: "abcd",
+      startedAt,
+      completedAt,
+    },
   });
   const res = response();
   await getReceiptController({ params: { scanId: "scan-1" } } as unknown as Request, res);
