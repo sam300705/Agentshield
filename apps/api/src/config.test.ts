@@ -124,3 +124,21 @@ it("allows only explicit loopback HTTP JWKS in development", () => {
     }),
   ).toThrow();
 });
+
+it.each([
+  "https://dashboard.example.com/app",
+  "https://dashboard.example.com/?mode=live",
+  "https://dashboard.example.com/#fragment",
+  "https://dashboard.example.com/",
+  "https://user:password@dashboard.example.com",
+])("rejects a non-origin CORS configuration: %s", (origin) => {
+  expect(() => getRuntimeConfig({ ...validProductionEnv, CORS_ORIGIN: origin })).toThrow(
+    "CORS_ORIGIN must be a bare HTTP(S) origin",
+  );
+});
+
+it("rejects HTTP CORS origins in production", () => {
+  expect(() =>
+    getRuntimeConfig({ ...validProductionEnv, CORS_ORIGIN: "http://dashboard.example.com" }),
+  ).toThrow("CORS_ORIGIN must use HTTPS in production");
+});
