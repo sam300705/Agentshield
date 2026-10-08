@@ -144,8 +144,8 @@ it("exports canonical verifiable receipts even when signing is disabled", async 
     startedAt, completedAt,
   });
   db.securityReceipt.findFirst.mockResolvedValue({
-    scanId: "scan-1", signedPayload: null,
     ...canonical,
+    signedPayload: null,
     scan: { repositoryName: "example/repo", branch: "main",
       commitSha: "abcd", startedAt, completedAt },
   });
