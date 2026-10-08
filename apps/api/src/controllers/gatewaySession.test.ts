@@ -1,6 +1,9 @@
 import { expect, it, vi } from "vitest";
 import type { Request, Response } from "express";
-const db = vi.hoisted(() => ({ agentSession: { findFirst: vi.fn() }, auditEvent: { create: vi.fn() } }));
+const db = vi.hoisted(() => ({
+  agentSession: { findFirst: vi.fn() },
+  auditEvent: { create: vi.fn() },
+}));
 const ensure = vi.hoisted(() => vi.fn());
 vi.mock("../db/prisma.js", () => ({ prisma: db }));
 vi.mock("../services/agentApprovalService.js", () => ({ ensureAgentApproval: ensure }));
