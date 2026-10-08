@@ -18,6 +18,7 @@ type EventRecord = {
   correlationId: string;
   eventHash: string;
   previousHash: string | null;
+  rawPayloadHash?: string | null;
 };
 
 type FakeClient = {
@@ -181,4 +182,38 @@ it("denies another actor before both append and idempotent replay", async () => 
   ).resolves.toEqual({ kind: "SESSION_NOT_FOUND" });
   expect(fakePrisma.events).toHaveLength(1);
   fakePrisma.prisma.agentSession.findFirst.mockResolvedValue({ id: "session-test" });
+});
+
+it("binds idempotency to raw secrets without persisting either original token", async () => {
+  fakePrisma.reset();
+  const secret = (letter: string) => `sk_live_${letter.repeat(30)}`;
+  const first = input({ evidence: { command: `deploy ${secret("a")}` } });
+  const second = input({ evidence: { command: `deploy ${secret("b")}` } });
+  await expect(ingestAgentEvent(first)).resolves.toMatchObject({ kind: "CREATED" });
+  const stored = fakePrisma.events[0];
+  expect(stored?.rawPayloadHash).toMatch(/^[a-f0-9]{64}$/);
+  expect(JSON.stringify(stored)).not.toContain(secret("a"));
+  expect(JSON.stringify(stored)).not.toContain(secret("b"));
+  await expect(ingestAgentEvent(second)).resolves.toEqual({ kind: "IDEMPOTENCY_CONFLICT" });
+  expect(fakePrisma.events).toHaveLength(1);
+});
+
+it("fails closed on a legacy event lacking its unredacted identity hash", async () => {
+  fakePrisma.reset();
+  await ingestAgentEvent(input());
+  const stored = fakePrisma.events[0];
+  if (stored == null) throw new Error("Expected fixture event");
+  stored.rawPayloadHash = null;
+  await expect(ingestAgentEvent(input())).resolves.toEqual({ kind: "IDEMPOTENCY_CONFLICT" });
+});
+
+it("rejects append and retry when a session is no longer active", async () => {
+  fakePrisma.reset();
+  await ingestAgentEvent(input());
+  fakePrisma.prisma.agentSession.findFirst.mockResolvedValue(null);
+  await expect(
+    ingestAgentEvent(input({ sequence: 1, idempotencyKey: "late" })),
+  ).resolves.toEqual({ kind: "SESSION_NOT_FOUND" });
+  await expect(ingestAgentEvent(input())).resolves.toEqual({ kind: "SESSION_NOT_FOUND" });
+  expect(fakePrisma.events).toHaveLength(1);
 });
