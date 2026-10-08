@@ -57,6 +57,11 @@ jobs:
       - run: pnpm db:deploy
       - run: pnpm db:seed
       - run: pnpm format:check
+      - name: Show Phase 1 formatter correction on failure
+        if: failure()
+        run: |
+          pnpm exec prettier --write apps/api/src/services/agentEventService.test.ts
+          git diff -- apps/api/src/services/agentEventService.test.ts
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
