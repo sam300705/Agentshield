@@ -7,6 +7,7 @@ import {
   agentAuthorizationRequestSchema,
   canonicalAgentActionIdentity,
   sanitizeEvidence,
+  sanitizeText,
   type AgentApproval,
   type AgentAuthorizationRequest,
 } from "@agentshield/schemas";
@@ -24,7 +25,13 @@ export function createAgentActionDigest(input: AgentAuthorizationRequest): strin
 }
 
 function toAgentApproval(value: unknown): AgentApproval {
-  return agentApprovalSchema.parse(value);
+  // Legacy records may still contain raw resources; no API/SDK consumer sees them.
+  const approval = value as { resource?: string | null; reason?: string | null };
+  return agentApprovalSchema.parse({
+    ...approval,
+    resource: approval.resource == null ? null : sanitizeText(approval.resource).slice(0, 4_000),
+    reason: approval.reason == null ? null : sanitizeText(approval.reason).slice(0, 4_000),
+  });
 }
 
 function isConcurrencyConflict(error: unknown): boolean {
@@ -44,7 +51,7 @@ function sameAction(
     approval.sessionId === input.sessionId &&
     approval.actor === input.actor &&
     approval.actionType === input.action &&
-    (approval.resource ?? "") === input.resource.trim() &&
+    (approval.resource ?? "") === sanitizeText(input.resource.trim()) &&
     approval.actionDigest === digest
   );
 }
@@ -72,6 +79,9 @@ export async function ensureAgentApproval(
   }
 
   const digest = createAgentActionDigest(input);
+  const sanitizedResource = sanitizeText(input.resource.trim());
+  // Redaction can expand a string beyond the shared 4,000-character contract.
+  agentApprovalSchema.shape.resource.parse(sanitizedResource);
   const owner = await prisma.agentSession.findFirst({
     where: {
       id: input.sessionId,
@@ -107,7 +117,7 @@ export async function ensureAgentApproval(
           sessionId: input.sessionId,
           actor: input.actor,
           actionType: input.action,
-          ...(input.resource.trim().length === 0 ? {} : { resource: input.resource.trim() }),
+          ...(sanitizedResource.length === 0 ? {} : { resource: sanitizedResource }),
           actionDigest: digest,
           status: ApprovalStatus.PENDING,
           requestedBy: input.actor,
@@ -190,7 +200,7 @@ export async function reviewAgentApproval(
       data: {
         status,
         reviewedBy: reviewerId,
-        ...(reason == null ? {} : { reason }),
+        ...(reason == null ? {} : { reason: sanitizeText(reason).slice(0, 4_000) }),
         reviewedAt: new Date(),
       },
     });
