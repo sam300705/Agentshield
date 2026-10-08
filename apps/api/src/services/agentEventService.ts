@@ -240,7 +240,7 @@ export async function ingestAgentEvent(
               sessionId: input.sessionId,
               sequence: input.sequence,
               eventHash: event.integrity.eventHash,
-            rawPayloadHash: expectedHash,
+              rawPayloadHash: expectedHash,
               payloadHash: expectedHash,
             },
           },
@@ -250,7 +250,6 @@ export async function ingestAgentEvent(
           {
             id: event.id,
             eventHash: event.integrity.eventHash,
-            rawPayloadHash: expectedHash,
             previousHash: event.integrity.previousHash,
           },
           expectedHash,
