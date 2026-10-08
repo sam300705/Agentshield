@@ -261,3 +261,21 @@ describe("GitHubRepositoryMaterializer", () => {
     }
   });
 });
+
+it("rejects directory-only archives beyond the bounded entry budget", async () => {
+  const archive = createTar(
+    Array.from({ length: 8 }, (_, index) => ({
+      name: `repo/folder-${index}/`,
+      type: "directory" as const,
+    })),
+  );
+  const fixture = makeFixture({ archive, limits: { maxFiles: 3 } });
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "agentshield-dir-limit-"));
+  try {
+    await expect(
+      fixture.materializer.materialize(githubPayload(), workspace, new AbortController().signal),
+    ).rejects.toThrow("GITHUB_ARCHIVE_ENTRY_COUNT_LIMIT");
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
