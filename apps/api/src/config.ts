@@ -96,6 +96,23 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
 
   if (value.DATABASE_URL == null) issues.push("DATABASE_URL is required");
   if (corsOrigin == null) issues.push("CORS_ORIGIN is required");
+  if (corsOrigin != null) {
+    const origin = new URL(corsOrigin);
+    if (
+      !["http:", "https:"].includes(origin.protocol) ||
+      origin.origin !== corsOrigin ||
+      origin.username !== "" ||
+      origin.password !== "" ||
+      origin.pathname !== "/" ||
+      origin.search !== "" ||
+      origin.hash !== ""
+    ) {
+      issues.push("CORS_ORIGIN must be a bare HTTP(S) origin");
+    }
+    if (isProduction && origin.protocol !== "https:") {
+      issues.push("CORS_ORIGIN must use HTTPS in production");
+    }
+  }
   if (isProduction && value.AUTH_MODE !== "oidc") {
     issues.push("AUTH_MODE must be oidc in production");
   }
