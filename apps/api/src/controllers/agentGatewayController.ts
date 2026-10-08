@@ -1,11 +1,14 @@
 import { z } from "zod";
-import { evaluateAgentAction } from "@agentshield/policy-engine";
+import { evaluateAgentAction, verifyReceiptHash } from "@agentshield/policy-engine";
 import {
   agentAuthorizationRequestSchema,
   agentDecisionSchema,
   agentEventInputSchema,
+  securityReceiptSchema,
+  sanitizeText,
 } from "@agentshield/schemas";
 import type { Request, Response } from "express";
+import { AuditAction } from "@prisma/client";
 import { prisma } from "../db/prisma.js";
 import { ensureAgentApproval } from "../services/agentApprovalService.js";
 import { ingestAgentEvent } from "../services/agentEventService.js";
@@ -49,6 +52,25 @@ export async function authorizeAgentActionController(
   const decision = agentDecisionSchema.parse(
     evaluateAgentAction(input.action, input.correlationId),
   );
+  // Event submission by the cooperative SDK is optional. Every server decision
+  // must therefore have its own authoritative audit record.
+  await prisma.auditEvent.create({
+    data: {
+      actor: actor.id,
+      organizationId: actor.organizationId,
+      action: AuditAction.POLICY_DECIDED,
+      entityType: "AgentSession",
+      entityId: input.sessionId,
+      correlationId: getCorrelationId(response),
+      metadata: {
+        actionType: input.action,
+        decision: decision.decision,
+        ruleId: decision.ruleId,
+        ruleVersion: decision.ruleVersion,
+        reason: sanitizeText(decision.reason),
+      },
+    },
+  });
   if (decision.decision !== "REQUIRE_APPROVAL") {
     response.json({ data: decision });
     return;
@@ -158,6 +180,12 @@ export async function getReceiptController(request: Request, response: Response)
   const { scanId } = z.object({ scanId: z.string().min(1).max(128) }).parse(request.params);
   const receipt = await prisma.securityReceipt.findFirst({
     where: { scanId, scan: { organizationId: actor.organizationId } },
+    include: {
+      scan: { select: {
+        repositoryName: true, branch: true, commitSha: true,
+        startedAt: true, completedAt: true,
+      } },
+    },
   });
   if (receipt == null) {
     response.status(404).json({
@@ -169,5 +197,47 @@ export async function getReceiptController(request: Request, response: Response)
     });
     return;
   }
-  response.json({ data: receipt });
+  const unsigned = receipt.signedPayload == null
+    ? {
+        id: `receipt:${scanId}`,
+        scanId,
+        repository: receipt.scan.repositoryName,
+        branch: receipt.branch ?? receipt.scan.branch,
+        commitSha: receipt.commitSha ?? receipt.scan.commitSha ?? "unresolved",
+        scannerVersion: receipt.scannerVersion,
+        policyBundleVersion: receipt.policyBundleVersion,
+        findingCounts: receipt.findingCounts,
+        decisionCounts: receipt.decisionCounts,
+        approvalState: receipt.approvalState,
+        evidenceDigest: receipt.evidenceDigest,
+        startedAt: receipt.scan.startedAt,
+        completedAt: receipt.scan.completedAt,
+        gateResult: receipt.gateResult,
+        receiptHash: receipt.receiptHash,
+      }
+    : receipt.signedPayload;
+  const canonical = securityReceiptSchema.safeParse(unsigned);
+  if (!canonical.success || !verifyReceiptHash(canonical.data) ||
+      canonical.data.receiptHash !== receipt.receiptHash) {
+    response.status(409).json({
+      error: {
+        code: "RECEIPT_INTEGRITY_UNAVAILABLE",
+        message: "The stored receipt cannot be verified against its original payload.",
+        correlationId: getCorrelationId(response),
+      },
+    });
+    return;
+  }
+  const signedReceipt = receipt.keyId != null && receipt.signature != null &&
+    receipt.signingAlgorithm === "ed25519"
+    ? {
+        format: "agentshield-signed-receipt" as const, version: 1 as const,
+        algorithm: "ed25519" as const, keyId: receipt.keyId,
+        payload: canonical.data, signature: receipt.signature,
+      }
+    : null;
+  response.json({
+    data: canonical.data,
+    ...(signedReceipt == null ? {} : { signedReceipt }),
+  });
 }
