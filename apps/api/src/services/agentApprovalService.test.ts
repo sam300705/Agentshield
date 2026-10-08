@@ -278,7 +278,7 @@ it("sanitizes new approval resources before persistence without changing raw dig
   }));
   const result = await ensureAgentApproval(sensitive, "corr");
   expect(result.kind).toBe("CREATED");
-  const call = prismaMock.agentApproval.create.mock.calls[0]?.[0] as
+  const call = (prismaMock.agentApproval.create.mock.calls as unknown as unknown[][])[0]?.[0] as
     | { data?: { resource?: string } }
     | undefined;
   expect(call?.data?.resource).not.toContain(token);
