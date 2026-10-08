@@ -1,91 +1,41 @@
-# Phase 1 Round 8 — security remediation and release handoff
+# Phase 1 Round 8 Remediation Handoff
 
-## Scope and source
+Phase: 1, PR: #9, branch: `phase1/consolidate-stabilize`.
+Audit basis: `245523287233515d8325e3ce34247853ec0acadc`.
+No downstream PR was merged, advanced, or rewritten.
 
-Authorized phase: Phase 1 only, on `phase1/consolidate-stabilize` (PR #9).
-Review basis: the ten new findings raised against commit
-`245523287233515d8325e3ce34247853ec0acadc`.
-This report is an implementation handoff, **not** independent acceptance.
-No downstream PR was merged, rebased, retargeted, or advanced.
+## Remediations
 
-## Root causes and remediations
+- Event replay now requires a stored hash of canonical raw input, not redacted evidence.
+- Historical events remain immutable; legacy uncommitted identity requires a fresh event key.
+- Demo scan cleanup filters every deletion by organization and seed marker.
+- Incomplete OSV batch responses fail explicitly instead of appearing clean.
+- Archive extraction counts directory entries against the bounded extraction budget.
+- Agent-event ingestion checks that sessions remain active inside the transaction.
+- The gateway records policy decisions without trusting optional client-side event ingestion.
+- Receipt exports are canonical and hash-verified; inconsistent rows return an explicit error.
+- Approval resources and review reasons are sanitized at storage and service-return boundaries.
+- CORS configuration must specify a bare origin and use HTTPS in production.
+- Azure worker instructions provide the required CORS origin.
 
-### Redacted event replay collisions
+## Data migration
 
-Store a nullable SHA-256 commitment for canonical unredacted event input, without storing the preimage. Changed secrets conflict on replay; legacy NULL records require a fresh idempotency key.
+`20261008130000_agent_event_raw_digest` adds only an optional raw-input
+hash column to `AgentEvent`. Existing migrations and historical rows are
+unchanged. Old events without the new digest must not be silently deduplicated.
 
-### Seed cleanup ownership
+## Verification and release gates
 
-Scope all seed cleanup mutations to the marked demo scans and preserve other organization and unmarked records.
+- Prisma migration, safety tests, browser tests, container checks, and final-head CI must pass.
+- Local git/network access was unavailable; verification relies on GitHub-hosted CI.
+- Independent security acceptance is separate from green CI and remains required.
+- External OIDC, GitHub App, live deployment, and backup qualification are not claimed.
+- Preserve the PR stack: #9 to #10 to #11 to #12. Phase 2 is not authorized.
 
-### Incomplete OSV responses
+## Failure and fix record
 
-Reject incomplete or malformed successful batch results instead of returning false-clean dependency findings.
-
-### Archive directory exhaustion
-
-Count accepted directories as well as files toward the extraction entry budget.
-
-### Terminal session events
-
-Check ACTIVE session ownership again inside the event transaction before inserting any event.
-
-### Gateway audit coverage
-
-Write tenant-scoped POLICY_DECIDED audit evidence before returning permissive gateway results.
-
-### Canonical receipt exports
-
-Reconstruct unsigned receipts from persisted scan metadata, parse signed payloads, and validate receipt hashes before responding.
-
-### Approval resource redaction
-
-Sanitize new and historic approval resources and reasons; validate their post-redaction schema size.
-
-### Exact CORS origin validation
-
-Reject CORS values containing paths, queries, fragments, credentials or an unexpected scheme. Require HTTPS in production.
-
-### Azure worker configuration
-
-Supply the configured CORS_ORIGIN to the scheduled worker as required by current startup validation.
-
-## Migration and compatibility
-
-Added only `prisma/migrations/20261008130000_agent_event_raw_digest/migration.sql`.
-Prior SQL files/checksums remain unchanged. The new field is nullable so existing
-audit/events survive and are not rewritten. A legacy row has no trusted raw
-identity commitment and cannot be safely matched to a fresh retry. Clients
-must use a new event idempotency key for those historic events.
-No migration should run automatically on normal API startup.
-
-## Verification contract
-
-- GitHub Actions: inspect the final published commit's workflow and its actual
-  PostgreSQL migration, regression, browser, SARIF and Docker results.
-- Local environment: checkout and pnpm dependencies unavailable to this agent;
-  do not claim local tests.
-- Independent security acceptance: still required, not implied by green CI.
-- Live OIDC, GitHub App and deployment qualification: out of this phase and
-  not claimed.
-- Outstanding Phase 2/3/4 findings remain in their respective open PRs.
-
-## Failure and fix log
-
-- Historical problem: evidence sanitized *before* identity hashing could
-  equate distinct raw commands. Raw SHA-256 identity is now stored separately
-  while immutable displayed/stored evidence stays redacted.
-- Historical problem: a local seed reset deleted non-demo scans. Cleanup now
-  targets only the labelled demo scan graph.
-- Historical problem: malformed OSV success payloads looked like a clean scan.
-  Invalid batch results now raise an explicit error.
-- Git transport limitation during this remediation: the execution sandbox
-  could not resolve github.com for `git ls-remote`. Authorized GitHub connector
-  updates and GitHub-hosted CI were used instead of inventing local results.
-
-## Next gate
-
-Recheck each current-head review finding, verify latest CI on the final
-published commit, and complete the required independent review. Only after
-Phase 1 acceptance may Phase 2 be integrated. Preserve
-PR #9 → #10 → #11 → #12; do not rewrite history.
+- Redacted input previously collapsed distinct event identities; raw digest fixes replay.
+- Seed cleanup previously wiped unrelated history; seeded-scan filtering limits deletion.
+- Malformed OSV responses previously looked clean; strict validation preserves uncertainty.
+- New source changes initially failed TypeScript and formatting checks; diagnostics were
+  used to repair the actual failures, without disabling either check.
