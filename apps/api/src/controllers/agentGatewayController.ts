@@ -181,10 +181,15 @@ export async function getReceiptController(request: Request, response: Response)
   const receipt = await prisma.securityReceipt.findFirst({
     where: { scanId, scan: { organizationId: actor.organizationId } },
     include: {
-      scan: { select: {
-        repositoryName: true, branch: true, commitSha: true,
-        startedAt: true, completedAt: true,
-      } },
+      scan: {
+        select: {
+          repositoryName: true,
+          branch: true,
+          commitSha: true,
+          startedAt: true,
+          completedAt: true,
+        },
+      },
     },
   });
   if (receipt == null) {
@@ -197,28 +202,32 @@ export async function getReceiptController(request: Request, response: Response)
     });
     return;
   }
-  const unsigned = receipt.signedPayload == null
-    ? {
-        id: `receipt:${scanId}`,
+  const unsigned =
+    receipt.signedPayload == null
+      ? {
+          id: `receipt:${scanId}`,
         scanId,
-        repository: receipt.scan.repositoryName,
-        branch: receipt.branch ?? receipt.scan.branch,
-        commitSha: receipt.commitSha ?? receipt.scan.commitSha ?? "unresolved",
-        scannerVersion: receipt.scannerVersion,
-        policyBundleVersion: receipt.policyBundleVersion,
-        findingCounts: receipt.findingCounts,
-        decisionCounts: receipt.decisionCounts,
-        approvalState: receipt.approvalState,
-        evidenceDigest: receipt.evidenceDigest,
-        startedAt: receipt.scan.startedAt,
-        completedAt: receipt.scan.completedAt,
-        gateResult: receipt.gateResult,
-        receiptHash: receipt.receiptHash,
-      }
-    : receipt.signedPayload;
+          repository: receipt.scan.repositoryName,
+          branch: receipt.branch ?? receipt.scan.branch,
+          commitSha: receipt.commitSha ?? receipt.scan.commitSha ?? "unresolved",
+          scannerVersion: receipt.scannerVersion,
+          policyBundleVersion: receipt.policyBundleVersion,
+          findingCounts: receipt.findingCounts,
+          decisionCounts: receipt.decisionCounts,
+          approvalState: receipt.approvalState,
+          evidenceDigest: receipt.evidenceDigest,
+          startedAt: receipt.scan.startedAt,
+          completedAt: receipt.scan.completedAt,
+          gateResult: receipt.gateResult,
+          receiptHash: receipt.receiptHash,
+        }
+      : receipt.signedPayload;
   const canonical = securityReceiptSchema.safeParse(unsigned);
-  if (!canonical.success || !verifyReceiptHash(canonical.data) ||
-      canonical.data.receiptHash !== receipt.receiptHash) {
+  if (
+    !canonical.success ||
+    !verifyReceiptHash(canonical.data) ||
+    canonical.data.receiptHash !== receipt.receiptHash
+  ) {
     response.status(409).json({
       error: {
         code: "RECEIPT_INTEGRITY_UNAVAILABLE",
@@ -228,14 +237,19 @@ export async function getReceiptController(request: Request, response: Response)
     });
     return;
   }
-  const signedReceipt = receipt.keyId != null && receipt.signature != null &&
+  const signedReceipt =
+    receipt.keyId != null &&
+    receipt.signature != null &&
     receipt.signingAlgorithm === "ed25519"
-    ? {
-        format: "agentshield-signed-receipt" as const, version: 1 as const,
-        algorithm: "ed25519" as const, keyId: receipt.keyId,
-        payload: canonical.data, signature: receipt.signature,
-      }
-    : null;
+      ? {
+          format: "agentshield-signed-receipt" as const,
+          version: 1 as const,
+          algorithm: "ed25519" as const,
+          keyId: receipt.keyId,
+          payload: canonical.data,
+          signature: receipt.signature,
+        }
+      : null;
   response.json({
     data: canonical.data,
     ...(signedReceipt == null ? {} : { signedReceipt }),
