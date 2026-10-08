@@ -33,6 +33,7 @@ const futureClaims = (nonce?: string) => ({
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe("provider-neutral OIDC session", () => {
@@ -390,3 +391,64 @@ it.each([false, true])(
     expect(session.isAuthenticated()).toBe(false);
   },
 );
+
+it.each([
+  "issuer",
+  "redirectUri",
+  "authorizationEndpoint",
+  "tokenEndpoint",
+  "jwksUri",
+  "endSessionEndpoint",
+] as const)("rejects insecure OIDC %s before any token request", (field) => {
+  const fetchMock = vi.fn();
+  vi.stubGlobal("fetch", fetchMock);
+  expect(() =>
+    createFetchTokenClient({ ...config, [field]: "http://provider.example.test/endpoint" }),
+  ).toThrow("HTTPS");
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+it("allows only explicit loopback development OIDC HTTP and rejects credential URLs", () => {
+  expect(() =>
+    createFetchTokenClient({ ...config, tokenEndpoint: "http://localhost:9000/token" }),
+  ).toThrow();
+  expect(() =>
+    createFetchTokenClient({
+      ...config,
+      allowLoopbackHttp: true,
+      tokenEndpoint: "http://localhost:9000/token",
+    }),
+  ).not.toThrow();
+  expect(() =>
+    createFetchTokenClient({
+      ...config,
+      allowLoopbackHttp: true,
+      tokenEndpoint: "http://localhost.example.test/token",
+    }),
+  ).toThrow();
+  expect(() =>
+    createFetchTokenClient({ ...config, tokenEndpoint: "https://user:password@issuer.test/token" }),
+  ).toThrow();
+});
+
+it("does not enable loopback HTTP in a production build even with the development flag", () => {
+  vi.stubEnv("DEV", false);
+  expect(() =>
+    createFetchTokenClient({
+      ...config,
+      allowLoopbackHttp: true,
+      tokenEndpoint: "http://localhost:9000/token",
+    }),
+  ).toThrow("HTTPS");
+  expect(
+    readOidcConfig({
+      VITE_APP_MODE: "live",
+      VITE_OIDC_ISSUER: config.issuer,
+      VITE_OIDC_CLIENT_ID: config.clientId,
+      VITE_OIDC_REDIRECT_URI: config.redirectUri,
+      VITE_OIDC_AUTHORIZATION_ENDPOINT: config.authorizationEndpoint,
+      VITE_OIDC_TOKEN_ENDPOINT: "http://localhost:9000/token",
+      VITE_OIDC_JWKS_URI: config.jwksUri,
+      VITE_OIDC_ALLOW_LOOPBACK_HTTP: "true",
+    }),
+  ).toBeNull();
+});

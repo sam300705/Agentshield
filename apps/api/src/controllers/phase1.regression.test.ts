@@ -4,6 +4,7 @@ const db = vi.hoisted(() => ({
   scan: { count: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
   finding: { count: vi.fn(), groupBy: vi.fn() },
   approval: { count: vi.fn() },
+  agentApproval: { count: vi.fn() },
   policyDecision: { groupBy: vi.fn() },
   scanJob: { count: vi.fn(), create: vi.fn() },
   repository: { count: vi.fn(), findMany: vi.fn() },
@@ -23,7 +24,10 @@ function response() {
   res.type.mockReturnValue(res);
   return res as unknown as Response;
 }
-beforeEach(() => vi.resetAllMocks());
+beforeEach(() => {
+  vi.resetAllMocks();
+  db.agentApproval.count.mockResolvedValue(0);
+});
 describe("tenant dashboard and request regressions", () => {
   it("keeps older tenant risk even when the latest scan is clean", async () => {
     db.scan.count.mockResolvedValue(2);
@@ -111,4 +115,18 @@ it("rejects live repository admission before any durable database operation", as
   expect(db.scan.count).not.toHaveBeenCalled();
   expect(db.scanJob.count).not.toHaveBeenCalled();
   expect(db.repository.findMany).not.toHaveBeenCalled();
+});
+
+it("includes pending agent approvals even without a repository scan", async () => {
+  db.scan.count.mockResolvedValue(0);
+  db.finding.count.mockResolvedValue(0);
+  db.approval.count.mockResolvedValue(2);
+  db.agentApproval.count.mockResolvedValue(3);
+  db.scan.findFirst.mockResolvedValue(null);
+  const res = response();
+  await getDashboardSummaryController({} as Request, res);
+  expect(res.json).toHaveBeenCalledWith(contains({ pendingApprovalsCount: 5 }));
+  expect(db.agentApproval.count).toHaveBeenCalledWith({
+    where: { organizationId: "tenant-a", status: "PENDING" },
+  });
 });

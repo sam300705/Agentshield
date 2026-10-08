@@ -1,6 +1,7 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
 
 export interface OidcConfig {
+  allowLoopbackHttp?: boolean;
   issuer: string;
   clientId: string;
   redirectUri: string;
@@ -117,7 +118,9 @@ export class OidcSession {
     private readonly client: OidcTokenClient,
     private readonly now: () => number = Date.now,
     private readonly storage: TransactionStorage | null = getTransactionStorage(),
-  ) {}
+  ) {
+    validateOidcUrls(config);
+  }
 
   async beginLogin(): Promise<string> {
     this.clear();
@@ -263,6 +266,36 @@ export class OidcSession {
   }
 }
 
+function validateOidcUrls(config: OidcConfig): void {
+  const urls = [
+    config.issuer,
+    config.redirectUri,
+    config.authorizationEndpoint,
+    config.tokenEndpoint,
+    config.jwksUri,
+    config.endSessionEndpoint,
+  ].filter((value): value is string => Boolean(value));
+  for (const value of urls) {
+    const url = new URL(value);
+    const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+    const developmentHttp =
+      import.meta.env.DEV &&
+      config.allowLoopbackHttp === true &&
+      loopback &&
+      url.protocol === "http:";
+    if (
+      url.username ||
+      url.password ||
+      url.hash ||
+      (url.protocol !== "https:" && !developmentHttp)
+    ) {
+      throw new Error(
+        "OIDC URLs require HTTPS; explicitly enabled development loopback HTTP is the only exception.",
+      );
+    }
+  }
+}
+
 export function readOidcConfig(env: Record<string, string | undefined>): OidcConfig | null {
   if (env.VITE_APP_MODE !== "live") return null;
   const required = {
@@ -275,15 +308,23 @@ export function readOidcConfig(env: Record<string, string | undefined>): OidcCon
   };
   if (Object.values(required).some((value) => value == null || value.trim().length === 0))
     return null;
-  return {
+  const config = {
     ...required,
-    endSessionEndpoint: env.VITE_OIDC_END_SESSION_ENDPOINT,
+    allowLoopbackHttp: env.VITE_OIDC_ALLOW_LOOPBACK_HTTP === "true",
+    endSessionEndpoint: env.VITE_OIDC_END_SESSION_ENDPOINT?.trim() || undefined,
     scopes: (env.VITE_OIDC_SCOPES ?? "openid profile email").split(/\s+/).filter(Boolean),
     audience: env.VITE_OIDC_AUDIENCE,
   } as OidcConfig;
+  try {
+    validateOidcUrls(config);
+  } catch {
+    return null;
+  }
+  return config;
 }
 
 export function createFetchTokenClient(config: OidcConfig): OidcTokenClient {
+  validateOidcUrls(config);
   const jwks = createRemoteJWKSet(new URL(config.jwksUri));
 
   async function parseResponse(response: Response, nonce?: string): Promise<OidcTokenSet> {
@@ -342,6 +383,7 @@ export function createFetchTokenClient(config: OidcConfig): OidcTokenClient {
           client_id: input.clientId,
         }),
         credentials: "omit",
+        redirect: "error",
       }).then((response) => parseResponse(response, input.nonce));
     },
     refresh(input) {
@@ -354,6 +396,7 @@ export function createFetchTokenClient(config: OidcConfig): OidcTokenClient {
           client_id: input.clientId,
         }),
         credentials: "omit",
+        redirect: "error",
       }).then(parseResponse);
     },
   };

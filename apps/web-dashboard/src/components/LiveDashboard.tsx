@@ -119,7 +119,9 @@ export function LiveDashboard() {
             {scans.map((scan) => (
               <article key={scan.id}>
                 <div>
-                  <b>{scan.repositoryName}</b>
+                  <Link to={`/scans/${encodeURIComponent(scan.id)}`}>
+                    {scan.repositoryName} — View scan
+                  </Link>
                   <span>{scan.branch}</span>
                 </div>
                 <span>{scan.status}</span>

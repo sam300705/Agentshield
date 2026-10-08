@@ -15,7 +15,6 @@ type GateState =
   | "authenticated"
   | "unavailable"
   | "unauthorized"
-  | "forbidden"
   | "error";
 
 function envConfig(): OidcConfig | null {
@@ -47,7 +46,7 @@ export function AuthGate({ children }: AuthGateProps) {
     configureApiAuth({
       getAccessToken: () => session.getAccessToken(),
       onUnauthorized: () => setState("unauthorized"),
-      onForbidden: () => setState("forbidden"),
+      // Capability denials are rendered by the requesting page, preserving the session.
     });
     const callback = new URL(window.location.href);
     if (callback.searchParams.has("code") || callback.searchParams.has("error")) {
@@ -91,6 +90,9 @@ export function AuthGate({ children }: AuthGateProps) {
       <>
         <div className="live-session-bar" role="status">
           <span>Authenticated live mode</span>
+          <button type="button" onClick={() => navigate("/")}>
+            Organization overview
+          </button>
           <button type="button" onClick={() => void logout()}>
             Sign out
           </button>
@@ -105,20 +107,15 @@ export function AuthGate({ children }: AuthGateProps) {
       ? "Live mode is not configured"
       : state === "unauthorized"
         ? "Your session expired"
-        : state === "forbidden"
-          ? "Access denied"
-          : state === "error"
-            ? "Sign-in could not be completed"
-            : "Sign in to AgentShield";
+        : state === "error"
+          ? "Sign-in could not be completed"
+          : "Sign in to AgentShield";
   const detail =
     state === "unavailable"
       ? "An HTTPS API origin and production OIDC provider must be configured before live customer data can be shown. The demo mode remains available when VITE_APP_MODE is not live."
       : state === "unauthorized"
         ? "The API rejected the session. Sign in again to request a fresh authorization-code flow."
-        : state === "forbidden"
-          ? "Your identity is authenticated but does not have permission for this organization or capability."
-          : (message ??
-            "AgentShield never stores access tokens in localStorage or sessionStorage.");
+        : (message ?? "AgentShield never stores access tokens in localStorage or sessionStorage.");
 
   return (
     <main className="auth-gate" aria-labelledby="auth-title">
@@ -126,7 +123,7 @@ export function AuthGate({ children }: AuthGateProps) {
         <p className="eyebrow">AgentShield · protected console</p>
         <h1 id="auth-title">{title}</h1>
         <p>{detail}</p>
-        {state !== "unavailable" && state !== "forbidden" && (
+        {state !== "unavailable" && (
           <button type="button" className="primary-action" onClick={() => void login()}>
             Sign in with identity provider
           </button>

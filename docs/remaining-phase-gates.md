@@ -28,3 +28,7 @@ The eleven new Phase 1 findings on `39a922465beca2237796dee27f5f213fe44b42f3` ar
 ## Round 6 follow-up
 
 Round 5 exact-head CI passed all gates, but the new review on that head raised six findings. Their fixes, regressions, configuration boundary and failure record are in `phase1-round6-report.md`. Phase 1 acceptance remains pending; downstream branches are unchanged and Phase 5 is still gated.
+
+## Round 7 follow-up
+
+The review of Round 6 identified six further findings, including the raw-action digest collision. `phase1-round7-report.md` records their fixes, compatibility requirements and regressions. Independent acceptance still precedes downstream work and Phase 5 implementation.

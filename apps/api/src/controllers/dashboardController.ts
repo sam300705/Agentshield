@@ -29,12 +29,19 @@ export async function getDashboardSummaryController(
 ): Promise<void> {
   const { organizationId } = getActor(response);
   const scanWhere = { organizationId };
-  const [totalScans, totalFindings, pendingApprovalsCount, latestScan] = await Promise.all([
+  const [
+    totalScans,
+    totalFindings,
+    pendingFindingApprovalsCount,
+    pendingAgentApprovalsCount,
+    latestScan,
+  ] = await Promise.all([
     prisma.scan.count({ where: scanWhere }),
     prisma.finding.count({ where: { scan: scanWhere } }),
     prisma.approval.count({
       where: { status: ApprovalStatus.PENDING, finding: { scan: scanWhere } },
     }),
+    prisma.agentApproval.count({ where: { organizationId, status: ApprovalStatus.PENDING } }),
     prisma.scan.findFirst({
       where: scanWhere,
       orderBy: { createdAt: "desc" },
@@ -44,6 +51,7 @@ export async function getDashboardSummaryController(
     }),
   ]);
 
+  const pendingApprovalsCount = pendingFindingApprovalsCount + pendingAgentApprovalsCount;
   if (latestScan == null) {
     response.json({
       totalScans,

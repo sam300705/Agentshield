@@ -225,3 +225,37 @@ describe("AgentApproval service", () => {
     ).resolves.toEqual({ kind: "CONFLICT" });
   });
 });
+
+it.each(["stripe", "url"])(
+  "does not reuse an approval when %s credentials change",
+  async (kind) => {
+    const command = (letter: string) =>
+      kind === "stripe"
+        ? `deploy ${["sk", "live", letter.repeat(30)].join("_")}`
+        : `curl https://example.test/?token=${letter.repeat(30)}`;
+    const first = { ...input, evidence: { command: command("a") } };
+    const second = { ...input, evidence: { command: command("b") } };
+    expect(createAgentActionDigest(first)).not.toBe(createAgentActionDigest(second));
+    prismaMock.agentApproval.findFirst.mockResolvedValue(
+      approval({ actionDigest: createAgentActionDigest(first), status: "APPROVED" }),
+    );
+    await expect(ensureAgentApproval(second, "corr")).resolves.toEqual({
+      kind: "IDEMPOTENCY_CONFLICT",
+    });
+  },
+);
+it("refuses review if the displayed digest differs from the pending action", async () => {
+  prismaMock.agentApproval.findFirst.mockResolvedValue(approval());
+  await expect(
+    reviewAgentApproval(
+      input.organizationId,
+      "approval-test",
+      "APPROVED",
+      "independent-reviewer",
+      "reviewed",
+      "corr",
+      "f".repeat(64),
+    ),
+  ).resolves.toEqual({ kind: "CONFLICT" });
+  expect(prismaMock.agentApproval.updateMany).not.toHaveBeenCalled();
+});

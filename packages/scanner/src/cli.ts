@@ -204,7 +204,9 @@ async function main(): Promise<void> {
       policyBundleVersion: values.policy,
       findingCounts,
       decisionCounts,
-      approvalState: gate === "REQUIRE_APPROVAL" ? "PENDING" : "NOT_REQUIRED",
+      approvalState: decisions.some((item) => item.decision === "REQUIRE_APPROVAL")
+        ? "PENDING"
+        : "NOT_REQUIRED",
       evidence: result.findings.map((finding) => finding.fingerprint),
       startedAt,
       completedAt,

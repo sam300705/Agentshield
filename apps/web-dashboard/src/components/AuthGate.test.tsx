@@ -15,11 +15,16 @@ vi.mock("../lib/oidc", () => ({
     isAuthenticated() {
       return state.authenticated;
     }
+    logout() {
+      state.authenticated = false;
+      return undefined;
+    }
     getAccessToken() {
       return Promise.resolve("memory-only-token");
     }
   },
 }));
+import { notifyApiAuthFailure } from "../lib/auth";
 import { AuthGate } from "./AuthGate";
 it("navigates from the OIDC callback to the dashboard while retaining the in-memory session", async () => {
   vi.stubEnv("VITE_APP_MODE", "live");
@@ -81,6 +86,53 @@ it("shows live configuration as unavailable when its API origin is missing", asy
     expect(container.textContent).toContain("Live mode is not configured");
     expect(container.textContent).not.toContain("Protected dashboard");
     expect(container.querySelector("button")).toBeNull();
+  } finally {
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+    container.remove();
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  }
+});
+
+it("retains authenticated navigation and sign-out after a capability 403", async () => {
+  state.authenticated = true;
+  vi.stubEnv("VITE_APP_MODE", "live");
+  vi.stubEnv("VITE_API_BASE_URL", "https://api.example.test");
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  window.history.replaceState({}, "", "/");
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => {
+      root.render(
+        <BrowserRouter>
+          <AuthGate>
+            <p>Permitted scan views</p>
+          </AuthGate>
+        </BrowserRouter>,
+      );
+      await Promise.resolve();
+    });
+    await act(async () => {
+      notifyApiAuthFailure(403);
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain("Permitted scan views");
+    expect(container.textContent).toContain("Organization overview");
+    const logout = [...container.querySelectorAll("button")].find(
+      (node) => node.textContent === "Sign out",
+    );
+    expect(logout).toBeDefined();
+    await act(async () => {
+      logout?.click();
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain("Sign in to AgentShield");
+    expect(state.authenticated).toBe(false);
   } finally {
     await act(async () => {
       root.unmount();

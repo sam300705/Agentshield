@@ -1,6 +1,7 @@
 import { ApprovalStatus, AuditAction } from "@prisma/client";
 import { type Request, type Response } from "express";
 import { z } from "zod";
+import { sanitizeEvidence, sanitizeText } from "@agentshield/schemas";
 
 import { prisma } from "../db/prisma.js";
 import {
@@ -38,20 +39,63 @@ export async function listPendingApprovalsController(
     status: ApprovalStatus.PENDING,
     finding: { scan: { organizationId: actor.organizationId } },
   };
-  const [total, approvals] = await Promise.all([
+  const agentWhere = { organizationId: actor.organizationId, status: ApprovalStatus.PENDING };
+  const [total, approvals, agentTotal, agentApprovals] = await Promise.all([
     prisma.approval.count({ where }),
     prisma.approval.findMany({
       where,
-      orderBy: { requestedAt: "desc" },
+      orderBy: [{ requestedAt: "desc" }, { id: "desc" }],
       skip,
       take: limit,
       include: {
         finding: { include: { policyDecision: true, remediation: true } },
       },
     }),
+    prisma.agentApproval.count({ where: agentWhere }),
+    prisma.agentApproval.findMany({
+      where: agentWhere,
+      orderBy: [{ requestedAt: "desc" }, { id: "desc" }],
+      skip,
+      take: limit,
+    }),
   ]);
-
-  response.json({ page, limit, total, data: approvals });
+  const audits =
+    agentApprovals.length === 0
+      ? []
+      : await prisma.auditEvent.findMany({
+          where: {
+            organizationId: actor.organizationId,
+            entityType: "AgentApproval",
+            action: "APPROVAL_REQUESTED",
+            entityId: { in: agentApprovals.map((item) => item.id) },
+          },
+          select: { entityId: true, metadata: true },
+          orderBy: { createdAt: "desc" },
+          take: limit,
+        });
+  const data = agentApprovals.map((item) => {
+    const metadata = audits.find((audit) => audit.entityId === item.id)?.metadata;
+    const snapshot =
+      metadata != null &&
+      !Array.isArray(metadata) &&
+      typeof metadata === "object" &&
+      "evidence" in metadata &&
+      metadata.actionDigest === item.actionDigest;
+    return {
+      ...item,
+      resource: item.resource == null ? null : sanitizeText(item.resource),
+      reason: item.reason == null ? null : sanitizeText(item.reason),
+      evidence: snapshot ? sanitizeEvidence(metadata.evidence) : null,
+      evidenceAvailable: Boolean(snapshot),
+    };
+  });
+  response.json({
+    page,
+    limit,
+    total,
+    data: approvals,
+    agentApprovals: { page, limit, total: agentTotal, data },
+  });
 }
 
 async function updateApprovalStatus(

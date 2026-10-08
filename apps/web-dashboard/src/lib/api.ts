@@ -1,5 +1,7 @@
 import type {
   Approval,
+  AgentApproval,
+  JsonValue,
   AuditEvent,
   Dependency,
   Finding,
@@ -42,6 +44,14 @@ export interface FindingWithRelations extends Finding {
 
 export interface ApprovalWithFinding extends Approval {
   finding: FindingWithRelations;
+}
+
+export interface AgentApprovalReviewItem extends AgentApproval {
+  evidence: JsonValue;
+  evidenceAvailable: boolean;
+}
+export interface ApprovalQueueResponse extends PaginatedResponse<ApprovalWithFinding> {
+  agentApprovals?: PaginatedResponse<AgentApprovalReviewItem>;
 }
 
 export class ApiError extends Error {
@@ -168,8 +178,20 @@ export const api = {
     return request<{ data: unknown }>(`/api/v1/receipts/${encodeURIComponent(scanId)}`);
   },
   listApprovals(limit = 50, page = 1) {
-    return request<PaginatedResponse<ApprovalWithFinding>>(
-      `/api/approvals?limit=${limit}&page=${page}`,
+    return request<ApprovalQueueResponse>(`/api/approvals?limit=${limit}&page=${page}`);
+  },
+  reviewAgentApproval(
+    approvalId: string,
+    action: "approve" | "reject",
+    reason: string,
+    expectedActionDigest: string,
+  ) {
+    return request<{ data: AgentApproval }>(
+      `/api/v1/agent/approvals/${encodeURIComponent(approvalId)}/${action}`,
+      {
+        method: "POST",
+        body: JSON.stringify({ reason, expectedActionDigest }),
+      },
     );
   },
   approve(approvalId: string, reason: string) {

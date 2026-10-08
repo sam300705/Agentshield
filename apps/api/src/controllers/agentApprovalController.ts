@@ -17,6 +17,10 @@ const approvalParamsSchema = z.object({
 const reviewBodySchema = z
   .object({
     reason: z.string().trim().min(1).max(1_000).optional(),
+    expectedActionDigest: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .optional(),
   })
   .strict();
 
@@ -104,6 +108,7 @@ async function review(
     actor.id,
     body.reason,
     getCorrelationId(response),
+    body.expectedActionDigest,
   );
   if (result.kind === "NOT_FOUND") {
     sendError(response, 404, "AGENT_APPROVAL_NOT_FOUND", "Agent approval was not found.");

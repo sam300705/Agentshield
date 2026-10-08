@@ -90,3 +90,16 @@ it("uses only the validated HTTPS API origin in live mode", async () => {
   expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.example.test/api/dashboard/summary");
   expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ redirect: "error", credentials: "omit" });
 });
+
+it("sends agent review to its existing endpoint with the exact displayed digest", async () => {
+  const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+  vi.stubGlobal("fetch", fetchMock);
+  await api.reviewAgentApproval("approval/one", "approve", "Independent review", "a".repeat(64));
+  const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+  expect(url).toContain("/api/v1/agent/approvals/approval%2Fone/approve");
+  expect(init.method).toBe("POST");
+  expect(JSON.parse(init.body as string)).toEqual({
+    reason: "Independent review",
+    expectedActionDigest: "a".repeat(64),
+  });
+});

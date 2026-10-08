@@ -1,3 +1,5 @@
+import { getDashboardSummaryController } from "../apps/api/src/controllers/dashboardController.js";
+import { listPendingApprovalsController } from "../apps/api/src/controllers/approvalController.js";
 import { authorizeAgentActionController } from "../apps/api/src/controllers/agentGatewayController.js";
 import { ApprovalStatus, PrismaClient } from "@prisma/client";
 import { randomUUID } from "node:crypto";
@@ -264,6 +266,92 @@ async function main(): Promise<void> {
       (await authorize({ ...authorizationInput, action: "READ_FILE" })) === 200,
       "active owned session was rejected",
     );
+
+    const secretAction = {
+      ...authorizationInput,
+      idempotencyKey: `round7-action-${suffix}`,
+      evidence: { command: `deploy ${stripe}` },
+    };
+    const secretApproval = await ensureAgentApproval(secretAction, "round7-request");
+    assert(secretApproval.kind === "CREATED", "protected action was not created");
+    const changedSecret = await ensureAgentApproval(
+      {
+        ...secretAction,
+        evidence: { command: `deploy ${["sk", "live", "b".repeat(30)].join("_")}` },
+      },
+      "round7-replay",
+    );
+    assert(
+      changedSecret.kind === "IDEMPOTENCY_CONFLICT",
+      "changed secret reused a reviewed identity",
+    );
+    let dashboard: unknown;
+    let queue: unknown;
+    const scopedResponse = (capture: (value: unknown) => void) => ({
+      locals: { actor: { id: reviewer, organizationId } },
+      json: capture,
+    });
+    await getDashboardSummaryController(
+      {} as Parameters<typeof getDashboardSummaryController>[0],
+      scopedResponse((value) => {
+        dashboard = value;
+      }) as unknown as Parameters<typeof getDashboardSummaryController>[1],
+    );
+    assert(
+      (dashboard as { pendingApprovalsCount: number }).pendingApprovalsCount === 1,
+      "dashboard omitted pending agent action",
+    );
+    await listPendingApprovalsController(
+      { query: { limit: "1", page: "1" } } as unknown as Parameters<
+        typeof listPendingApprovalsController
+      >[0],
+      scopedResponse((value) => {
+        queue = value;
+      }) as unknown as Parameters<typeof listPendingApprovalsController>[1],
+    );
+    const queued = queue as {
+      agentApprovals: {
+        total: number;
+        data: Array<{ id: string; actionDigest: string; evidenceAvailable: boolean }>;
+      };
+    };
+    assert(
+      queued.agentApprovals.total === 1 &&
+        queued.agentApprovals.data[0]?.id === secretApproval.approval.id,
+      "review queue omitted pending action",
+    );
+    assert(
+      queued.agentApprovals.data[0]?.evidenceAvailable === true,
+      "review context was unavailable for a fresh request",
+    );
+    assert(!JSON.stringify(queue).includes(stripe), "review queue leaked raw action evidence");
+    const requestAudit = await prisma.auditEvent.findFirstOrThrow({
+      where: { organizationId, entityId: secretApproval.approval.id, action: "APPROVAL_REQUESTED" },
+    });
+    assert(
+      !JSON.stringify(requestAudit.metadata).includes(stripe),
+      "raw action identity was persisted in audit metadata",
+    );
+    const staleReview = await reviewAgentApproval(
+      organizationId,
+      secretApproval.approval.id,
+      "APPROVED",
+      reviewer,
+      "Reviewed",
+      "round7-review",
+      "f".repeat(64),
+    );
+    assert(staleReview.kind === "CONFLICT", "mismatched review digest was accepted");
+    const reviewResult = await reviewAgentApproval(
+      organizationId,
+      secretApproval.approval.id,
+      "APPROVED",
+      reviewer,
+      "Reviewed exact action",
+      "round7-review",
+      secretApproval.approval.actionDigest,
+    );
+    assert(reviewResult.kind === "UPDATED", "independent exact-action review failed");
 
     console.warn(
       "Agent Gateway database verification passed: approvals, reviewer rules, idempotency, concurrency, and chain continuity.",

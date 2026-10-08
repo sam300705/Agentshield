@@ -264,3 +264,28 @@ it.each(["fetch", "body"])("bounds approval polling when %s never resolves", asy
   expect(Date.now() - started).toBeLessThan(1000);
   expect(signal?.aborted).toBe(true);
 });
+
+it.each(["stripe", "url"])("execution guard binds the original raw %s credential value", (kind) => {
+  const command = (letter: string) =>
+    kind === "stripe"
+      ? `deploy ${["sk", "live", letter.repeat(30)].join("_")}`
+      : `curl https://example.test/?token=${letter.repeat(30)}`;
+  const first = { ...protectedInput, evidence: { command: command("a") } };
+  const reviewed = {
+    ...boundApproval,
+    actionDigest: createHash("sha256").update(canonicalAgentActionIdentity(first)).digest("hex"),
+  };
+  const decision = {
+    decision: "REQUIRE_APPROVAL" as const,
+    allowed: true,
+    reason: "Reviewed",
+    ruleId: "review",
+    ruleVersion: "1",
+    correlationId: "corr",
+    approvalId: reviewed.id,
+  };
+  expect(() => assertAgentActionAllowed(first, decision, reviewed)).not.toThrow();
+  expect(() =>
+    assertAgentActionAllowed({ ...first, evidence: { command: command("b") } }, decision, reviewed),
+  ).toThrow("not bound");
+});

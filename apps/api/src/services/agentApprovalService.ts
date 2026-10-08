@@ -6,6 +6,7 @@ import {
   agentApprovalSchema,
   agentAuthorizationRequestSchema,
   canonicalAgentActionIdentity,
+  sanitizeEvidence,
   type AgentApproval,
   type AgentAuthorizationRequest,
 } from "@agentshield/schemas";
@@ -127,6 +128,7 @@ export async function ensureAgentApproval(
             sessionId: input.sessionId,
             actionType: input.action,
             actionDigest: digest,
+            evidence: sanitizeEvidence(input.evidence ?? null),
           },
         },
       });
@@ -162,6 +164,7 @@ export async function reviewAgentApproval(
   reviewerId: string,
   reason: string | undefined,
   correlationId: string,
+  expectedActionDigest?: string,
 ): Promise<
   | { kind: "UPDATED"; approval: AgentApproval }
   | { kind: "NOT_FOUND" }
@@ -172,11 +175,18 @@ export async function reviewAgentApproval(
     where: { id: approvalId, organizationId },
   });
   if (current == null) return { kind: "NOT_FOUND" };
+  if (expectedActionDigest != null && current.actionDigest !== expectedActionDigest)
+    return { kind: "CONFLICT" };
   if (current.requestedBy === reviewerId) return { kind: "SELF_APPROVAL" };
 
   const updated = await prisma.$transaction(async (tx) => {
     const result = await tx.agentApproval.updateMany({
-      where: { id: approvalId, organizationId, status: ApprovalStatus.PENDING },
+      where: {
+        id: approvalId,
+        organizationId,
+        status: ApprovalStatus.PENDING,
+        actionDigest: current.actionDigest,
+      },
       data: {
         status,
         reviewedBy: reviewerId,
