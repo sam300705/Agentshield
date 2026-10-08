@@ -262,9 +262,11 @@ it("refuses review if the displayed digest differs from the pending action", asy
 
 it("sanitizes historical approval resources before direct reads", async () => {
   const token = "sk_live_" + "x".repeat(30);
-  prismaMock.agentApproval.findFirst.mockResolvedValue(approval({
-    resource: `https://example.test/?token=${token}`,
-  }));
+  prismaMock.agentApproval.findFirst.mockResolvedValue(
+    approval({
+      resource: `https://example.test/?token=${token}`,
+    }),
+  );
   const record = await getAgentApproval("org-test", "approval-test");
   expect(JSON.stringify(record)).not.toContain(token);
 });
@@ -272,10 +274,12 @@ it("sanitizes historical approval resources before direct reads", async () => {
 it("sanitizes new approval resources before persistence without changing raw digest identity", async () => {
   const token = "sk_live_" + "y".repeat(30);
   const sensitive = { ...input, resource: `https://example.test/?token=${token}` };
-  prismaMock.agentApproval.create.mockResolvedValue(approval({
-    resource: "[REDACTED]",
-    actionDigest: createAgentActionDigest(sensitive),
-  }));
+  prismaMock.agentApproval.create.mockResolvedValue(
+    approval({
+      resource: "[REDACTED]",
+      actionDigest: createAgentActionDigest(sensitive),
+    }),
+  );
   const result = await ensureAgentApproval(sensitive, "corr");
   expect(result.kind).toBe("CREATED");
   const call = (prismaMock.agentApproval.create.mock.calls as unknown as unknown[][])[0]?.[0] as
