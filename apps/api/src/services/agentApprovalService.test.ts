@@ -35,7 +35,7 @@ const prismaMock = vi.hoisted(() => {
 
 vi.mock("../db/prisma.js", () => ({ prisma: prismaMock }));
 
-const { createAgentActionDigest, ensureAgentApproval, reviewAgentApproval } =
+const { createAgentActionDigest, ensureAgentApproval, reviewAgentApproval, getAgentApproval } =
   await import("./agentApprovalService.js");
 
 const input: AgentAuthorizationRequest = {
@@ -258,4 +258,35 @@ it("refuses review if the displayed digest differs from the pending action", asy
     ),
   ).resolves.toEqual({ kind: "CONFLICT" });
   expect(prismaMock.agentApproval.updateMany).not.toHaveBeenCalled();
+});
+
+it("sanitizes historical approval resources before direct reads", async () => {
+  const token = "sk_live_" + "x".repeat(30);
+  prismaMock.agentApproval.findFirst.mockResolvedValue(approval({
+    resource: `https://example.test/?token=${token}`,
+  }));
+  const record = await getAgentApproval("org-test", "approval-test");
+  expect(JSON.stringify(record)).not.toContain(token);
+});
+
+it("sanitizes new approval resources before persistence without changing raw digest identity", async () => {
+  const token = "sk_live_" + "y".repeat(30);
+  const sensitive = { ...input, resource: `https://example.test/?token=${token}` };
+  prismaMock.agentApproval.create.mockResolvedValue(approval({
+    resource: "[REDACTED]",
+    actionDigest: createAgentActionDigest(sensitive),
+  }));
+  const result = await ensureAgentApproval(sensitive, "corr");
+  expect(result.kind).toBe("CREATED");
+  const call = prismaMock.agentApproval.create.mock.calls[0]?.[0] as
+    | { data?: { resource?: string } }
+    | undefined;
+  expect(call?.data?.resource).not.toContain(token);
+  expect(call?.data?.resource).toContain("REDACTED");
+});
+
+it("rejects a redacted resource that expands past the schema limit before writing", async () => {
+  const resource = "token=12345678".repeat(250);
+  await expect(ensureAgentApproval({ ...input, resource }, "corr")).rejects.toThrow();
+  expect(prismaMock.agentApproval.create).not.toHaveBeenCalled();
 });
