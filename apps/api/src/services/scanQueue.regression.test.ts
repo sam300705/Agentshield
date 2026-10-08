@@ -192,3 +192,27 @@ function contains(value: Record<string, unknown>): unknown {
 function includes(value: unknown[]): unknown {
   return expect.arrayContaining(value) as unknown;
 }
+
+it.each([false, true])(
+  "final-attempt recovery is terminal with cancellation=%s",
+  async (cancelled) => {
+    db.scanJob.findMany.mockResolvedValue([{ id: "job", scanId: "scan" }]);
+    db.scanJob.findUnique.mockResolvedValue({
+      ...candidate,
+      attempts: 3,
+      maxAttempts: 3,
+      cancelRequestedAt: cancelled ? new Date() : null,
+    });
+    db.scanJob.updateMany.mockResolvedValue({ count: 1 });
+    const now = new Date();
+    expect(await recoverAbandonedJobs(now)).toBe(1);
+    const transition = db.scanJob.updateMany.mock.calls[0]?.[0] as {
+      data: Record<string, unknown>;
+    };
+    expect(transition.data.nextAttemptAt).toBeNull();
+    expect(transition.data.failureCode).toBe(cancelled ? "CANCELLED" : "MAX_ATTEMPTS_EXCEEDED");
+    if (!cancelled) expect(transition.data.deadLetteredAt).toEqual(now);
+    const scan = db.scan.updateMany.mock.calls[0]?.[0] as { data: Record<string, unknown> };
+    expect(scan.data.completedAt).toEqual(now);
+  },
+);

@@ -1,4 +1,5 @@
 import {
+  sanitizeEvidence,
   agentEventSchema,
   agentFingerprintSchema,
   attackGraphSchema,
@@ -81,21 +82,26 @@ function redactString(value: string): string {
   );
 }
 
-export function redactEvidence(value: unknown, key = ""): JsonValue {
+function redactLegacyEvidence(value: unknown, key = ""): JsonValue {
   if (SENSITIVE_KEY.test(key)) return REDACTED;
   if (value == null) return null;
   if (typeof value === "boolean" || typeof value === "number") return value;
   if (typeof value === "string") return redactString(value);
-  if (Array.isArray(value)) return value.map((item) => redactEvidence(item));
+  if (Array.isArray(value)) return value.map((item) => redactLegacyEvidence(item));
   if (typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>).map(([nestedKey, nestedValue]) => [
         nestedKey,
-        redactEvidence(nestedValue, nestedKey),
+        redactLegacyEvidence(nestedValue, nestedKey),
       ]),
     );
   }
   return typeof value === "bigint" ? value.toString() : null;
+}
+
+export function redactEvidence(value: unknown, key = ""): JsonValue {
+  // Retain sensitive-key/legacy redaction and share all scanner-recognized patterns.
+  return sanitizeEvidence(redactLegacyEvidence(value, key));
 }
 
 export function createIntegrityChain(
@@ -292,7 +298,7 @@ export function calculateAgentFingerprint(
     highRiskShellCommands: metrics.highRiskShellCommands,
     dependencyChanges: countType(events, "DEPENDENCY_INSTALLATION"),
     infrastructureChanges: metrics.infrastructureChanges,
-    approvalFrequency: policyEvents === 0 ? 0 : approvalEvents / policyEvents,
+    approvalFrequency: eventCount === 0 ? 0 : approvalEvents / eventCount,
     blockFrequency: policyEvents === 0 ? 0 : blockEvents / policyEvents,
     drift,
   });

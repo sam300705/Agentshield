@@ -24,3 +24,7 @@ procedures remain on their own phase branches.
 ## Round 5 follow-up
 
 The eleven new Phase 1 findings on `39a922465beca2237796dee27f5f213fe44b42f3` are addressed in `phase1-round5-report.md`; published-head CI and independent acceptance remain distinct. The earlier table is a historical snapshot. Figma frame IDs are now available in `phase5-design-handoff.md`; no manual frame discovery is needed. This does not authorize advancing past predecessor gates.
+
+## Round 6 follow-up
+
+Round 5 exact-head CI passed all gates, but the new review on that head raised six findings. Their fixes, regressions, configuration boundary and failure record are in `phase1-round6-report.md`. Phase 1 acceptance remains pending; downstream branches are unchanged and Phase 5 is still gated.

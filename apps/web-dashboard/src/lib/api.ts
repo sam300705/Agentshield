@@ -10,9 +10,7 @@ import type {
 
 import { getApiAccessToken, notifyApiAuthFailure } from "./auth";
 
-const API_BASE_URL =
-  (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ||
-  "http://localhost:3001";
+import { resolveApiBaseUrl } from "./apiOrigin";
 
 export interface PaginatedResponse<T> {
   page: number;
@@ -89,15 +87,17 @@ export interface DashboardSummary {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const apiBaseUrl = resolveApiBaseUrl(import.meta.env);
   const headers = new Headers(init?.headers);
   headers.set("Content-Type", "application/json");
   const accessToken = await getApiAccessToken();
   if (accessToken != null) headers.set("Authorization", `Bearer ${accessToken}`);
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetch(`${apiBaseUrl}${path}`, {
     ...init,
     headers,
     credentials: "omit",
+    redirect: "error",
   });
 
   if (!response.ok) {

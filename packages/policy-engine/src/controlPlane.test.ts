@@ -172,3 +172,29 @@ describe("Phase 1 evidence and graph regressions", () => {
     }
   });
 });
+
+it("redacts shared credential formats before hashing fresh agent evidence", () => {
+  const stripe = ["sk", "live", "a".repeat(30)].join("_");
+  const github = "ghp_" + "a_".repeat(20);
+  const events = createIntegrityChain([
+    { ...baseEvents[0]!, evidence: { command: `deploy ${stripe}`, nested: [{ output: github }] } },
+  ]);
+  expect(JSON.stringify(events)).not.toContain(stripe);
+  expect(JSON.stringify(events)).not.toContain(github);
+  expect(verifyIntegrityChain(events)).toBe(true);
+});
+it.each([
+  [[], 0],
+  [["APPROVAL_REQUEST"], 1],
+  [["POLICY_EVALUATION", "APPROVAL_REQUEST", "APPROVAL_REQUEST"], 2 / 3],
+])("defines approval frequency as a bounded share of session events", (types, expected) => {
+  const events = createIntegrityChain(
+    (types as AgentEventInput["type"][]).map((type, sequence) => ({
+      ...baseEvents[0]!,
+      id: `event-${sequence}`,
+      sequence,
+      type,
+    })),
+  );
+  expect(calculateAgentFingerprint(events).approvalFrequency).toBe(expected);
+});

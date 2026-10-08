@@ -189,12 +189,26 @@ async function main(): Promise<void> {
       }),
     );
     assert(next.kind === "SEQUENCE_INVALID", "sequence gap was accepted");
+    const stripe = ["sk", "live", "a".repeat(30)].join("_");
+    const github = "ghp_" + "a_".repeat(20);
     const sequential = await ingestAgentEvent(
       eventInput({
         sequence: 2,
         idempotencyKey: `gateway-event-${suffix}-2`,
         summary: "Synthetic sequence two",
+        evidence: { command: `deploy ${stripe}`, output: github },
       }),
+    );
+    const persisted = await prisma.agentEvent.findFirstOrThrow({
+      where: { sessionId, sequence: 2 },
+    });
+    assert(
+      !JSON.stringify(persisted.evidence).includes(stripe),
+      "Stripe credential leaked into agent evidence",
+    );
+    assert(
+      !JSON.stringify(persisted.evidence).includes(github),
+      "GitHub credential leaked into agent evidence",
     );
     assert(sequential.kind === "CREATED", "next sequential event was not accepted");
     const previousEvent = await prisma.agentEvent.findFirst({

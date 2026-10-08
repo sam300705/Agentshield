@@ -237,6 +237,33 @@ async function main() {
       (await prisma.scan.findUniqueOrThrow({ where: { id: running.id } })).status,
       "CANCELLED",
     );
+    const exhaustedScan = await prisma.scan.create({
+      data: { organizationId, repositoryName: "synthetic", branch: "main", status: "RUNNING" },
+    });
+    const exhaustedJob = await prisma.scanJob.create({
+      data: {
+        scanId: exhaustedScan.id,
+        status: "RUNNING",
+        idempotencyKey: `round6-${exhaustedScan.id}`,
+        repositoryRef: "main",
+        policyBundleVersion: "synthetic",
+        requester: "synthetic",
+        correlationId: "synthetic",
+        payload: {},
+        attempts: 3,
+        maxAttempts: 3,
+        lockedBy: "expired-worker",
+        leaseExpiresAt: new Date(0),
+      },
+    });
+    await recoverAbandonedJobs();
+    const recoveredJob = await prisma.scanJob.findUniqueOrThrow({ where: { id: exhaustedJob.id } });
+    assert.equal(recoveredJob.status, "FAILED");
+    assert.ok(recoveredJob.deadLetteredAt);
+    assert.equal(recoveredJob.nextAttemptAt, null);
+    const recoveredScan = await prisma.scan.findUniqueOrThrow({ where: { id: exhaustedScan.id } });
+    assert.equal(recoveredScan.status, "FAILED");
+    assert.ok(recoveredScan.completedAt);
     const demo = await enqueueDemoScan(
       `demo-${randomUUID()}`,
       organizationId,

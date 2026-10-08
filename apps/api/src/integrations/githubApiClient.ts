@@ -179,7 +179,12 @@ export class FetchGitHubAppClient
         },
       }));
       repositories.push(...pageItems);
-      if (pageItems.length < 100) break;
+      if (pageItems.length < 100) return repositories;
+      if (page === MAX_REPOSITORY_PAGES) {
+        throw new Error(
+          "GITHUB_REPOSITORY_LIMIT_EXCEEDED: repository synchronization requires more than the bounded page limit.",
+        );
+      }
     }
     return repositories;
   }

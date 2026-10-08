@@ -6,6 +6,7 @@ import { configureApiAuth } from "./auth";
 afterEach(() => {
   configureApiAuth(null);
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe("dashboard API client", () => {
@@ -59,4 +60,33 @@ describe("dashboard API client", () => {
     expect((error as Error).message).toBe("API request failed with status 403.");
     expect(onForbidden).toHaveBeenCalledOnce();
   });
+});
+
+it.each([
+  undefined,
+  "",
+  "http://localhost:3001",
+  "http://api.example.test",
+  "https://user:pass@api.example.test",
+  "https://api.example.test/?token=value",
+])("refuses invalid live API configuration before token retrieval or fetch", async (origin) => {
+  vi.stubEnv("VITE_APP_MODE", "live");
+  vi.stubEnv("VITE_API_BASE_URL", origin);
+  const fetchMock = vi.fn();
+  const token = vi.fn(() => "memory-token");
+  vi.stubGlobal("fetch", fetchMock);
+  configureApiAuth({ getAccessToken: token });
+  await expect(api.getDashboardSummary()).rejects.toThrow();
+  expect(token).not.toHaveBeenCalled();
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+it("uses only the validated HTTPS API origin in live mode", async () => {
+  vi.stubEnv("VITE_APP_MODE", "live");
+  vi.stubEnv("VITE_API_BASE_URL", "https://api.example.test/");
+  const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+  vi.stubGlobal("fetch", fetchMock);
+  configureApiAuth({ getAccessToken: () => "memory-token" });
+  await api.getDashboardSummary();
+  expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.example.test/api/dashboard/summary");
+  expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ redirect: "error", credentials: "omit" });
 });

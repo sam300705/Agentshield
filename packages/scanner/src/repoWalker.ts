@@ -34,6 +34,7 @@ export async function walkRepository(
   const maxTotalBytes = options.maxTotalBytes ?? 100 * 1024 * 1024;
   const files: string[] = [];
   let totalBytes = 0;
+  let visitedFiles = 0;
 
   function checkCancelled(): void {
     if (options.signal?.aborted === true) throw new Error("Scan cancelled");
@@ -61,7 +62,8 @@ export async function walkRepository(
         continue;
       }
       if (entry.isFile()) {
-        if (files.length >= maxFiles) throw new Error(`Scan exceeds file limit of ${maxFiles}`);
+        if (visitedFiles >= maxFiles) throw new Error(`Scan exceeds file limit of ${maxFiles}`);
+        visitedFiles += 1;
         const resolved = await realpath(entryPath);
         if (resolved !== rootPath && !resolved.startsWith(`${rootPath}${path.sep}`))
           throw new Error(`Path escaped scan root: ${entry.name}`);

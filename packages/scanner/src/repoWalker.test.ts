@@ -2,11 +2,12 @@ import { expect, it, vi } from "vitest";
 const fs = vi.hoisted(() => ({ realpath: vi.fn(), lstat: vi.fn(), opendir: vi.fn() }));
 vi.mock("node:fs/promises", () => fs);
 import { walkRepository } from "./repoWalker.js";
-it("stops scheduling filesystem work at the file budget with streaming directory iteration", async () => {
+it.each([1, 1000])("bounds traversal before filtering files of size %i", async (size) => {
+  vi.clearAllMocks();
   let read = 0;
   let closed = false;
   fs.realpath.mockImplementation((value: string) => Promise.resolve(value));
-  fs.lstat.mockResolvedValue({ size: 1 });
+  fs.lstat.mockResolvedValue({ size });
   fs.opendir.mockImplementation(() =>
     (async function* () {
       await Promise.resolve();
@@ -20,7 +21,9 @@ it("stops scheduling filesystem work at the file budget with streaming directory
       }
     })(),
   );
-  await expect(walkRepository("/synthetic-root", { maxFiles: 2 })).rejects.toThrow("file limit");
+  await expect(
+    walkRepository("/synthetic-root", { maxFiles: 2, maxFileSizeBytes: 10 }),
+  ).rejects.toThrow("file limit");
   expect(fs.lstat).toHaveBeenCalledTimes(2);
   expect(read).toBe(3);
   expect(closed).toBe(true);

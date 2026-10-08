@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 
+import { resolveApiBaseUrl } from "../lib/apiOrigin";
 import { configureApiAuth } from "../lib/auth";
 import { createFetchTokenClient, OidcSession, readOidcConfig, type OidcConfig } from "../lib/oidc";
 
@@ -18,6 +19,11 @@ type GateState =
   | "error";
 
 function envConfig(): OidcConfig | null {
+  try {
+    resolveApiBaseUrl(import.meta.env);
+  } catch {
+    return null;
+  }
   return readOidcConfig(import.meta.env);
 }
 
@@ -106,7 +112,7 @@ export function AuthGate({ children }: AuthGateProps) {
             : "Sign in to AgentShield";
   const detail =
     state === "unavailable"
-      ? "A production OIDC provider must be configured before live customer data can be shown. The demo mode remains available when VITE_APP_MODE is not live."
+      ? "An HTTPS API origin and production OIDC provider must be configured before live customer data can be shown. The demo mode remains available when VITE_APP_MODE is not live."
       : state === "unauthorized"
         ? "The API rejected the session. Sign in again to request a fresh authorization-code flow."
         : state === "forbidden"
@@ -125,7 +131,9 @@ export function AuthGate({ children }: AuthGateProps) {
             Sign in with identity provider
           </button>
         )}
-        {state === "unavailable" && <code>Missing VITE_OIDC_* configuration</code>}
+        {state === "unavailable" && (
+          <code>Missing or invalid VITE_API_BASE_URL / VITE_OIDC_* configuration</code>
+        )}
       </section>
     </main>
   );

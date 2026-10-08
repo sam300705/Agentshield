@@ -23,6 +23,7 @@ vi.mock("../lib/oidc", () => ({
 import { AuthGate } from "./AuthGate";
 it("navigates from the OIDC callback to the dashboard while retaining the in-memory session", async () => {
   vi.stubEnv("VITE_APP_MODE", "live");
+  vi.stubEnv("VITE_API_BASE_URL", "https://api.example.test");
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   window.history.replaceState({}, "", "/callback?code=synthetic&state=synthetic");
   const container = document.createElement("div");
@@ -47,6 +48,39 @@ it("navigates from the OIDC callback to the dashboard while retaining the in-mem
     expect(state.authenticated).toBe(true);
     expect(localStorage.length).toBe(0);
     expect(sessionStorage.length).toBe(0);
+  } finally {
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+    container.remove();
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  }
+});
+
+it("shows live configuration as unavailable when its API origin is missing", async () => {
+  vi.stubEnv("VITE_APP_MODE", "live");
+  vi.stubEnv("VITE_API_BASE_URL", "");
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  window.history.replaceState({}, "", "/");
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => {
+      root.render(
+        <BrowserRouter>
+          <AuthGate>
+            <p>Protected dashboard</p>
+          </AuthGate>
+        </BrowserRouter>,
+      );
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain("Live mode is not configured");
+    expect(container.textContent).not.toContain("Protected dashboard");
+    expect(container.querySelector("button")).toBeNull();
   } finally {
     await act(async () => {
       root.unmount();

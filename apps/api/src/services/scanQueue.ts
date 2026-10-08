@@ -309,7 +309,9 @@ export async function recoverAbandonedJobs(now = new Date()): Promise<number> {
     recovered += await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT "id" FROM "ScanJob" WHERE "id" = ${job.id} FOR UPDATE`;
       const current = await tx.scanJob.findUnique({ where: { id: job.id } });
-      const cancelled = current?.cancelRequestedAt != null;
+      if (current == null) return 0;
+      const cancelled = current.cancelRequestedAt != null;
+      const exhausted = !cancelled && current.attempts >= current.maxAttempts;
       const changed = await tx.scanJob.updateMany({
         where: {
           id: job.id,
@@ -325,9 +327,16 @@ export async function recoverAbandonedJobs(now = new Date()): Promise<number> {
           lockedBy: null,
           leaseExpiresAt: null,
           lastHeartbeatAt: now,
-          nextAttemptAt: cancelled ? null : now,
-          failureCode: cancelled ? "CANCELLED" : "WORKER_ABANDONED",
-          failureMessage: "The previous worker stopped responding; the job is eligible for retry.",
+          nextAttemptAt: cancelled || exhausted ? null : now,
+          ...(exhausted ? { deadLetteredAt: now } : {}),
+          failureCode: cancelled
+            ? "CANCELLED"
+            : exhausted
+              ? "MAX_ATTEMPTS_EXCEEDED"
+              : "WORKER_ABANDONED",
+          failureMessage: exhausted
+            ? "The previous worker stopped responding after the final allowed attempt."
+            : "The previous worker stopped responding; the job is eligible for retry.",
         },
       });
       if (changed.count !== 1) return 0;
@@ -338,7 +347,7 @@ export async function recoverAbandonedJobs(now = new Date()): Promise<number> {
         },
         data: {
           status: cancelled ? ScanStatus.CANCELLED : ScanStatus.FAILED,
-          completedAt: cancelled ? now : null,
+          completedAt: cancelled || exhausted ? now : null,
         },
       });
       return 1;
