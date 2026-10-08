@@ -194,7 +194,9 @@ it("binds idempotency to raw secrets without persisting either original token", 
   expect(stored?.rawPayloadHash).toMatch(/^[a-f0-9]{64}$/);
   expect(JSON.stringify(stored)).not.toContain(secret("a"));
   expect(JSON.stringify(stored)).not.toContain(secret("b"));
-  await expect(ingestAgentEvent(second)).resolves.toEqual({ kind: "IDEMPOTENCY_CONFLICT" });
+  await expect(ingestAgentEvent(second)).resolves.toEqual({
+    kind: "IDEMPOTENCY_CONFLICT",
+  });
   expect(fakePrisma.events).toHaveLength(1);
 });
 
@@ -204,7 +206,9 @@ it("fails closed on a legacy event lacking its unredacted identity hash", async 
   const stored = fakePrisma.events[0];
   if (stored == null) throw new Error("Expected fixture event");
   stored.rawPayloadHash = null;
-  await expect(ingestAgentEvent(input())).resolves.toEqual({ kind: "IDEMPOTENCY_CONFLICT" });
+  await expect(ingestAgentEvent(input())).resolves.toEqual({
+    kind: "IDEMPOTENCY_CONFLICT",
+  });
 });
 
 it("rejects append and retry when a session is no longer active", async () => {
