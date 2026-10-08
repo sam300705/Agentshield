@@ -202,26 +202,23 @@ export async function getReceiptController(request: Request, response: Response)
     });
     return;
   }
-  const unsigned =
-    receipt.signedPayload == null
-      ? {
-          id: `receipt:${scanId}`,
-          scanId,
-          repository: receipt.scan.repositoryName,
-          branch: receipt.branch ?? receipt.scan.branch,
-          commitSha: receipt.commitSha ?? receipt.scan.commitSha ?? "unresolved",
-          scannerVersion: receipt.scannerVersion,
-          policyBundleVersion: receipt.policyBundleVersion,
-          findingCounts: receipt.findingCounts,
-          decisionCounts: receipt.decisionCounts,
-          approvalState: receipt.approvalState,
-          evidenceDigest: receipt.evidenceDigest,
-          startedAt: receipt.scan.startedAt,
-          completedAt: receipt.scan.completedAt,
-          gateResult: receipt.gateResult,
-          receiptHash: receipt.receiptHash,
-        }
-      : receipt.signedPayload;
+  const unsigned = receipt.signedPayload ?? {
+    id: `receipt:${scanId}`,
+    scanId,
+    repository: receipt.scan.repositoryName,
+    branch: receipt.branch ?? receipt.scan.branch,
+    commitSha: receipt.commitSha ?? receipt.scan.commitSha ?? "unresolved",
+    scannerVersion: receipt.scannerVersion,
+    policyBundleVersion: receipt.policyBundleVersion,
+    findingCounts: receipt.findingCounts,
+    decisionCounts: receipt.decisionCounts,
+    approvalState: receipt.approvalState,
+    evidenceDigest: receipt.evidenceDigest,
+    startedAt: receipt.scan.startedAt,
+    completedAt: receipt.scan.completedAt,
+    gateResult: receipt.gateResult,
+    receiptHash: receipt.receiptHash,
+  };
   const canonical = securityReceiptSchema.safeParse(unsigned);
   if (
     !canonical.success ||
@@ -237,19 +234,21 @@ export async function getReceiptController(request: Request, response: Response)
     });
     return;
   }
-  const signedReceipt =
+  let signedReceipt = null;
+  if (
     receipt.keyId != null &&
     receipt.signature != null &&
     receipt.signingAlgorithm === "ed25519"
-      ? {
-          format: "agentshield-signed-receipt" as const,
-          version: 1 as const,
-          algorithm: "ed25519" as const,
-          keyId: receipt.keyId,
-          payload: canonical.data,
-          signature: receipt.signature,
-        }
-      : null;
+  ) {
+    signedReceipt = {
+      format: "agentshield-signed-receipt",
+      version: 1,
+      algorithm: "ed25519",
+      keyId: receipt.keyId,
+      payload: canonical.data,
+      signature: receipt.signature,
+    };
+  }
   response.json({
     data: canonical.data,
     ...(signedReceipt == null ? {} : { signedReceipt }),
