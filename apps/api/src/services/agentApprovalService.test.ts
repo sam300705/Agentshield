@@ -286,7 +286,7 @@ it("sanitizes new approval resources before persistence without changing raw dig
 });
 
 it("rejects a redacted resource that expands past the schema limit before writing", async () => {
-  const resource = "token=12345678".repeat(250);
+  const resource = Array.from({ length: 200 }, () => "token=12345678").join(" ");
   await expect(ensureAgentApproval({ ...input, resource }, "corr")).rejects.toThrow();
   expect(prismaMock.agentApproval.create).not.toHaveBeenCalled();
 });
