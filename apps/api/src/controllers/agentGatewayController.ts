@@ -206,7 +206,7 @@ export async function getReceiptController(request: Request, response: Response)
     receipt.signedPayload == null
       ? {
           id: `receipt:${scanId}`,
-        scanId,
+          scanId,
           repository: receipt.scan.repositoryName,
           branch: receipt.branch ?? receipt.scan.branch,
           commitSha: receipt.commitSha ?? receipt.scan.commitSha ?? "unresolved",
