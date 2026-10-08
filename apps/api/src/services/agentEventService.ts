@@ -140,7 +140,12 @@ export async function ingestAgentEvent(
   const expectedHash = payloadHash(input);
 
   const owner = await prisma.agentSession.findFirst({
-    where: { id: input.sessionId, organizationId: input.organizationId, actor: input.actor, status: "ACTIVE" },
+    where: {
+      id: input.sessionId,
+      organizationId: input.organizationId,
+      actor: input.actor,
+      status: "ACTIVE",
+    },
     select: { id: true },
   });
   if (owner == null) return { kind: "SESSION_NOT_FOUND" };
@@ -158,7 +163,12 @@ export async function ingestAgentEvent(
           Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${input.sessionId}))`,
         );
         const session = await tx.agentSession.findFirst({
-          where: { id: input.sessionId, organizationId: input.organizationId, actor: input.actor, status: "ACTIVE" },
+          where: {
+            id: input.sessionId,
+            organizationId: input.organizationId,
+            actor: input.actor,
+            status: "ACTIVE",
+          },
           select: { id: true },
         });
         if (session == null) return { kind: "SESSION_NOT_FOUND" as const };
