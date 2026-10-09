@@ -143,7 +143,9 @@ export class OidcSession {
       code_challenge_method: "S256",
     });
     if (this.config.audience != null) params.set("audience", this.config.audience);
-    return `${this.config.authorizationEndpoint}?${params.toString()}`;
+    const url = new URL(this.config.authorizationEndpoint);
+    params.forEach((value, key) => url.searchParams.set(key, value));
+    return url.toString();
   }
 
   async handleCallback(callbackUrl: string): Promise<void> {
