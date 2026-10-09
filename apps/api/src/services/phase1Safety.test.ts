@@ -101,7 +101,9 @@ it("refuses a superseded or expired scan lease before any persistence", async ()
   const lease = { owner: "worker-original", attempt: 2 };
   const query = vi.fn().mockResolvedValue([]);
   const tx = { $queryRaw: query };
-  await expect(assertScanLease(tx as never, "scan-one", lease)).rejects.toThrow("WORKER_LEASE_LOST");
+  await expect(assertScanLease(tx as never, "scan-one", lease)).rejects.toThrow(
+    "WORKER_LEASE_LOST",
+  );
   expect(query).toHaveBeenCalledTimes(1);
   const sql = (query.mock.calls as unknown as unknown[][])[0]?.[0] as { values: unknown[] };
   expect(sql.values).toEqual(["scan-one", "worker-original", 2]);
