@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { canonicalAgentActionIdentity } from "@agentshield/schemas";
+import { canonicalAgentActionIdentity, type AgentAuthorizationRequest } from "@agentshield/schemas";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -36,6 +36,9 @@ const protectedInput = {
   idempotencyKey: approval.idempotencyKey,
   evidence: { command: "echo safe" },
 };
+const digestFor = (input: AgentAuthorizationRequest) =>
+  createHash("sha256").update(canonicalAgentActionIdentity(input)).digest("hex");
+
 const boundApproval = {
   ...approval,
   actionDigest: createHash("sha256")
@@ -94,6 +97,7 @@ describe("AgentShield SDK", () => {
       assertAgentActionAllowed(protectedInput, {
         decision: "BLOCK",
         allowed: false,
+        actionDigest: digestFor(protectedInput),
         reason: "The action is prohibited.",
         ruleId: "command.block",
         ruleVersion: "1.0.0",
@@ -107,6 +111,7 @@ describe("AgentShield SDK", () => {
         {
           decision: "REQUIRE_APPROVAL",
           allowed: true,
+          actionDigest: digestFor({ ...protectedInput, action: "WRITE_FILE" }),
           reason: "A reviewer must approve this action.",
           ruleId: "file.write.review",
           ruleVersion: "1.0.0",
@@ -121,6 +126,7 @@ describe("AgentShield SDK", () => {
         {
           decision: "REQUIRE_APPROVAL",
           allowed: true,
+          actionDigest: digestFor(protectedInput),
           reason: "A reviewer must approve this action.",
           ruleId: "command.review",
           ruleVersion: "1.0.0",
@@ -140,6 +146,15 @@ describe("AgentShield SDK", () => {
           data: {
             decision: "ALLOW",
             allowed: true,
+            actionDigest: digestFor({
+              organizationId: "org-1",
+              sessionId: "session-1",
+              actor: "agent-1",
+              action: "READ_FILE",
+              resource: "README.md",
+              correlationId: "corr-1",
+              idempotencyKey: "authorize-1",
+            }),
             reason: "Read-only access is permitted.",
             ruleId: "read.allow",
             ruleVersion: "1.0.0",
@@ -216,8 +231,12 @@ describe("AgentShield SDK", () => {
       }),
     ).not.toThrow();
     expect(() =>
-      assertAgentApprovalMatches(input, { ...approval, resource: "different-resource" }),
-    ).toThrow("not bound");
+      assertAgentApprovalMatches(input, {
+        ...approval,
+        resource: "[REDACTED:URL_CREDENTIAL]",
+        actionDigest: digestFor(input),
+      }),
+    ).not.toThrow();
     expect(() =>
       assertAgentApprovalMatches(input, {
         ...approval,
@@ -234,6 +253,7 @@ it("the final execution guard rejects modified evidence, resource, and session",
   const decision = {
     decision: "REQUIRE_APPROVAL" as const,
     allowed: true,
+    actionDigest: digestFor(protectedInput),
     reason: "Reviewed",
     ruleId: "review",
     ruleVersion: "1",
@@ -278,6 +298,7 @@ it.each(["stripe", "url"])("execution guard binds the original raw %s credential
   const decision = {
     decision: "REQUIRE_APPROVAL" as const,
     allowed: true,
+    actionDigest: digestFor(first),
     reason: "Reviewed",
     ruleId: "review",
     ruleVersion: "1",
@@ -288,4 +309,27 @@ it.each(["stripe", "url"])("execution guard binds the original raw %s credential
   expect(() =>
     assertAgentActionAllowed({ ...first, evidence: { command: command("b") } }, decision, reviewed),
   ).toThrow("not bound");
+});
+
+it("rejects reuse of ALLOW authorization across actions and resources", () => {
+  const input = { ...protectedInput, action: "READ_FILE" as const };
+  const decision = {
+    decision: "ALLOW" as const,
+    allowed: true,
+    reason: "Read only",
+    ruleId: "allow.read",
+    ruleVersion: "1",
+    correlationId: input.correlationId,
+    actionDigest: digestFor(input),
+  };
+  expect(() => assertAgentActionAllowed(input, decision)).not.toThrow();
+  expect(() => assertAgentActionAllowed({ ...input, action: "RUN_COMMAND" }, decision)).toThrow(
+    "not bound",
+  );
+  expect(() => assertAgentActionAllowed({ ...input, resource: "other" }, decision)).toThrow(
+    "not bound",
+  );
+  expect(() => assertAgentActionAllowed(input, { ...decision, actionDigest: undefined })).toThrow(
+    "not bound",
+  );
 });
