@@ -17,7 +17,7 @@ SHIM
   export PATH="$ROOT_DIR/.bin:$PATH"
   PNPM="pnpm"
 else
-  echo "pnpm is required. Install pnpm 9 or enable it with: corepack enable" >&2
+  echo "pnpm is required. Install pnpm 9.15.4 or enable it with: corepack enable" >&2
   exit 1
 fi
 
@@ -55,26 +55,24 @@ docker compose up -d postgres
 wait_for_postgres
 
 echo "Installing dependencies..."
-$PNPM install
+$PNPM install --frozen-lockfile
 
 echo "Generating Prisma client..."
 $PNPM db:generate
 
-if [ -d "prisma/migrations" ] && [ -n "$(find prisma/migrations -mindepth 1 -maxdepth 1 -type d -print -quit)" ]; then
-  echo "Applying Prisma migrations..."
-  $PNPM prisma migrate deploy
-else
-  echo "No Prisma migrations found; syncing schema with prisma db push for local demo setup..."
-  $PNPM db:push
-fi
+echo "Applying committed Prisma migrations..."
+$PNPM db:deploy
 
-echo "Starting API and web dashboard..."
+echo "Starting API, durable scan worker, and web dashboard..."
 $PNPM dev &
 DEV_PID=$!
+$PNPM --filter @agentshield/api dev:worker &
+WORKER_PID=$!
 
 cleanup() {
   echo "Stopping local dev processes..."
   kill "$DEV_PID" >/dev/null 2>&1 || true
+  kill "$WORKER_PID" >/dev/null 2>&1 || true
 }
 
 trap cleanup INT TERM EXIT

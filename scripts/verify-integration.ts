@@ -1,3 +1,4 @@
+/* eslint-disable no-console -- Integration verification reports its checks to stdout. */
 import { evaluateFindings } from "@agentshield/policy-engine";
 import { generateRemediation } from "@agentshield/remediation";
 import { runScan } from "@agentshield/scanner";

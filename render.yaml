@@ -1,0 +1,77 @@
+# AgentShield Render Blueprint
+#
+# This file defines the API and durable worker only. Neon remains the managed
+# PostgreSQL provider; its pooled and direct connection strings are entered as
+# secret values in the Render Dashboard when the Blueprint is created.
+services:
+  - type: web
+    name: agentshield-api
+    runtime: node
+    repo: https://github.com/sam300705/Agentshield
+    branch: agent/production-hardening
+    rootDir: .
+    plan: starter
+    autoDeployTrigger: checksPass
+    buildCommand: pnpm install --frozen-lockfile && pnpm --filter @agentshield/api build
+    preDeployCommand: pnpm db:deploy
+    startCommand: pnpm --filter @agentshield/api start
+    healthCheckPath: /health/ready
+    maxShutdownDelaySeconds: 120
+    buildFilter:
+      paths:
+        - apps/api/**
+        - packages/**
+        - prisma/**
+        - package.json
+        - pnpm-lock.yaml
+        - pnpm-workspace.yaml
+        - render.yaml
+    envVars:
+      - fromGroup: agentshield-runtime
+
+  - type: worker
+    name: agentshield-worker
+    runtime: node
+    repo: https://github.com/sam300705/Agentshield
+    branch: agent/production-hardening
+    rootDir: .
+    plan: starter
+    autoDeployTrigger: checksPass
+    buildCommand: pnpm install --frozen-lockfile && pnpm --filter @agentshield/api build
+    startCommand: pnpm --filter @agentshield/api worker
+    maxShutdownDelaySeconds: 120
+    buildFilter:
+      paths:
+        - apps/api/**
+        - packages/**
+        - prisma/**
+        - package.json
+        - pnpm-lock.yaml
+        - pnpm-workspace.yaml
+        - render.yaml
+    envVars:
+      - fromGroup: agentshield-runtime
+
+envVarGroups:
+  - name: agentshield-runtime
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: AUTH_MODE
+        value: oidc
+      - key: DEMO_AUTH_ENABLED
+        value: "false"
+      - key: CORS_ORIGIN
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_URL_UNPOOLED
+        sync: false
+      - key: OIDC_ISSUER
+        sync: false
+      - key: OIDC_AUDIENCE
+        sync: false
+      - key: OIDC_JWKS_URL
+        sync: false
+      - key: OIDC_ROLE_CLAIM
+        value: roles

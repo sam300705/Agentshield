@@ -1,0 +1,174 @@
+import { z } from "zod";
+import { isIP } from "node:net";
+
+const blankToUndefined = (value: unknown) =>
+  typeof value === "string" && value.trim() === "" ? undefined : value;
+const booleanFromEnv = z.preprocess(
+  blankToUndefined,
+  z
+    .enum(["true", "false"])
+    .transform((value) => value === "true")
+    .optional(),
+);
+const optionalUrl = z.preprocess(blankToUndefined, z.string().url().optional());
+const optionalString = z.preprocess(blankToUndefined, z.string().min(1).optional());
+
+const baseSchema = z.object({
+  NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  DATABASE_URL: optionalUrl,
+  CORS_ORIGIN: optionalUrl,
+  AUTH_MODE: z.enum(["oidc", "demo"]).default("oidc"),
+  DEMO_AUTH_ENABLED: booleanFromEnv.optional(),
+  OIDC_ISSUER: optionalUrl,
+  OIDC_AUDIENCE: optionalString,
+  OIDC_JWKS_URL: optionalUrl,
+  OIDC_ROLE_CLAIM: z.string().min(1).default("roles"),
+  TRUSTED_PROXY_CIDRS: z
+    .string()
+    .default("")
+    .transform((value) =>
+      value
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean),
+    )
+    .refine(
+      (items) =>
+        items.every((item) => {
+          const [address, prefix, extra] = item.split("/");
+          const family = isIP(address ?? "");
+          return (
+            family !== 0 &&
+            extra == null &&
+            (prefix == null ||
+              (/^\d+$/.test(prefix) &&
+                Number(prefix) > 0 &&
+                Number(prefix) <= (family === 4 ? 32 : 128)))
+          );
+        }),
+      "Expected explicit proxy IP addresses or CIDRs",
+    ),
+  RATE_LIMIT_ENABLED: booleanFromEnv.optional(),
+  RATE_LIMIT_MAX: z.coerce.number().int().positive().max(100_000).default(120),
+  RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().max(86_400_000).default(60_000),
+  GITHUB_APP_ID: optionalString,
+  GITHUB_CLIENT_ID: optionalString,
+  GITHUB_WEBHOOK_SECRET: optionalString,
+  GITHUB_PRIVATE_KEY: optionalString,
+  GITHUB_WEBHOOK_ENABLED: booleanFromEnv.optional(),
+  GITHUB_SCAN_LIFECYCLE_ENABLED: booleanFromEnv.optional(),
+  GITHUB_MATERIALIZATION_ENABLED: booleanFromEnv.optional(),
+  GITHUB_SCAN_POLICY_BUNDLE_VERSION: optionalString,
+});
+
+export function assertOidcKeyTransport(value: string, production: boolean): void {
+  const url = new URL(value);
+  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+  if (
+    url.username ||
+    url.password ||
+    url.hash ||
+    (url.protocol !== "https:" && !(url.protocol === "http:" && loopback && !production))
+  )
+    throw new Error("OIDC_JWKS_URL requires HTTPS; HTTP is allowed only for loopback development.");
+}
+
+export type RuntimeConfig = z.infer<typeof baseSchema> & {
+  corsOrigin: string;
+  rateLimitEnabled: boolean;
+  githubWebhookEnabled: boolean;
+  githubScanLifecycleEnabled: boolean;
+  githubMaterializationEnabled: boolean;
+};
+
+export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig {
+  const parsed = baseSchema.safeParse(env);
+  if (!parsed.success) {
+    throw new Error(`Invalid environment configuration: ${formatIssues(parsed.error)}`);
+  }
+
+  const value = parsed.data;
+  const issues: string[] = [];
+  const isProduction = value.NODE_ENV === "production";
+  if (value.OIDC_JWKS_URL != null) assertOidcKeyTransport(value.OIDC_JWKS_URL, isProduction);
+  const demoEnabled = value.DEMO_AUTH_ENABLED === true;
+  const corsOrigin = value.CORS_ORIGIN ?? (isProduction ? undefined : "http://localhost:5173");
+
+  if (value.DATABASE_URL == null) issues.push("DATABASE_URL is required");
+  if (corsOrigin == null) issues.push("CORS_ORIGIN is required");
+  if (corsOrigin != null) {
+    const origin = new URL(corsOrigin);
+    if (
+      !["http:", "https:"].includes(origin.protocol) ||
+      origin.origin !== corsOrigin ||
+      origin.username !== "" ||
+      origin.password !== "" ||
+      origin.pathname !== "/" ||
+      origin.search !== "" ||
+      origin.hash !== ""
+    ) {
+      issues.push("CORS_ORIGIN must be a bare HTTP(S) origin");
+    }
+    if (isProduction && origin.protocol !== "https:") {
+      issues.push("CORS_ORIGIN must use HTTPS in production");
+    }
+  }
+  if (isProduction && value.AUTH_MODE !== "oidc") {
+    issues.push("AUTH_MODE must be oidc in production");
+  }
+  if (isProduction && demoEnabled) {
+    issues.push("DEMO_AUTH_ENABLED must be false or unset in production");
+  }
+  const localDemoMode = !isProduction && demoEnabled;
+  const githubWebhookEnabled = value.GITHUB_WEBHOOK_ENABLED === true;
+  const githubScanLifecycleEnabled = value.GITHUB_SCAN_LIFECYCLE_ENABLED === true;
+  const githubMaterializationEnabled = value.GITHUB_MATERIALIZATION_ENABLED === true;
+  if (githubScanLifecycleEnabled || githubMaterializationEnabled) {
+    issues.push(
+      "Repository scanning is unavailable in Phase 1; live worker wiring requires Phase 3 qualification",
+    );
+  }
+  if (githubWebhookEnabled && value.GITHUB_WEBHOOK_SECRET == null) {
+    issues.push("GITHUB_WEBHOOK_SECRET is required when GitHub webhook ingestion is enabled");
+  }
+  if (githubScanLifecycleEnabled && !githubWebhookEnabled) {
+    issues.push("GITHUB_WEBHOOK_ENABLED must be true when GitHub scan lifecycle is enabled");
+  }
+  if (githubScanLifecycleEnabled && value.GITHUB_SCAN_POLICY_BUNDLE_VERSION == null) {
+    issues.push(
+      "GITHUB_SCAN_POLICY_BUNDLE_VERSION is required when GitHub scan lifecycle is enabled",
+    );
+  }
+  if (githubMaterializationEnabled && !githubScanLifecycleEnabled) {
+    issues.push(
+      "GITHUB_SCAN_LIFECYCLE_ENABLED must be true when GitHub materialization is enabled",
+    );
+  }
+  if (value.AUTH_MODE === "oidc" && !localDemoMode) {
+    if (value.OIDC_ISSUER == null) issues.push("OIDC_ISSUER is required for oidc authentication");
+    if (value.OIDC_AUDIENCE == null) {
+      issues.push("OIDC_AUDIENCE is required for oidc authentication");
+    }
+    if (value.OIDC_JWKS_URL == null) {
+      issues.push("OIDC_JWKS_URL is required for oidc authentication");
+    }
+  }
+
+  if (issues.length > 0)
+    throw new Error(`Invalid environment configuration: ${issues.join("; ")}.`);
+
+  return {
+    ...value,
+    corsOrigin: corsOrigin ?? "http://localhost:5173",
+    rateLimitEnabled: value.RATE_LIMIT_ENABLED ?? isProduction,
+    githubWebhookEnabled,
+    githubScanLifecycleEnabled,
+    githubMaterializationEnabled,
+  };
+}
+
+function formatIssues(error: z.ZodError): string {
+  return error.issues
+    .map((issue) => `${issue.path.join(".") || "environment"}: ${issue.message}`)
+    .join("; ");
+}

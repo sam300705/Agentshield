@@ -84,7 +84,7 @@ function matchesRegex(actualValue: unknown, expectedValue: JsonValue | undefined
   return new RegExp(expectedValue, "i").test(actualValue);
 }
 
-function evaluateCondition(finding: Finding, condition: PolicyRuleCondition): boolean {
+export function evaluateCondition(finding: Finding, condition: PolicyRuleCondition): boolean {
   const actualValue = readFieldValue(finding, condition.field);
 
   switch (condition.operator) {

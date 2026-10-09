@@ -136,3 +136,7 @@ Status: `400 Bad Request`
   "issues": []
 }
 ```
+
+## Phase 1 repository admission
+
+Authenticated, valid repository scan submissions return `503` with shared error code `REPOSITORY_SCANS_UNAVAILABLE` and correlation ID. No scan/job rows are created by this endpoint while the live repository worker is unqualified. Phase 3 owns activation. Nonrunning queued or retryable failed jobs cancel atomically into terminal `CANCELLED`; running cancellation is reconciled under the job row lock.

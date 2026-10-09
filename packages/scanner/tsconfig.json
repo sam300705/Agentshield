@@ -6,12 +6,16 @@
     "types": ["node"],
     "baseUrl": ".",
     "paths": {
+      "@agentshield/policy-engine": ["../policy-engine/dist/index.d.ts"],
       "@agentshield/schemas": ["../schemas/dist/index.d.ts"]
     }
   },
   "include": ["src/**/*.ts"],
   "exclude": ["dist", "node_modules"],
   "references": [
+    {
+      "path": "../policy-engine"
+    },
     {
       "path": "../schemas"
     }

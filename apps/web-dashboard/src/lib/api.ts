@@ -1,5 +1,7 @@
 import type {
   Approval,
+  AgentApproval,
+  JsonValue,
   AuditEvent,
   Dependency,
   Finding,
@@ -8,7 +10,9 @@ import type {
   Scan,
 } from "@agentshield/schemas";
 
-const API_BASE_URL = "";
+import { getApiAccessToken, notifyApiAuthFailure } from "./auth";
+
+import { resolveApiBaseUrl } from "./apiOrigin";
 
 export interface PaginatedResponse<T> {
   page: number;
@@ -42,7 +46,28 @@ export interface ApprovalWithFinding extends Approval {
   finding: FindingWithRelations;
 }
 
+export interface AgentApprovalReviewItem extends AgentApproval {
+  evidence: JsonValue;
+  evidenceAvailable: boolean;
+}
+export interface ApprovalQueueResponse extends PaginatedResponse<ApprovalWithFinding> {
+  agentApprovals?: PaginatedResponse<AgentApprovalReviewItem>;
+}
+
+export class ApiError extends Error {
+  readonly status: number;
+  readonly code: string | null;
+
+  constructor(status: number, code: string | null, message: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
 export interface DashboardSummary {
+  platformRiskScore: "A" | "B" | "C" | "F";
   totalScans: number;
   totalFindings: number;
   pendingApprovalsCount: number;
@@ -72,16 +97,33 @@ export interface DashboardSummary {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: {
-      "Content-Type": "application/json",
-      ...init?.headers,
-    },
+  const apiBaseUrl = resolveApiBaseUrl(import.meta.env);
+  const headers = new Headers(init?.headers);
+  headers.set("Content-Type", "application/json");
+  const accessToken = await getApiAccessToken();
+  if (accessToken != null) headers.set("Authorization", `Bearer ${accessToken}`);
+
+  const response = await fetch(`${apiBaseUrl}${path}`, {
     ...init,
+    headers,
+    credentials: "omit",
+    redirect: "error",
   });
 
   if (!response.ok) {
-    throw new Error(`API request failed with ${response.status}`);
+    notifyApiAuthFailure(response.status);
+    let code: string | null = null;
+    let message = `API request failed with status ${response.status}.`;
+    try {
+      const body = (await response.json()) as {
+        error?: { code?: unknown; message?: unknown };
+      };
+      if (typeof body.error?.code === "string") code = body.error.code;
+      if (typeof body.error?.message === "string") message = body.error.message;
+    } catch {
+      // Keep a stable sanitized error when the server did not return JSON.
+    }
+    throw new ApiError(response.status, code, message);
   }
 
   return (await response.json()) as T;
@@ -97,31 +139,69 @@ export const api = {
     });
   },
   listScans(limit = 20, page = 1) {
-    return request<PaginatedResponse<ScanListItem>>(`/api/scans?limit=${limit}&page=${page}`);
+    return request<PaginatedResponse<ScanListItem>>(`/api/v1/scans?limit=${limit}&page=${page}`);
   },
   getScan(scanId: string) {
-    return request<{ data: ScanDetail }>(`/api/scans/${scanId}`);
+    return request<{ data: ScanDetail }>(`/api/v1/scans/${encodeURIComponent(scanId)}`);
   },
   getFindings(scanId: string, limit = 100, page = 1) {
     return request<PaginatedResponse<FindingWithRelations>>(
-      `/api/scans/${scanId}/findings?limit=${limit}&page=${page}`,
+      `/api/v1/scans/${encodeURIComponent(scanId)}/findings?limit=${limit}&page=${page}`,
     );
   },
   getSbom(scanId: string, limit = 100, page = 1) {
     return request<PaginatedResponse<Dependency>>(
-      `/api/scans/${scanId}/sbom?limit=${limit}&page=${page}`,
+      `/api/v1/scans/${encodeURIComponent(scanId)}/sbom?limit=${limit}&page=${page}`,
     );
   },
+  listRepositories() {
+    return request<{ data: Array<{ id: string; provider: string; fullName: string }> }>(
+      "/api/v1/repositories",
+    );
+  },
+  createScan(body: unknown) {
+    return request<{ id: string; scanId: string; status: string; correlationId: string }>(
+      "/api/v1/scans",
+      { method: "POST", body: JSON.stringify(body) },
+    );
+  },
+  getScanProgress(scanId: string) {
+    return request<{ data: unknown }>(`/api/v1/scans/${encodeURIComponent(scanId)}/progress`);
+  },
+  cancelScan(scanId: string) {
+    return request<{ scanId: string; status: string; correlationId: string }>(
+      `/api/v1/scans/${encodeURIComponent(scanId)}/cancel`,
+      { method: "POST" },
+    );
+  },
+  getReceipt(scanId: string) {
+    return request<{ data: unknown }>(`/api/v1/receipts/${encodeURIComponent(scanId)}`);
+  },
   listApprovals(limit = 50, page = 1) {
-    return request<PaginatedResponse<ApprovalWithFinding>>(
-      `/api/approvals?limit=${limit}&page=${page}`,
+    return request<ApprovalQueueResponse>(`/api/approvals?limit=${limit}&page=${page}`);
+  },
+  reviewAgentApproval(
+    approvalId: string,
+    action: "approve" | "reject",
+    reason: string,
+    expectedActionDigest: string,
+  ) {
+    return request<{ data: AgentApproval }>(
+      `/api/v1/agent/approvals/${encodeURIComponent(approvalId)}/${action}`,
+      {
+        method: "POST",
+        body: JSON.stringify({ reason, expectedActionDigest }),
+      },
     );
   },
   approve(approvalId: string, reason: string) {
-    return request<{ data: ApprovalWithFinding }>(`/api/approvals/${approvalId}/approve`, {
-      method: "POST",
-      body: JSON.stringify({ reason }),
-    });
+    return request<{ data: ApprovalWithFinding }>(
+      `/api/approvals/${encodeURIComponent(approvalId)}/approve`,
+      {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      },
+    );
   },
   reject(approvalId: string, reason: string) {
     return request<{ data: ApprovalWithFinding }>(`/api/approvals/${approvalId}/reject`, {

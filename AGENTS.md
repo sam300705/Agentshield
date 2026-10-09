@@ -8,11 +8,13 @@ AgentShield is a serious security platform engineering project. Treat it like so
 
 ## Phase Discipline
 
-The project is currently in **Phase 7: Frontend Dashboard**.
+The project is currently in **Phase 8+: Security Control Plane**.
 
-- Zod schemas, Prisma database models, scanner implementation logic, policy evaluation logic, remediation generation logic, API route logic, and React dashboard implementation are allowed in Phase 7.
+- Zod schemas, Prisma migrations, scanner and CLI logic, policy evaluation and simulation,
+  remediation, API and worker boundaries, RBAC, and dashboard implementation are allowed.
 - Do not introduce real LLM calls in v1.
-- Ask for approval before moving into Phase 8.
+- Keep deterministic evidence and policy authoritative. Any future LLM integration must be
+  optional, advisory, explicitly configured, and excluded from the offline demo path.
 
 ## Architecture Rules
 

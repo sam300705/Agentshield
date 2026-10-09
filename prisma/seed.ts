@@ -1,3 +1,5 @@
+import { clearSeedScans } from "../apps/api/src/services/seedCleanup.js";
+import { assertSafeSeedTarget } from "../apps/api/src/services/seedSafety.js";
 import {
   ApprovalStatus,
   AuditAction,
@@ -12,24 +14,26 @@ import {
 
 const prisma = new PrismaClient();
 
-async function clearDatabase() {
-  await prisma.auditEvent.deleteMany();
-  await prisma.policyDecision.deleteMany();
-  await prisma.remediation.deleteMany();
-  await prisma.approval.deleteMany();
-  await prisma.dependency.deleteMany();
-  await prisma.finding.deleteMany();
-  await prisma.scan.deleteMany();
-}
-
 async function main() {
-  await clearDatabase();
+  assertSafeSeedTarget(process.env.NODE_ENV, process.env.DATABASE_URL ?? "");
+  await clearSeedScans(prisma);
+
+  const organization = await prisma.organization.upsert({
+    where: { slug: "demo-organization" },
+    update: { name: "AgentShield Demo Organization" },
+    create: {
+      id: "demo-organization",
+      slug: "demo-organization",
+      name: "AgentShield Demo Organization",
+    },
+  });
 
   const scan = await prisma.scan.create({
     data: {
       repositoryName: "agentshield-vulnerable-demo-target",
       repositoryUrl: "https://github.com/example/agentshield-vulnerable-demo-target",
       branch: "main",
+      organizationId: organization.id,
       commitSha: "3f2a9c7d4b1e8f0a6c5d2e9b7a4c1f0e8d6b5a3c",
       status: ScanStatus.COMPLETED,
       metadata: {
@@ -38,7 +42,7 @@ async function main() {
         triggeredBy: "System",
         labels: ["demo", "phase-2-seed"],
         extra: {
-          note: "Seed data only; scanner and policy engine logic are not implemented in Phase 2.",
+          note: "Deterministic seeded evidence for the AgentShield demo workspace.",
         },
       },
       completedAt: new Date(),
@@ -201,7 +205,8 @@ async function main() {
             id: "dockerfile.remote_script.root_user",
             version: "2026.06.0",
             name: "Require approval for remote script execution as root",
-            description: "Flags Dockerfiles that combine remote script execution with root runtime.",
+            description:
+              "Flags Dockerfiles that combine remote script execution with root runtime.",
             enabled: true,
             target: {
               categories: ["DOCKERFILE"],
@@ -220,7 +225,8 @@ async function main() {
             ],
             decision: "REQUIRE_APPROVAL",
             remediationEligible: true,
-            rationale: "Build-time remote execution and root containers increase supply-chain risk.",
+            rationale:
+              "Build-time remote execution and root containers increase supply-chain risk.",
             tags: ["dockerfile", "platform-approval"],
           },
         },
@@ -326,6 +332,7 @@ async function main() {
       {
         actor: "System",
         action: AuditAction.SCAN_CREATED,
+        organizationId: organization.id,
         entityType: "Scan",
         entityId: scan.id,
         scanId: scan.id,
@@ -336,6 +343,7 @@ async function main() {
       {
         actor: "System",
         action: AuditAction.SCAN_COMPLETED,
+        organizationId: organization.id,
         entityType: "Scan",
         entityId: scan.id,
         scanId: scan.id,
@@ -346,6 +354,7 @@ async function main() {
       {
         actor: "System",
         action: AuditAction.FINDING_CREATED,
+        organizationId: organization.id,
         entityType: "Finding",
         entityId: secretFinding.id,
         scanId: scan.id,
@@ -357,6 +366,7 @@ async function main() {
       {
         actor: "System",
         action: AuditAction.FINDING_CREATED,
+        organizationId: organization.id,
         entityType: "Finding",
         entityId: dockerfileFinding.id,
         scanId: scan.id,
@@ -368,6 +378,7 @@ async function main() {
       {
         actor: "System",
         action: AuditAction.FINDING_CREATED,
+        organizationId: organization.id,
         entityType: "Finding",
         entityId: dependencyFinding.id,
         scanId: scan.id,

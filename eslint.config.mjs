@@ -15,9 +15,11 @@ export default [
   {
     ignores: [
       "**/node_modules/**",
+      "**/node_modules.pnpm11/**",
       "**/dist/**",
       "**/build/**",
       "**/coverage/**",
+      ".vercel/**",
       "**/*.cjs",
       "pnpm-lock.yaml",
     ],

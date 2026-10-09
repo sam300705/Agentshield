@@ -1,0 +1,144 @@
+import { describe, expect, it } from "vitest";
+
+import { getRuntimeConfig } from "./config.js";
+
+const validProductionEnv = {
+  NODE_ENV: "production",
+  DATABASE_URL: "postgresql://app:secret@example.com:5432/agentshield",
+  CORS_ORIGIN: "https://dashboard.example.com",
+  AUTH_MODE: "oidc",
+  OIDC_ISSUER: "https://issuer.example.com",
+  OIDC_AUDIENCE: "agentshield-api",
+  OIDC_JWKS_URL: "https://issuer.example.com/.well-known/jwks.json",
+  OIDC_ROLE_CLAIM: "roles",
+};
+
+describe("runtime configuration", () => {
+  it("accepts complete production OIDC configuration", () => {
+    const config = getRuntimeConfig(validProductionEnv);
+
+    expect(config.corsOrigin).toBe("https://dashboard.example.com");
+    expect(config.rateLimitEnabled).toBe(true);
+  });
+
+  it("rejects production without an exact CORS origin", () => {
+    expect(() => getRuntimeConfig({ ...validProductionEnv, CORS_ORIGIN: undefined })).toThrow(
+      "CORS_ORIGIN is required",
+    );
+  });
+
+  it("rejects demo authentication in production", () => {
+    expect(() => getRuntimeConfig({ ...validProductionEnv, DEMO_AUTH_ENABLED: "true" })).toThrow(
+      "DEMO_AUTH_ENABLED must be false or unset in production",
+    );
+  });
+
+  it("allows explicitly enabled local demo mode without OIDC values", () => {
+    const config = getRuntimeConfig({
+      NODE_ENV: "development",
+      DATABASE_URL: "postgresql://app:secret@localhost:5432/agentshield",
+      CORS_ORIGIN: "http://localhost:5173",
+      AUTH_MODE: "oidc",
+      DEMO_AUTH_ENABLED: "true",
+    });
+
+    expect(config.corsOrigin).toBe("http://localhost:5173");
+    expect(config.rateLimitEnabled).toBe(false);
+  });
+
+  it("rejects enabled GitHub webhooks without a secret", () => {
+    expect(() =>
+      getRuntimeConfig({
+        ...validProductionEnv,
+        GITHUB_WEBHOOK_ENABLED: "true",
+      }),
+    ).toThrow("GITHUB_WEBHOOK_SECRET is required");
+  });
+
+  it("accepts explicitly enabled GitHub webhooks with a secret", () => {
+    const config = getRuntimeConfig({
+      ...validProductionEnv,
+      GITHUB_WEBHOOK_ENABLED: "true",
+      GITHUB_WEBHOOK_SECRET: "synthetic-webhook-secret",
+    });
+
+    expect(config.githubWebhookEnabled).toBe(true);
+  });
+
+  it("treats blank optional template values as unset", () => {
+    const config = getRuntimeConfig({
+      NODE_ENV: "development",
+      DATABASE_URL: "postgresql://app:secret@localhost:5432/agentshield",
+      CORS_ORIGIN: "http://localhost:5173",
+      AUTH_MODE: "oidc",
+      DEMO_AUTH_ENABLED: "true",
+      OIDC_ISSUER: "",
+      OIDC_AUDIENCE: "",
+      OIDC_JWKS_URL: "",
+      RATE_LIMIT_ENABLED: "",
+    });
+
+    expect(config.OIDC_ISSUER).toBeUndefined();
+    expect(config.rateLimitEnabled).toBe(false);
+  });
+});
+
+it.each(["GITHUB_SCAN_LIFECYCLE_ENABLED", "GITHUB_MATERIALIZATION_ENABLED"])(
+  "fails closed on unsupported repository runtime %s",
+  (flag) => {
+    expect(() => getRuntimeConfig({ ...validProductionEnv, [flag]: "true" })).toThrow(
+      "Repository scanning is unavailable",
+    );
+  },
+);
+
+it.each(["true", "1", "loopback", "0.0.0.0/99", "0.0.0.0/0", "::/0", "192.0.2.1/24/1"])(
+  "refuses ambiguous proxy trust %s",
+  (value) => {
+    expect(() => getRuntimeConfig({ ...validProductionEnv, TRUSTED_PROXY_CIDRS: value })).toThrow();
+  },
+);
+
+it.each([
+  "http://issuer.test/keys",
+  "http://localhost/keys",
+  "https://user:password@issuer.test/keys",
+])("rejects insecure production JWKS %s", (url) => {
+  expect(() => getRuntimeConfig({ ...validProductionEnv, OIDC_JWKS_URL: url })).toThrow(
+    "requires HTTPS",
+  );
+});
+it("allows only explicit loopback HTTP JWKS in development", () => {
+  expect(() =>
+    getRuntimeConfig({
+      ...validProductionEnv,
+      NODE_ENV: "development",
+      OIDC_JWKS_URL: "http://127.0.0.1/keys",
+    }),
+  ).not.toThrow();
+  expect(() =>
+    getRuntimeConfig({
+      ...validProductionEnv,
+      NODE_ENV: "development",
+      OIDC_JWKS_URL: "http://remote.test/keys",
+    }),
+  ).toThrow();
+});
+
+it.each([
+  "https://dashboard.example.com/app",
+  "https://dashboard.example.com/?mode=live",
+  "https://dashboard.example.com/#fragment",
+  "https://dashboard.example.com/",
+  "https://user:password@dashboard.example.com",
+])("rejects a non-origin CORS configuration: %s", (origin) => {
+  expect(() => getRuntimeConfig({ ...validProductionEnv, CORS_ORIGIN: origin })).toThrow(
+    "CORS_ORIGIN must be a bare HTTP(S) origin",
+  );
+});
+
+it("rejects HTTP CORS origins in production", () => {
+  expect(() =>
+    getRuntimeConfig({ ...validProductionEnv, CORS_ORIGIN: "http://dashboard.example.com" }),
+  ).toThrow("CORS_ORIGIN must use HTTPS in production");
+});

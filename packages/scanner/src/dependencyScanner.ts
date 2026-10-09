@@ -43,7 +43,9 @@ function readDependencyRecord(manifest: Record<string, unknown>, field: Dependen
   }
 
   return Object.fromEntries(
-    Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+    Object.entries(value).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    ),
   );
 }
 
@@ -74,7 +76,11 @@ async function detectPackageManager(manifestPath: string): Promise<PackageManage
   return "NPM";
 }
 
-function createPackageUrl(packageManager: PackageManager, packageName: string, version: string): string {
+function createPackageUrl(
+  packageManager: PackageManager,
+  packageName: string,
+  version: string,
+): string {
   const ecosystem = packageManager === "UNKNOWN" ? "npm" : packageManager.toLowerCase();
 
   return `pkg:${ecosystem}/${encodeURIComponent(packageName)}@${encodeURIComponent(version)}`;
@@ -124,4 +130,3 @@ export async function generateSbomForPackageJson(
     ),
   );
 }
-

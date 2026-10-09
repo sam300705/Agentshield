@@ -15,4 +15,3 @@ export const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
 );
 
 export const jsonObjectSchema = z.record(jsonValueSchema);
-
