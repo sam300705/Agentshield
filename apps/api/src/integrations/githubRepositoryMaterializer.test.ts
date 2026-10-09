@@ -276,6 +276,8 @@ it("rejects directory-only archives beyond the bounded entry budget", async () =
       fixture.materializer.materialize(githubPayload(), workspace, new AbortController().signal),
     ).rejects.toThrow("GITHUB_ARCHIVE_ENTRY_COUNT_LIMIT");
   } finally {
-    await rm(workspace, { recursive: true, force: true });
+    // Tar may finish already-scheduled asynchronous mkdir operations after the
+    // limiter tears down. Match the bounded retry used by production cleanup.
+    await rm(workspace, { recursive: true, force: true, maxRetries: 8, retryDelay: 50 });
   }
 });
