@@ -42,5 +42,5 @@ it("propagates the persisted requester through local demo execution", async () =
       options: {},
     },
   });
-  expect(mocks.run).toHaveBeenCalledWith("scan", "org-1", "corr-1", signal, "caller-1");
+  expect(mocks.run).toHaveBeenCalledWith("scan", "org-1", "corr-1", signal, "caller-1", undefined);
 });
