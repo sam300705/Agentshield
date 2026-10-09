@@ -39,6 +39,7 @@ export const agentDecisionSchema = z
     ruleId: safeIdentifier,
     ruleVersion: safeIdentifier,
     correlationId: safeIdentifier,
+    actionDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
     approvalId: safeIdentifier.optional(),
     approvalStatus: agentApprovalStatusSchema.optional(),
     expiresAt: z.coerce.date().optional(),
