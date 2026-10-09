@@ -449,30 +449,57 @@ async function persistSecurityReceipt(
   });
 }
 
+export interface ScanLeaseFence {
+  owner: string;
+  attempt: number;
+}
+
+export async function assertScanLease(
+  tx: Prisma.TransactionClient,
+  scanId: string,
+  lease: ScanLeaseFence,
+): Promise<void> {
+  const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT "id" FROM "ScanJob"
+    WHERE "scanId" = ${scanId}
+      AND "lockedBy" = ${lease.owner}
+      AND "attempts" = ${lease.attempt}
+      AND "status" = 'RUNNING'
+      AND "cancelRequestedAt" IS NULL
+      AND "leaseExpiresAt" > NOW()
+    FOR UPDATE
+  `);
+  if (rows.length !== 1) throw new Error("WORKER_LEASE_LOST");
+}
+
 async function markScanFailed(
   client: PrismaClient,
   scanId: string,
   error: unknown,
   metadata: Pick<ScanRunOptions, "source" | "targetPathLabel" | "triggeredBy" | "labels">,
+  lease?: ScanLeaseFence,
 ): Promise<void> {
   const errorMessage = error instanceof Error ? error.message : "Unknown scan failure";
   const sanitizedError = sanitizeEvidence(errorMessage);
   const safeError = typeof sanitizedError === "string" ? sanitizedError : "Unknown scan failure";
-  await client.scan.update({
-    where: {
-      id: scanId,
+  const data = {
+    status: ScanStatus.FAILED,
+    completedAt: new Date(),
+    metadata: {
+      source: metadata.source,
+      targetPath: metadata.targetPathLabel,
+      triggeredBy: metadata.triggeredBy,
+      labels: metadata.labels,
+      error: safeError,
     },
-    data: {
-      status: ScanStatus.FAILED,
-      completedAt: new Date(),
-      metadata: {
-        source: metadata.source,
-        targetPath: metadata.targetPathLabel,
-        triggeredBy: metadata.triggeredBy,
-        labels: metadata.labels,
-        error: safeError,
-      },
-    },
+  };
+  if (lease == null) {
+    await client.scan.updateMany({ where: { id: scanId, status: ScanStatus.RUNNING }, data });
+    return;
+  }
+  await client.$transaction(async (tx) => {
+    await assertScanLease(tx, scanId, lease);
+    await tx.scan.updateMany({ where: { id: scanId, status: ScanStatus.RUNNING }, data });
   });
 }
 
@@ -491,6 +518,7 @@ export interface ScanRunOptions {
   policyBundleVersion: string;
   options: ScanOptions;
   signal?: AbortSignal;
+  lease?: ScanLeaseFence;
 }
 
 export async function runConfiguredScan(
@@ -521,17 +549,32 @@ export async function runConfiguredScan(
             metadata: initialMetadata,
           },
         })
-      : await prisma.scan.update({
-          where: { id: existingScanId },
-          data: {
-            status: ScanStatus.RUNNING,
-            startedAt: new Date(),
-            completedAt: null,
-            branch: options.branch,
-            ...(options.commitSha == null ? {} : { commitSha: options.commitSha }),
-            metadata: initialMetadata,
-          },
-        });
+      : options.lease == null
+        ? await prisma.scan.update({
+            where: { id: existingScanId },
+            data: {
+              status: ScanStatus.RUNNING,
+              startedAt: new Date(),
+              completedAt: null,
+              branch: options.branch,
+              ...(options.commitSha == null ? {} : { commitSha: options.commitSha }),
+              metadata: initialMetadata,
+            },
+          })
+        : await prisma.$transaction(async (tx) => {
+            await assertScanLease(tx, existingScanId, options.lease!);
+            return tx.scan.update({
+              where: { id: existingScanId, status: { not: ScanStatus.COMPLETED } },
+              data: {
+                status: ScanStatus.RUNNING,
+                startedAt: new Date(),
+                completedAt: null,
+                branch: options.branch,
+                ...(options.commitSha == null ? {} : { commitSha: options.commitSha }),
+                metadata: initialMetadata,
+              },
+            });
+          });
 
   await prisma.auditEvent.create({
     data: {
@@ -614,6 +657,7 @@ export async function runConfiguredScan(
 
     await prisma.$transaction(
       async (tx) => {
+        if (options.lease != null) await assertScanLease(tx, scan.id, options.lease);
         for (const dependency of scanResult.dependencies) await persistDependency(tx, dependency);
         await persistAdvisories(
           tx,
@@ -669,7 +713,11 @@ export async function runConfiguredScan(
     );
     return scan.id;
   } catch (error) {
-    await markScanFailed(prisma, scan.id, error, options);
+    try {
+      await markScanFailed(prisma, scan.id, error, options, options.lease);
+    } catch (failure) {
+      if (!(failure instanceof Error && failure.message === "WORKER_LEASE_LOST")) throw failure;
+    }
     throw error;
   }
 }
@@ -680,6 +728,7 @@ export async function runDemoScan(
   correlationId = "system",
   signal?: AbortSignal,
   triggeredBy = SYSTEM_ACTOR,
+  lease?: ScanLeaseFence,
 ): Promise<string> {
   return runConfiguredScan(
     {
@@ -702,6 +751,7 @@ export async function runDemoScan(
         includeOsv: false,
       },
       ...(signal == null ? {} : { signal }),
+      ...(lease == null ? {} : { lease }),
     },
     existingScanId,
   );
