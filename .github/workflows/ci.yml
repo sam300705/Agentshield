@@ -57,6 +57,11 @@ jobs:
       - run: pnpm db:deploy
       - run: pnpm db:seed
       - run: pnpm format:check
+      - name: Display exact Phase 1 formatting diff
+        if: failure()
+        run: |
+          pnpm exec prettier --write apps/api/src/services/phase1Safety.test.ts packages/policy-engine/src/controlPlane.test.ts
+          git diff -- apps/api/src/services/phase1Safety.test.ts packages/policy-engine/src/controlPlane.test.ts
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
