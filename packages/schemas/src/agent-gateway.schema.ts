@@ -5,6 +5,7 @@ import { policyDecisionTypeSchema } from "./policy.schema.js";
 
 const safeIdentifier = z.string().min(1).max(256);
 const safeText = z.string().max(4_000);
+const actionDigestSchema = z.string().regex(/^[a-f0-9]{64}$/);
 
 export const agentActionSchema = z.enum([
   "READ_FILE",
@@ -39,7 +40,7 @@ export const agentDecisionSchema = z
     ruleId: safeIdentifier,
     ruleVersion: safeIdentifier,
     correlationId: safeIdentifier,
-    actionDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+    actionDigest: actionDigestSchema.optional(),
     approvalId: safeIdentifier.optional(),
     approvalStatus: agentApprovalStatusSchema.optional(),
     expiresAt: z.coerce.date().optional(),
@@ -54,7 +55,7 @@ export const agentApprovalSchema = z
     actor: safeIdentifier,
     actionType: agentActionSchema,
     resource: safeText.nullable().optional(),
-    actionDigest: z.string().regex(/^[a-f0-9]{64}$/),
+    actionDigest: actionDigestSchema,
     status: agentApprovalStatusSchema,
     requestedBy: safeIdentifier,
     reviewedBy: safeIdentifier.nullable().optional(),
