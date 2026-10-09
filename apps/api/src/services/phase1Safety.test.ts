@@ -1,7 +1,8 @@
 import { ConfiguredScanJobExecutor } from "./scanJobExecutor.js";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { assertSafeSeedTarget } from "./seedSafety.js";
 import {
+  assertScanLease,
   partitionAdvisoryResults,
   receiptSigningSettings,
   runConfiguredScan,
@@ -94,4 +95,18 @@ it("rejects a forged local-demo policy before bypassing configured scan validati
       },
     }),
   ).rejects.toThrow("Unsupported policy bundle");
+});
+
+it("refuses a superseded or expired scan lease before any persistence", async () => {
+  const lease = { owner: "worker-original", attempt: 2 };
+  const query = vi.fn().mockResolvedValue([]);
+  const tx = { $queryRaw: query };
+  await expect(
+    assertScanLease(tx as never, "scan-one", lease),
+  ).rejects.toThrow("WORKER_LEASE_LOST");
+  expect(query).toHaveBeenCalledTimes(1);
+  const sql = query.mock.calls[0]?.[0] as { values: unknown[] };
+  expect(sql.values).toEqual(["scan-one", "worker-original", 2]);
+  query.mockResolvedValue([{ id: "job-original" }]);
+  await expect(assertScanLease(tx as never, "scan-one", lease)).resolves.toBeUndefined();
 });
