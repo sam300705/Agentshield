@@ -112,3 +112,14 @@ it("verifies the longest accepted safe signing identifier", () => {
     ),
   ).toBe(true);
 });
+
+it.each([undefined, 123, null])("refuses non-string receipt key identifiers: %s", (keyId) => {
+  const key = generateEd25519KeyPair("real-key");
+  const signed = signSecurityReceipt(receipt, { keyId: key.keyId, privateKey: key.privateKeyPem });
+  expect(
+    verifySignedSecurityReceipt(
+      { ...signed, keyId } as unknown as typeof signed,
+      { "real-key": key.publicKeyPem },
+    ),
+  ).toBe(false);
+});
