@@ -198,3 +198,8 @@ it.each([
   );
   expect(calculateAgentFingerprint(events).approvalFrequency).toBe(expected);
 });
+
+it("uses locale-independent Unicode key order for event and receipt canonicalization", async () => {
+  const { canonicalJson } = await import("./controlPlane.js");
+  expect(canonicalJson({ "ä": 1, z: 2 })).toBe('{"z":2,"ä":1}');
+});
