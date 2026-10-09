@@ -84,7 +84,14 @@ export class AgentShieldClient {
       "POST",
       validated,
     );
-    return { data: agentDecisionSchema.parse(response.data) };
+    const decision = agentDecisionSchema.parse(response.data);
+    const expected = createHash("sha256")
+      .update(canonicalAgentActionIdentity(validated))
+      .digest("hex");
+    if (decision.actionDigest !== expected) {
+      throw new Error("Agent authorization response is not bound to the requested action.");
+    }
+    return { data: decision };
   }
 
   async decide(input: AgentAuthorizationRequest): Promise<AgentDecisionResponse> {
@@ -94,7 +101,14 @@ export class AgentShieldClient {
       "POST",
       validated,
     );
-    return { data: agentDecisionSchema.parse(response.data) };
+    const decision = agentDecisionSchema.parse(response.data);
+    const expected = createHash("sha256")
+      .update(canonicalAgentActionIdentity(validated))
+      .digest("hex");
+    if (decision.actionDigest !== expected) {
+      throw new Error("Agent authorization response is not bound to the requested action.");
+    }
+    return { data: decision };
   }
 
   async recordEvent(input: AgentEventInput): Promise<AgentEventResponse> {
@@ -186,7 +200,6 @@ export function assertAgentApprovalMatches(
     approval.requestedBy !== input.actor ||
     approval.actionType !== input.action ||
     approval.idempotencyKey !== input.idempotencyKey ||
-    (approval.resource ?? "") !== input.resource.trim() ||
     approval.actionDigest !==
       createHash("sha256").update(canonicalAgentActionIdentity(input)).digest("hex")
   ) {
@@ -202,8 +215,13 @@ export function assertAgentActionAllowed(
   decision: AgentDecision,
   approval?: AgentApproval,
 ): void {
-  const { action } = agentAuthorizationRequestSchema.parse(input);
+  const validated = agentAuthorizationRequestSchema.parse(input);
+  const { action } = validated;
   agentDecisionSchema.parse(decision);
+  const digest = createHash("sha256").update(canonicalAgentActionIdentity(validated)).digest("hex");
+  if (decision.actionDigest !== digest) {
+    throw new Error("Agent decision is not bound to this protected action.");
+  }
   if (!decision.allowed || decision.decision === "BLOCK") {
     throw new Error(`Agent action ${action} was denied by policy.`);
   }
