@@ -10,7 +10,7 @@ import {
 import type { Request, Response } from "express";
 import { AuditAction } from "@prisma/client";
 import { prisma } from "../db/prisma.js";
-import { ensureAgentApproval } from "../services/agentApprovalService.js";
+import { createAgentActionDigest, ensureAgentApproval } from "../services/agentApprovalService.js";
 import { ingestAgentEvent } from "../services/agentEventService.js";
 import { getActor, getCorrelationId } from "../security/auth.js";
 
@@ -49,9 +49,10 @@ export async function authorizeAgentActionController(
     });
     return;
   }
-  const decision = agentDecisionSchema.parse(
-    evaluateAgentAction(input.action, input.correlationId),
-  );
+  const decision = agentDecisionSchema.parse({
+    ...evaluateAgentAction(input.action, input.correlationId),
+    actionDigest: createAgentActionDigest(input),
+  });
   // Event submission by the cooperative SDK is optional. Every server decision
   // must therefore have its own authoritative audit record.
   await prisma.auditEvent.create({
