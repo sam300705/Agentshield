@@ -467,3 +467,16 @@ it("preserves configured provider query parameters when constructing the PKCE au
   expect(url.searchParams.get("response_type")).toBe("code");
   expect(url.searchParams.get("code_challenge_method")).toBe("S256");
 });
+
+it("preserves configured provider logout query parameters", () => {
+  const client: OidcTokenClient = { exchangeCode: vi.fn(), refresh: vi.fn() };
+  const session = new OidcSession(
+    { ...config, endSessionEndpoint: "https://issuer.test/logout?connection=corp" },
+    client,
+  );
+  const redirect = session.logout();
+  expect(redirect).not.toBeNull();
+  const url = new URL(redirect!);
+  expect(url.searchParams.get("connection")).toBe("corp");
+  expect(url.searchParams.get("post_logout_redirect_uri")).toBe(config.redirectUri);
+});
