@@ -37,6 +37,13 @@ function sanitizeString(value: string): string {
   return sanitized;
 }
 
+function sensitiveFieldName(key: string): boolean {
+  const normalized = key.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase();
+  return /(?:^|[_\\.-])(?:password|passphrase|secret|token|api_key|access_key|private_key|client_secret|authorization|credential|credentials)(?:$|[_\\.-])/.test(
+    normalized,
+  );
+}
+
 function sanitizeUnknown(value: unknown): JsonValue {
   if (value === null) return null;
   if (typeof value === "string") return sanitizeString(value);
@@ -44,7 +51,10 @@ function sanitizeUnknown(value: unknown): JsonValue {
   if (Array.isArray(value)) return value.map(sanitizeUnknown);
   if (typeof value === "object") {
     return Object.fromEntries(
-      Object.entries(value).map(([key, nested]) => [sanitizeString(key), sanitizeUnknown(nested)]),
+      Object.entries(value).map(([key, nested]) => [
+        sanitizeString(key),
+        sensitiveFieldName(key) ? redact("SENSITIVE_FIELD") : sanitizeUnknown(nested),
+      ]),
     );
   }
   return redact("UNSUPPORTED_VALUE");
