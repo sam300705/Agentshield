@@ -219,3 +219,16 @@ it("rejects append and retry when a session is no longer active", async () => {
   await expect(ingestAgentEvent(input())).resolves.toEqual({ kind: "SESSION_NOT_FOUND" });
   expect(fakePrisma.events).toHaveLength(1);
 });
+
+it("does not persist credentials from event summaries while binding their raw identities", async () => {
+  fakePrisma.reset();
+  const token = "Bearer " + "a".repeat(30);
+  await expect(ingestAgentEvent(input({ summary: `Executed ${token}` }))).resolves.toMatchObject({
+    kind: "CREATED",
+  });
+  expect(fakePrisma.events[0]?.summary).not.toContain(token);
+  expect(fakePrisma.events[0]?.summary).toContain("REDACTED:BEARER_TOKEN");
+  await expect(
+    ingestAgentEvent(input({ summary: `Executed Bearer ${"b".repeat(30)}` })),
+  ).resolves.toEqual({ kind: "IDEMPOTENCY_CONFLICT" });
+});
