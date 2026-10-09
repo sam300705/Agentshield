@@ -67,3 +67,18 @@ it("redacts scanner-recognized Stripe live keys in nested evidence", () => {
   expect(JSON.stringify(result)).not.toContain(key);
   expect(JSON.stringify(result)).toContain("REDACTED:STRIPE_KEY");
 });
+
+it("redacts ordinary-looking credential values when nested under sensitive property names", () => {
+  const raw = {
+    password: "correct-horse-battery-staple",
+    apiKey: "ordinary-but-secret-value",
+    nested: { client_secret: "private-client-value", safe: "public metadata" },
+  };
+  const data = sanitizeEvidence(raw);
+  const text = JSON.stringify(data);
+  expect(text).not.toContain("correct-horse-battery-staple");
+  expect(text).not.toContain("ordinary-but-secret-value");
+  expect(text).not.toContain("private-client-value");
+  expect(text).toContain("public metadata");
+  expect(text).toContain("REDACTED:SENSITIVE_FIELD");
+});
