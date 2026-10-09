@@ -202,7 +202,9 @@ export class OidcSession {
     if (this.config.endSessionEndpoint == null) return null;
     const params = new URLSearchParams({ post_logout_redirect_uri: this.config.redirectUri });
     if (idToken != null) params.set("id_token_hint", idToken);
-    return `${this.config.endSessionEndpoint}?${params.toString()}`;
+    const url = new URL(this.config.endSessionEndpoint);
+    params.forEach((value, key) => url.searchParams.set(key, value));
+    return url.toString();
   }
 
   clear(): void {
