@@ -456,6 +456,7 @@ export async function processNextScanJob(
       scanId: candidate.scanId,
       payload: candidate.payload,
       signal: abortController.signal,
+      lease: { owner: workerId, attempt: candidate.attempts + 1 },
     });
     if (leaseLost) throw new Error("WORKER_LEASE_LOST");
     // A completed executor result wins a concurrent shutdown.
