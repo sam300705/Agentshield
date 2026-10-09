@@ -452,3 +452,18 @@ it("does not enable loopback HTTP in a production build even with the developmen
     }),
   ).toBeNull();
 });
+
+it("preserves configured provider query parameters when constructing the PKCE authorization URL", async () => {
+  const client: OidcTokenClient = {
+    exchangeCode: vi.fn(),
+    refresh: vi.fn(),
+  };
+  const session = new OidcSession(
+    { ...config, authorizationEndpoint: "https://issuer.test/authorize?connection=corp" },
+    client,
+  );
+  const url = new URL(await session.beginLogin());
+  expect(url.searchParams.get("connection")).toBe("corp");
+  expect(url.searchParams.get("response_type")).toBe("code");
+  expect(url.searchParams.get("code_challenge_method")).toBe("S256");
+});
