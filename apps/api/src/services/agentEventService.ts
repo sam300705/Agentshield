@@ -207,7 +207,7 @@ export async function ingestAgentEvent(
               source: input.source,
               type: input.type,
               riskLevel: input.riskLevel,
-              summary: input.summary,
+              summary: sanitizeText(input.summary),
               ...(input.resource == null ? {} : { resource: sanitizeText(input.resource) }),
               evidence: input.evidence,
               correlationId: input.correlationId,
