@@ -103,6 +103,7 @@ export function verifySignedSecurityReceipt(
     signedReceipt.format !== SIGNED_RECEIPT_FORMAT ||
     signedReceipt.version !== 1 ||
     signedReceipt.algorithm !== SIGNED_RECEIPT_ALGORITHM ||
+    typeof signedReceipt.keyId !== "string" ||
     !/^[A-Za-z0-9._:-]{1,128}$/.test(signedReceipt.keyId)
   ) {
     return false;
