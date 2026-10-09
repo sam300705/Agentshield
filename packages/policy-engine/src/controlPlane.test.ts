@@ -62,7 +62,7 @@ describe("control plane primitives", () => {
 
   it("redacts sensitive keys and high-confidence token values", () => {
     expect(redactEvidence({ token: "abc", note: "Bearer secret-value" })).toEqual({
-      token: "[REDACTED]",
+      token: "[REDACTED:SENSITIVE_FIELD]",
       note: "[REDACTED]",
     });
   });
