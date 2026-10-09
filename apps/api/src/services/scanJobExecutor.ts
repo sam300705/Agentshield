@@ -2,7 +2,7 @@ import { scanJobPayloadSchema, scanOptionsSchema, type ScanJobPayload } from "@a
 
 import { POLICY_RULE_VERSION } from "@agentshield/policy-engine";
 
-import { runConfiguredScan, runDemoScan } from "./scanService.js";
+import { runConfiguredScan, runDemoScan, type ScanLeaseFence } from "./scanService.js";
 
 export interface RepositoryWorkspace {
   path: string;
@@ -17,6 +17,7 @@ export interface ScanJobExecutionInput {
   scanId: string;
   payload: unknown;
   signal: AbortSignal;
+  lease?: ScanLeaseFence;
 }
 
 export interface ScanJobExecutor {
@@ -38,6 +39,7 @@ export class ConfiguredScanJobExecutor implements ScanJobExecutor {
         payload.correlationId,
         input.signal,
         payload.requester,
+        input.lease,
       );
     }
 
@@ -65,6 +67,7 @@ export class ConfiguredScanJobExecutor implements ScanJobExecutor {
           policyBundleVersion: payload.policyBundleVersion,
           options,
           signal: input.signal,
+          ...(input.lease == null ? {} : { lease: input.lease }),
         },
         input.scanId,
       );
