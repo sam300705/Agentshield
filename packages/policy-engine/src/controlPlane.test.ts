@@ -201,5 +201,5 @@ it.each([
 });
 
 it("sorts Unicode keys by code point", () => {
-  expect(canonicalJson({ "ä": 1, z: 2 })).toBe('{"z":2,"ä":1}');
+  expect(canonicalJson({ ä: 1, z: 2 })).toBe('{"z":2,"ä":1}');
 });
