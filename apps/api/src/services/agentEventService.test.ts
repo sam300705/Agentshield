@@ -84,6 +84,7 @@ const fakePrisma = vi.hoisted(() => {
       events.splice(0);
       transactionChain = Promise.resolve();
       vi.clearAllMocks();
+      client.agentSession.findFirst.mockResolvedValue({ id: "session-test" });
     },
     events,
   };
