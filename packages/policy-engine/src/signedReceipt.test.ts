@@ -116,10 +116,6 @@ it("verifies the longest accepted safe signing identifier", () => {
 it.each([undefined, 123, null])("rejects invalid key ID %s", (keyId) => {
   const key = generateEd25519KeyPair("real-key");
   const signed = signSecurityReceipt(receipt, { keyId: key.keyId, privateKey: key.privateKeyPem });
-  expect(
-    verifySignedSecurityReceipt(
-      { ...signed, keyId } as unknown as typeof signed,
-      { "real-key": key.publicKeyPem },
-    ),
-  ).toBe(false);
+  const altered = { ...signed, keyId } as unknown as typeof signed;
+  expect(verifySignedSecurityReceipt(altered, { "real-key": key.publicKeyPem })).toBe(false);
 });
