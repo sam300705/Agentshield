@@ -28,15 +28,11 @@ export async function registerGitHubInstallation(
   client: PrismaClient,
   input: GitHubInstallationRegistration,
 ): Promise<{ id: string; organizationId: string; installationId: number }> {
+  // Do not allow a caller to transfer a GitHub installation by re-registering
+  // its globally unique installation ID under another tenant.
   const installation = await client.gitHubInstallation.upsert({
     where: { installationId: input.installationId },
-    update: {
-      organizationId: input.organizationId,
-      accountLogin: input.accountLogin,
-      ...(input.accountType == null ? {} : { accountType: input.accountType }),
-      ...(input.permissions == null ? {} : { permissions: input.permissions }),
-      status: "ACTIVE",
-    },
+    update: {},
     create: {
       organizationId: input.organizationId,
       installationId: input.installationId,
@@ -45,6 +41,18 @@ export async function registerGitHubInstallation(
       ...(input.permissions == null ? {} : { permissions: input.permissions }),
     },
     select: { id: true, organizationId: true, installationId: true },
+  });
+  if (installation.organizationId !== input.organizationId) {
+    throw new Error("GITHUB_INSTALLATION_ORGANIZATION_MISMATCH");
+  }
+  await client.gitHubInstallation.updateMany({
+    where: { id: installation.id, organizationId: input.organizationId },
+    data: {
+      accountLogin: input.accountLogin,
+      ...(input.accountType == null ? {} : { accountType: input.accountType }),
+      ...(input.permissions == null ? {} : { permissions: input.permissions }),
+      status: "ACTIVE",
+    },
   });
   return installation;
 }
