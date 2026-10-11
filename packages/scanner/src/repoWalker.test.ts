@@ -2,7 +2,7 @@ import { expect, it, vi } from "vitest";
 const fs = vi.hoisted(() => ({ realpath: vi.fn(), lstat: vi.fn(), opendir: vi.fn() }));
 vi.mock("node:fs/promises", () => fs);
 import { walkRepository } from "./repoWalker.js";
-it.each([1, 1000])("bounds traversal before filtering files of size %i", async (size) => {
+it.each([1, 5])("bounds traversal before filtering files of size %i", async (size) => {
   vi.clearAllMocks();
   let read = 0;
   let closed = false;
@@ -27,4 +27,18 @@ it.each([1, 1000])("bounds traversal before filtering files of size %i", async (
   expect(fs.lstat).toHaveBeenCalledTimes(2);
   expect(read).toBe(3);
   expect(closed).toBe(true);
+});
+
+it("rejects oversized files rather than silently creating a clean scan", async () => {
+  vi.clearAllMocks();
+  fs.realpath.mockImplementation((value: string) => Promise.resolve(value));
+  fs.lstat.mockResolvedValue({ size: 11 });
+  fs.opendir.mockImplementation(() =>
+    (async function* () {
+      yield { name: ".env", isDirectory: () => false, isFile: () => true };
+    })(),
+  );
+  await expect(
+    walkRepository("/synthetic-root", { maxFileSizeBytes: 10 }),
+  ).rejects.toThrow("Scan exceeds per-file byte limit of 10: .env");
 });
