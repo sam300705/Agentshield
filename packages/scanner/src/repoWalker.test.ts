@@ -38,7 +38,7 @@ it("rejects oversized files rather than silently creating a clean scan", async (
       yield { name: ".env", isDirectory: () => false, isFile: () => true };
     })(),
   );
-  await expect(
-    walkRepository("/synthetic-root", { maxFileSizeBytes: 10 }),
-  ).rejects.toThrow("Scan exceeds per-file byte limit of 10: .env");
+  await expect(walkRepository("/synthetic-root", { maxFileSizeBytes: 10 })).rejects.toThrow(
+    "Scan exceeds per-file byte limit of 10: .env",
+  );
 });
