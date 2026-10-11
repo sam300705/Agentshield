@@ -80,3 +80,45 @@ it("audits permissive gateway decisions before returning authorization", async (
   });
   expect(res.json).toHaveBeenCalled();
 });
+
+it("creates independent approval rather than allowing secret reads mislabeled as READ_FILE", async () => {
+  vi.clearAllMocks();
+  db.agentSession.findFirst.mockResolvedValue({ id: "session" });
+  db.auditEvent.create.mockResolvedValue({ id: "audit" });
+  ensure.mockResolvedValue({
+    kind: "CREATED",
+    approval: { id: "approval", status: "PENDING" },
+  });
+  const res = { status: vi.fn(), json: vi.fn() };
+  res.status.mockReturnValue(res);
+  await authorizeAgentActionController(
+    {
+      body: {
+        organizationId: "org",
+        actor: "caller",
+        sessionId: "session",
+        action: "READ_FILE",
+        resource: "/home/user/.ssh/id_rsa",
+        correlationId: "corr",
+        idempotencyKey: "protected-key",
+      },
+    } as Request,
+    res as unknown as Response,
+  );
+  expect(ensure).toHaveBeenCalledOnce();
+  expect(db.auditEvent.create).toHaveBeenCalledWith({
+    data: expect.objectContaining({
+      metadata: expect.objectContaining({
+        decision: "REQUIRE_APPROVAL",
+        ruleId: "agent.resource.secret.requires_approval",
+      }) as unknown,
+    }) as unknown,
+  });
+  expect(res.json).toHaveBeenCalledWith({
+    data: expect.objectContaining({
+      decision: "REQUIRE_APPROVAL",
+      approvalId: "approval",
+      approvalStatus: "PENDING",
+    }) as unknown,
+  });
+});
