@@ -2,6 +2,7 @@ import {
   agentActionSchema,
   agentDecisionSchema,
   type AgentAction,
+  type AgentAuthorizationRequest,
   type AgentDecision,
 } from "@agentshield/schemas";
 
@@ -51,5 +52,42 @@ export function evaluateAgentAction(action: AgentAction, correlationId: string):
     ruleId: rule.id,
     ruleVersion: rule.version,
     correlationId,
+  });
+}
+
+/**
+ * The action enum is supplied by the agent and cannot attest to the resource
+ * being accessed. Escalate recognizable protected targets regardless of the
+ * claimed action type. A cooperative SDK is not an operating-system sandbox.
+ */
+const SENSITIVE_RESOURCE =
+  /(?:^|[/\\\\])(?:\\.env(?:\\.[^/\\\\]+)?|\\.ssh|\\.aws|\\.kube|\\.npmrc|\\.pypirc|id_rsa|id_ed25519|secrets?(?:\\.[^/\\\\]+)?|credentials?(?:\\.[^/\\\\]+)?|shadow)(?:$|[/\\\\?#])/i;
+const INFRASTRUCTURE_RESOURCE =
+  /(?:^|[/\\\\])(?:terraform|k8s|kubernetes|helm|charts?|\\.github[/\\\\]workflows|\\.terraform)(?:[/\\\\]|$)|(?:^|[/\\\\])(?:Dockerfile(?:\\.[^/\\\\]+)?|render\\.yaml|vercel\\.json|[^/\\\\]+\\.tf(?:vars)?|cloudformation\\.[^/\\\\]+)(?:$|[?#])/i;
+
+export function evaluateAgentAuthorization(
+  request: AgentAuthorizationRequest,
+): AgentDecision {
+  const input = agentAuthorizationRequestSchema.parse(request);
+  const declared = evaluateAgentAction(input.action, input.correlationId);
+  const resource = input.resource.trim();
+  const sensitive = SENSITIVE_RESOURCE.test(resource);
+  const infrastructure = INFRASTRUCTURE_RESOURCE.test(resource);
+  if (
+    declared.decision === "REQUIRE_APPROVAL" ||
+    (!sensitive && !(infrastructure && input.action === "WRITE_FILE"))
+  ) return declared;
+
+  return agentDecisionSchema.parse({
+    decision: "REQUIRE_APPROVAL",
+    allowed: true,
+    reason: sensitive
+      ? "Access to a protected credential or secret resource requires independent human approval."
+      : "Changes to infrastructure resources require independent human approval.",
+    ruleId: sensitive
+      ? "agent.resource.secret.requires_approval"
+      : "agent.resource.infrastructure.requires_approval",
+    ruleVersion: AGENT_POLICY_VERSION,
+    correlationId: input.correlationId,
   });
 }
