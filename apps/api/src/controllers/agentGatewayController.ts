@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { evaluateAgentAction, verifyReceiptHash } from "@agentshield/policy-engine";
+import { evaluateAgentAuthorization, verifyReceiptHash } from "@agentshield/policy-engine";
 import {
   agentAuthorizationRequestSchema,
   agentDecisionSchema,
@@ -50,7 +50,7 @@ export async function authorizeAgentActionController(
     return;
   }
   const decision = agentDecisionSchema.parse({
-    ...evaluateAgentAction(input.action, input.correlationId),
+    ...evaluateAgentAuthorization(input),
     actionDigest: createAgentActionDigest(input),
   });
   // Event submission by the cooperative SDK is optional. Every server decision
