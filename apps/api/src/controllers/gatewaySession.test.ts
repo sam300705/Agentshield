@@ -75,6 +75,7 @@ it("audits permissive gateway decisions before returning authorization", async (
       actor: "caller",
       action: "POLICY_DECIDED",
       entityId: "session",
+      metadata: expect.objectContaining({ actionDigest: "a".repeat(64) }) as unknown,
     }) as unknown,
   });
   expect(res.json).toHaveBeenCalled();
