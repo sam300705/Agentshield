@@ -94,3 +94,14 @@ it.each(["EQUALS", "NOT_EQUALS", "IN", "NOT_IN"] as const)(
     );
   },
 );
+
+it.each(["GREATER_THAN", "GREATER_THAN_OR_EQUAL", "LESS_THAN", "LESS_THAN_OR_EQUAL"] as const)(
+  "compares non-ASCII evidence using deterministic code-point order for %s",
+  (operator) => {
+    const condition = { field: "evidence.label", operator, value: "z" };
+    const inputFinding = { ...finding, evidence: { label: "ä" } };
+    const actual = evaluateCondition(inputFinding, condition);
+    const expected = operator.startsWith("GREATER");
+    expect(actual).toBe(expected);
+  },
+);
