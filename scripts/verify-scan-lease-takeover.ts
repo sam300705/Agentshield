@@ -103,7 +103,7 @@ try {
   );
   assert.equal((await db.scan.findUniqueOrThrow({ where: { id: scan.id } })).status, "RUNNING");
   process.stdout.write(
-    "PASS: PostgreSQL lease row locking, takeover, cancellation and expiration\\n",
+    "PASS: PostgreSQL lease row locking, takeover, cancellation and expiration\n",
   );
 } finally {
   await db.scan.delete({ where: { id: scan.id } });
