@@ -121,7 +121,7 @@ export const securityReceiptSchema = z.object({
   completedAt: z.coerce.date(),
   gateResult: policyDecisionTypeSchema,
   receiptHash: z.string().regex(/^[a-f0-9]{64}$/),
-});
+}).strict();
 
 export const agentFingerprintSchema = z.object({
   eventCount: z.number().int().nonnegative(),
