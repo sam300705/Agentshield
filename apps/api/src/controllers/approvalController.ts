@@ -13,7 +13,7 @@ import {
 
 const paginationQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(25),
-  page: z.coerce.number().int().min(1).default(1),
+  page: z.coerce.number().int().min(1).max(100_000).default(1),
 });
 
 const approvalParamsSchema = z.object({
