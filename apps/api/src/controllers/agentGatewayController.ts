@@ -65,6 +65,7 @@ export async function authorizeAgentActionController(
       correlationId: getCorrelationId(response),
       metadata: {
         actionType: input.action,
+        actionDigest: decision.actionDigest,
         decision: decision.decision,
         ruleId: decision.ruleId,
         ruleVersion: decision.ruleVersion,
