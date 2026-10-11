@@ -139,6 +139,7 @@ async function main(): Promise<void> {
       ignorePatterns: values.ignore,
       maxFiles: Number(values["max-files"]),
       maxTotalBytes: Number(values["max-bytes"]),
+      maxFileSizeBytes: Number(values["max-bytes"]),
       signal: controller.signal,
     });
     const decisions = evaluateFindings(result.findings, scanId);
