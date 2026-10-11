@@ -1,5 +1,6 @@
 import {
   agentActionSchema,
+  agentAuthorizationRequestSchema,
   agentDecisionSchema,
   type AgentAction,
   type AgentAuthorizationRequest,
