@@ -82,3 +82,13 @@ it("redacts ordinary-looking credential values when nested under sensitive prope
   expect(text).toContain("public metadata");
   expect(text).toContain("REDACTED:SENSITIVE_FIELD");
 });
+
+
+it("redacts fine-grained GitHub PATs in free-form resource and command evidence", () => {
+  const token = ["github_pat_", "A".repeat(48)].join("");
+  const resource = `/home/user/run --token ${token}`;
+  expect(sanitizeText(resource)).not.toContain(token);
+  expect(sanitizeText(resource)).toContain("[REDACTED:GITHUB_TOKEN]");
+  const evidence = sanitizeEvidence({ command: `curl -H 'x-token: ${token}'` });
+  expect(JSON.stringify(evidence)).not.toContain(token);
+});
