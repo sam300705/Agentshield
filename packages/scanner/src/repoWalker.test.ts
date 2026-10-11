@@ -35,6 +35,7 @@ it("rejects oversized files rather than silently creating a clean scan", async (
   fs.lstat.mockResolvedValue({ size: 11 });
   fs.opendir.mockImplementation(() =>
     (async function* () {
+      await Promise.resolve();
       yield { name: ".env", isDirectory: () => false, isFile: () => true };
     })(),
   );
