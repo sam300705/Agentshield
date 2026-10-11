@@ -44,7 +44,7 @@ try {
 
   try {
     await locked;
-    const takeover = db.scanJob.updateMany({
+    const takeover = Promise.resolve(db.scanJob.updateMany({
       where: { scanId: scan.id, lockedBy: "worker-original", attempts: 1 },
       data: {
         lockedBy: "worker-replacement",
@@ -52,7 +52,7 @@ try {
         lockedAt: new Date(),
         leaseExpiresAt: new Date(Date.now() + 60_000),
       },
-    });
+    }));
     const result = await Promise.race([
       takeover.then(() => "updated"),
       delay(120, "waiting"),
