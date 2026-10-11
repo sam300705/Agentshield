@@ -105,23 +105,25 @@ export const policySimulationSchema = z.object({
   newlyPermitted: z.number().int().nonnegative(),
 });
 
-export const securityReceiptSchema = z.object({
-  id: z.string(),
-  scanId: z.string(),
-  repository: z.string(),
-  branch: z.string(),
-  commitSha: z.string(),
-  scannerVersion: z.string(),
-  policyBundleVersion: z.string(),
-  findingCounts: z.record(z.number().int().nonnegative()),
-  decisionCounts: z.record(z.number().int().nonnegative()),
-  approvalState: z.string(),
-  evidenceDigest: z.string().regex(/^[a-f0-9]{64}$/),
-  startedAt: z.coerce.date(),
-  completedAt: z.coerce.date(),
-  gateResult: policyDecisionTypeSchema,
-  receiptHash: z.string().regex(/^[a-f0-9]{64}$/),
-}).strict();
+export const securityReceiptSchema = z
+  .object({
+    id: z.string(),
+    scanId: z.string(),
+    repository: z.string(),
+    branch: z.string(),
+    commitSha: z.string(),
+    scannerVersion: z.string(),
+    policyBundleVersion: z.string(),
+    findingCounts: z.record(z.number().int().nonnegative()),
+    decisionCounts: z.record(z.number().int().nonnegative()),
+    approvalState: z.string(),
+    evidenceDigest: z.string().regex(/^[a-f0-9]{64}$/),
+    startedAt: z.coerce.date(),
+    completedAt: z.coerce.date(),
+    gateResult: policyDecisionTypeSchema,
+    receiptHash: z.string().regex(/^[a-f0-9]{64}$/),
+  })
+  .strict();
 
 export const agentFingerprintSchema = z.object({
   eventCount: z.number().int().nonnegative(),
