@@ -57,6 +57,32 @@ jobs:
       - run: pnpm db:deploy
       - run: pnpm db:seed
       - run: pnpm format:check
+      - name: Temporary formatter output for Phase 1 remediation
+        if: failure()
+        run: |
+          pnpm exec prettier --write \
+            apps/api/src/controllers/scanController.ts \
+            apps/web-dashboard/src/pages/ScanResults.tsx \
+            packages/policy-engine/src/agentGateway.test.ts \
+            packages/policy-engine/src/agentGateway.ts \
+            packages/policy-engine/src/index.ts \
+            packages/scanner/src/repoWalker.test.ts \
+            packages/scanner/src/vulnerabilityEnricher.ts \
+            packages/schemas/src/evidenceRedaction.test.ts
+          for file in \
+            apps/api/src/controllers/scanController.ts \
+            apps/web-dashboard/src/pages/ScanResults.tsx \
+            packages/policy-engine/src/agentGateway.test.ts \
+            packages/policy-engine/src/agentGateway.ts \
+            packages/policy-engine/src/index.ts \
+            packages/scanner/src/repoWalker.test.ts \
+            packages/scanner/src/vulnerabilityEnricher.ts \
+            packages/schemas/src/evidenceRedaction.test.ts; do
+            echo "FORMAT_BEGIN:$file"
+            base64 -w 0 "$file"
+            echo ""
+            echo "FORMAT_END:$file"
+          done
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
