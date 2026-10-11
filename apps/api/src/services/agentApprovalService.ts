@@ -1,7 +1,7 @@
 import { ApprovalStatus, Prisma } from "@prisma/client";
 import { createHash } from "node:crypto";
 
-import { evaluateAgentAction } from "@agentshield/policy-engine";
+import { evaluateAgentAuthorization } from "@agentshield/policy-engine";
 import {
   agentApprovalSchema,
   agentAuthorizationRequestSchema,
@@ -73,7 +73,7 @@ export async function ensureAgentApproval(
   correlationId: string,
 ): Promise<AgentApprovalResult> {
   const input = agentAuthorizationRequestSchema.parse(rawInput);
-  const decision = evaluateAgentAction(input.action, correlationId);
+  const decision = evaluateAgentAuthorization(input);
   if (decision.decision !== "REQUIRE_APPROVAL") {
     throw new Error("Agent approval can only be created for REQUIRE_APPROVAL actions.");
   }
