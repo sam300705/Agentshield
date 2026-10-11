@@ -149,6 +149,11 @@ export const api = {
       `/api/v1/scans/${encodeURIComponent(scanId)}/findings?limit=${limit}&page=${page}`,
     );
   },
+  getFinding(scanId: string, findingId: string) {
+    return request<{ data: FindingWithRelations }>(
+      `/api/v1/scans/${encodeURIComponent(scanId)}/findings/${encodeURIComponent(findingId)}`,
+    );
+  },
   getSbom(scanId: string, limit = 100, page = 1) {
     return request<PaginatedResponse<Dependency>>(
       `/api/v1/scans/${encodeURIComponent(scanId)}/sbom?limit=${limit}&page=${page}`,
