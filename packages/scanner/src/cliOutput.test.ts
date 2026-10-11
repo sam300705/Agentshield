@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { expect, it } from "vitest";
-async function scan(root: string, format: string, osv = false) {
+async function scan(root: string, format: string, osv = false, extraArgs: string[] = []) {
   const child = spawn(
     process.execPath,
     [
@@ -15,6 +15,7 @@ async function scan(root: string, format: string, osv = false) {
       "--format",
       format,
       ...(osv ? ["--osv"] : []),
+      ...extraArgs,
     ],
     { stdio: ["ignore", "pipe", "pipe"] },
   );
@@ -108,3 +109,17 @@ it("exports pending approvals even when a separate finding blocks the aggregate 
     await rm(root, { recursive: true, force: true });
   }
 }, 15000);
+
+it("scans a credential beyond the default per-file limit when within explicit CLI byte budget", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "agentshield-large-cli-"));
+  try {
+    const secret = ["AKIA", "ABCDEFGHIJKLMNOP"].join("");
+    await writeFile(path.join(root, ".env"), `PADDING=${"X".repeat(2 * 1024 * 1024)}\nCREDENTIAL=${secret}\n`);
+    const output = JSON.parse(
+      await scan(root, "json", false, ["--max-bytes", String(3 * 1024 * 1024)]),
+    ) as { findings: Array<{ category: string }> };
+    expect(output.findings.some((finding) => finding.category === "SECRET")).toBe(true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 30000);
