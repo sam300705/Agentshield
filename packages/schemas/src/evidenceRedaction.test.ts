@@ -83,7 +83,6 @@ it("redacts ordinary-looking credential values when nested under sensitive prope
   expect(text).toContain("REDACTED:SENSITIVE_FIELD");
 });
 
-
 it("redacts fine-grained GitHub PATs in free-form resource and command evidence", () => {
   const token = ["github_pat_", "A".repeat(48)].join("");
   const resource = `/home/user/run --token ${token}`;
