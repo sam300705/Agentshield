@@ -70,7 +70,7 @@ function compareValues(left: unknown, right: unknown): number | undefined {
   }
 
   if (typeof left === "string" && typeof right === "string") {
-    return left.localeCompare(right);
+    return left < right ? -1 : left > right ? 1 : 0;
   }
 
   return undefined;
