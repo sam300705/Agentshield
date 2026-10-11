@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { agentActionSchema } from "@agentshield/schemas";
-import { AGENT_ACTION_RULES, evaluateAgentAction, evaluateAgentAuthorization } from "./agentGateway.js";
+import {
+  AGENT_ACTION_RULES,
+  evaluateAgentAction,
+  evaluateAgentAuthorization,
+} from "./agentGateway.js";
 
 describe("declarative action policy", () => {
   it("has one explicit auditable rule for every supported action", () => {
@@ -32,8 +36,16 @@ describe("declarative action policy", () => {
 it.each([
   ["READ_FILE", "/home/user/.ssh/id_rsa", "agent.resource.secret.requires_approval"],
   ["READ_FILE", ".env.production", "agent.resource.secret.requires_approval"],
-  ["WRITE_FILE", "infrastructure/production.yaml", "agent.resource.infrastructure.requires_approval"],
-  ["WRITE_FILE", ".github/workflows/deploy.yaml", "agent.resource.infrastructure.requires_approval"],
+  [
+    "WRITE_FILE",
+    "infrastructure/production.yaml",
+    "agent.resource.infrastructure.requires_approval",
+  ],
+  [
+    "WRITE_FILE",
+    ".github/workflows/deploy.yaml",
+    "agent.resource.infrastructure.requires_approval",
+  ],
   ["WRITE_FILE", "terraform/main.tf", "agent.resource.infrastructure.requires_approval"],
   ["WRITE_FILE", "Dockerfile", "agent.resource.infrastructure.requires_approval"],
 ] as const)("escalates disguised %s on %s", (action, resource, ruleId) => {
