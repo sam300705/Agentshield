@@ -1,4 +1,4 @@
-export { evaluateAgentAction, AGENT_ACTION_RULES, AGENT_POLICY_VERSION } from "./agentGateway.js";
+export { evaluateAgentAction, evaluateAgentAuthorization, AGENT_ACTION_RULES, AGENT_POLICY_VERSION } from "./agentGateway.js";
 export {
   decisionRequiresHumanApproval,
   evaluateFindings,
