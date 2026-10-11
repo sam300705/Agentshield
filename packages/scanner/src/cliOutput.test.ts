@@ -114,7 +114,10 @@ it("scans a credential beyond the default per-file limit when within explicit CL
   const root = await mkdtemp(path.join(os.tmpdir(), "agentshield-large-cli-"));
   try {
     const secret = ["AKIA", "ABCDEFGHIJKLMNOP"].join("");
-    await writeFile(path.join(root, ".env"), `PADDING=${"X".repeat(2 * 1024 * 1024)}\nCREDENTIAL=${secret}\n`);
+    await writeFile(
+      path.join(root, ".env"),
+      `PADDING=${"X".repeat(2 * 1024 * 1024)}\nCREDENTIAL=${secret}\n`,
+    );
     const output = JSON.parse(
       await scan(root, "json", false, ["--max-bytes", String(3 * 1024 * 1024)]),
     ) as { findings: Array<{ category: string }> };
