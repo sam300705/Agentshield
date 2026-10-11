@@ -59,14 +59,16 @@ it("refuses cross-organization re-registration without changing installation met
   const client = {
     gitHubInstallation: { upsert, updateMany },
   } as unknown as PrismaClient;
-  const registration = { organizationId: "other-org", installationId: 42, accountLogin: "attacker" };
+  const registration = {
+    organizationId: "other-org",
+    installationId: 42,
+    accountLogin: "attacker",
+  };
   await expect(registerGitHubInstallation(client, registration)).rejects.toThrow(
     "GITHUB_INSTALLATION_ORGANIZATION_MISMATCH",
   );
   expect(updateMany).not.toHaveBeenCalled();
-  expect(upsert).toHaveBeenCalledWith(
-    expect.objectContaining({ update: {} }),
-  );
+  expect(upsert).toHaveBeenCalledWith(expect.objectContaining({ update: {} }));
 });
 
 it("allows same-organization installation metadata refresh", async () => {
@@ -74,9 +76,13 @@ it("allows same-organization installation metadata refresh", async () => {
   const upsert = vi.fn().mockResolvedValue(row);
   const updateMany = vi.fn().mockResolvedValue({ count: 1 });
   const client = { gitHubInstallation: { upsert, updateMany } } as unknown as PrismaClient;
-  await expect(registerGitHubInstallation(client, {
-    organizationId: "original-org", installationId: 42, accountLogin: "owner",
-  })).resolves.toEqual(row);
+  await expect(
+    registerGitHubInstallation(client, {
+      organizationId: "original-org",
+      installationId: 42,
+      accountLogin: "owner",
+    }),
+  ).resolves.toEqual(row);
   expect(updateMany).toHaveBeenCalledWith({
     where: { id: "install-1", organizationId: "original-org" },
     data: { accountLogin: "owner", status: "ACTIVE" },
