@@ -66,9 +66,7 @@ const SENSITIVE_RESOURCE =
 const INFRASTRUCTURE_RESOURCE =
   /(?:^|[/\\])(?:terraform|infra|infrastructure|deployments?|k8s|kubernetes|helm|charts?|\.github[/\\]workflows|\.terraform)(?:[/\\]|$)|(?:^|[/\\])(?:Dockerfile(?:\.[^/\\]+)?|render\.yaml|vercel\.json|[^/\\]+\.tf(?:vars)?|cloudformation\.[^/\\]+)(?:$|[?#])/i;
 
-export function evaluateAgentAuthorization(
-  request: AgentAuthorizationRequest,
-): AgentDecision {
+export function evaluateAgentAuthorization(request: AgentAuthorizationRequest): AgentDecision {
   const input = agentAuthorizationRequestSchema.parse(request);
   const declared = evaluateAgentAction(input.action, input.correlationId);
   const resource = input.resource.trim();
@@ -77,7 +75,8 @@ export function evaluateAgentAuthorization(
   if (
     declared.decision === "REQUIRE_APPROVAL" ||
     (!sensitive && !(infrastructure && input.action === "WRITE_FILE"))
-  ) return declared;
+  )
+    return declared;
 
   return agentDecisionSchema.parse({
     decision: "REQUIRE_APPROVAL",
