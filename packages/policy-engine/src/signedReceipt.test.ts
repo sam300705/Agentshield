@@ -119,3 +119,13 @@ it.each([undefined, 123, null])("rejects invalid key ID %s", (keyId) => {
   const altered = { ...signed, keyId } as unknown as typeof signed;
   expect(verifySignedSecurityReceipt(altered, { "real-key": key.publicKeyPem })).toBe(false);
 });
+
+it("rejects unsigned extension data added to a valid signed receipt", () => {
+  const key = generateEd25519KeyPair("key-extensions");
+  const signed = signSecurityReceipt(receipt, { keyId: key.keyId, privateKey: key.privateKeyPem });
+  const poisoned = {
+    ...signed,
+    payload: { ...signed.payload, override: { gateResult: "ALLOW" } },
+  };
+  expect(verifySignedSecurityReceipt(poisoned, { [key.keyId]: key.publicKeyPem })).toBe(false);
+});
