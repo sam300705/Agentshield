@@ -62,9 +62,9 @@ export function evaluateAgentAction(action: AgentAction, correlationId: string):
  * claimed action type. A cooperative SDK is not an operating-system sandbox.
  */
 const SENSITIVE_RESOURCE =
-  /(?:^|[/\\\\])(?:\\.env(?:\\.[^/\\\\]+)?|\\.ssh|\\.aws|\\.kube|\\.npmrc|\\.pypirc|id_rsa|id_ed25519|secrets?(?:\\.[^/\\\\]+)?|credentials?(?:\\.[^/\\\\]+)?|shadow)(?:$|[/\\\\?#])/i;
+  /(?:^|[/\\])(?:\.env(?:\.[^/\\]+)?|\.ssh|\.aws|\.kube|\.npmrc|\.pypirc|id_rsa|id_ed25519|secrets?(?:\.[^/\\]+)?|credentials?(?:\.[^/\\]+)?|shadow)(?:$|[/\\?#])/i;
 const INFRASTRUCTURE_RESOURCE =
-  /(?:^|[/\\\\])(?:terraform|k8s|kubernetes|helm|charts?|\\.github[/\\\\]workflows|\\.terraform)(?:[/\\\\]|$)|(?:^|[/\\\\])(?:Dockerfile(?:\\.[^/\\\\]+)?|render\\.yaml|vercel\\.json|[^/\\\\]+\\.tf(?:vars)?|cloudformation\\.[^/\\\\]+)(?:$|[?#])/i;
+  /(?:^|[/\\])(?:terraform|infra|infrastructure|deployments?|k8s|kubernetes|helm|charts?|\.github[/\\]workflows|\.terraform)(?:[/\\]|$)|(?:^|[/\\])(?:Dockerfile(?:\.[^/\\]+)?|render\.yaml|vercel\.json|[^/\\]+\.tf(?:vars)?|cloudformation\.[^/\\]+)(?:$|[?#])/i;
 
 export function evaluateAgentAuthorization(
   request: AgentAuthorizationRequest,
