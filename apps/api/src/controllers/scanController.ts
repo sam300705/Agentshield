@@ -248,3 +248,28 @@ export async function getScanSbomController(request: Request, response: Response
 
   response.json(paginatedResponseSchema.parse({ page, limit, total, data: dependencies }));
 }
+
+export async function getScanFindingController(request: Request, response: Response): Promise<void> {
+  const actor = getActor(response);
+  const { scanId, findingId } = z
+    .object({
+      scanId: z.string().min(1).max(128),
+      findingId: z.string().min(1).max(128),
+    })
+    .parse(request.params);
+  const finding = await prisma.finding.findFirst({
+    where: { id: findingId, scanId, scan: { organizationId: actor.organizationId } },
+    include: { policyDecision: true, remediation: true, approval: true },
+  });
+  if (finding == null) {
+    response.status(404).json({
+      error: {
+        code: "FINDING_NOT_FOUND",
+        message: "Finding was not found.",
+        correlationId: getCorrelationId(response),
+      },
+    });
+    return;
+  }
+  response.json({ data: finding });
+}
