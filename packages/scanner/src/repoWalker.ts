@@ -68,7 +68,8 @@ export async function walkRepository(
         if (resolved !== rootPath && !resolved.startsWith(`${rootPath}${path.sep}`))
           throw new Error(`Path escaped scan root: ${entry.name}`);
         const stats = await lstat(resolved);
-        if (stats.size > maxFileSizeBytes) continue;
+        if (stats.size > maxFileSizeBytes)
+          throw new Error(`Scan exceeds per-file byte limit of ${maxFileSizeBytes}: ${entry.name}`);
         totalBytes += stats.size;
         if (totalBytes > maxTotalBytes)
           throw new Error(`Scan exceeds total byte limit of ${maxTotalBytes}`);
