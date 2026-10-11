@@ -37,7 +37,8 @@
     "db:validate": "prisma validate",
     "test:phase1-round2": "node --import tsx scripts/verify-phase1-round2.ts",
     "db:baseline": "node --import tsx scripts/baseline-database.ts",
-    "test:database-upgrade": "node --import tsx scripts/verify-database-upgrade.ts"
+    "test:database-upgrade": "node --import tsx scripts/verify-database-upgrade.ts",
+    "test:lease-takeover": "node --import tsx scripts/verify-scan-lease-takeover.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.0.0"
