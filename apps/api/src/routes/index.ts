@@ -33,6 +33,7 @@ import {
   createRepositoryScanController,
   getScanController,
   getScanFindingsController,
+  getScanFindingController,
   getScanProgressController,
   getScanSbomController,
   listRepositoriesController,
@@ -142,6 +143,11 @@ router.get(
   "/api/v1/scans/:scanId/findings",
   requirePermission("scan:read"),
   asyncHandler(getScanFindingsController),
+);
+router.get(
+  "/api/v1/scans/:scanId/findings/:findingId",
+  requirePermission("scan:read"),
+  asyncHandler(getScanFindingController),
 );
 router.get(
   "/api/v1/scans/:scanId/sbom",
