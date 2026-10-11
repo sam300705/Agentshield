@@ -31,32 +31,38 @@ try {
   });
 
   let releaseLock: () => void = () => undefined;
-  const held = new Promise<void>((resolve) => { releaseLock = resolve; });
+  const held = new Promise<void>((resolve) => {
+    releaseLock = resolve;
+  });
   let announceLock: () => void = () => undefined;
-  const locked = new Promise<void>((resolve) => { announceLock = resolve; });
+  const locked = new Promise<void>((resolve) => {
+    announceLock = resolve;
+  });
 
   // Worker A's transaction must hold a database row lock before B can take over.
-  const first = db.$transaction(async (tx) => {
-    await assertScanLease(tx, scan.id, { owner: "worker-original", attempt: 1 });
-    announceLock();
-    await held;
-  }, { timeout: 10_000 });
+  const first = db.$transaction(
+    async (tx) => {
+      await assertScanLease(tx, scan.id, { owner: "worker-original", attempt: 1 });
+      announceLock();
+      await held;
+    },
+    { timeout: 10_000 },
+  );
 
   try {
     await locked;
-    const takeover = Promise.resolve(db.scanJob.updateMany({
-      where: { scanId: scan.id, lockedBy: "worker-original", attempts: 1 },
-      data: {
-        lockedBy: "worker-replacement",
-        attempts: 2,
-        lockedAt: new Date(),
-        leaseExpiresAt: new Date(Date.now() + 60_000),
-      },
-    }));
-    const result = await Promise.race([
-      takeover.then(() => "updated"),
-      delay(120, "waiting"),
-    ]);
+    const takeover = Promise.resolve(
+      db.scanJob.updateMany({
+        where: { scanId: scan.id, lockedBy: "worker-original", attempts: 1 },
+        data: {
+          lockedBy: "worker-replacement",
+          attempts: 2,
+          lockedAt: new Date(),
+          leaseExpiresAt: new Date(Date.now() + 60_000),
+        },
+      }),
+    );
+    const result = await Promise.race([takeover.then(() => "updated"), delay(120, "waiting")]);
     assert.equal(result, "waiting", "takeover cannot change a row locked by a writer");
     releaseLock();
     await first;
@@ -96,7 +102,9 @@ try {
     /WORKER_LEASE_LOST/,
   );
   assert.equal((await db.scan.findUniqueOrThrow({ where: { id: scan.id } })).status, "RUNNING");
-  process.stdout.write("PASS: PostgreSQL lease row locking, takeover, cancellation and expiration\n");
+  process.stdout.write(
+    "PASS: PostgreSQL lease row locking, takeover, cancellation and expiration\\n",
+  );
 } finally {
   await db.scan.delete({ where: { id: scan.id } });
   await db.$disconnect();
