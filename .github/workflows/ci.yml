@@ -57,6 +57,11 @@ jobs:
       - run: pnpm db:deploy
       - run: pnpm db:seed
       - run: pnpm format:check
+      - name: Diagnose exact formatter output
+        if: failure()
+        run: |
+          pnpm exec prettier --write apps/api/src/integrations/githubInstallationService.test.ts packages/scanner/src/cliOutput.test.ts packages/schemas/src/control-plane.schema.ts scripts/verify-scan-lease-takeover.ts
+          git diff -- apps/api/src/integrations/githubInstallationService.test.ts packages/scanner/src/cliOutput.test.ts packages/schemas/src/control-plane.schema.ts scripts/verify-scan-lease-takeover.ts
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
