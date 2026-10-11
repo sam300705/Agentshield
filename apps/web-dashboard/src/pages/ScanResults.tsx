@@ -173,7 +173,9 @@ export function ScanResults() {
                 >
                   Previous
                 </button>
-                <span>Page {findingPage} of {Math.max(1, Math.ceil(findingTotal / 100))}</span>
+                <span>
+                  Page {findingPage} of {Math.max(1, Math.ceil(findingTotal / 100))}
+                </span>
                 <button
                   type="button"
                   className="rounded border border-slate-300 px-3 py-1 disabled:opacity-40"
@@ -222,7 +224,9 @@ export function ScanResults() {
               >
                 Previous
               </button>
-              <span>Page {dependencyPage} of {Math.max(1, Math.ceil(dependencyTotal / 100))}</span>
+              <span>
+                Page {dependencyPage} of {Math.max(1, Math.ceil(dependencyTotal / 100))}
+              </span>
               <button
                 type="button"
                 className="rounded border border-slate-300 px-3 py-1 disabled:opacity-40"
