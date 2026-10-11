@@ -82,6 +82,7 @@ jobs:
           WORKER_MODE=once pnpm --filter @agentshield/api worker
       - run: pnpm test:integration
       - run: pnpm test:database-upgrade
+      - run: pnpm test:lease-takeover
       - run: pnpm test:phase1-round2
       - run: pnpm test:gateway
       - run: pnpm test:github-lifecycle
