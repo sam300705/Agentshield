@@ -34,7 +34,7 @@ export async function listRepositoriesController(
     skip,
     take: limit,
     where: { organizationId: actor.organizationId },
-    orderBy: { fullName: "asc" },
+    orderBy: [{ fullName: "asc" }, { id: "asc" }],
     select: {
       id: true,
       provider: true,
@@ -158,7 +158,7 @@ export async function listScansController(request: Request, response: Response):
     prisma.scan.count({ where }),
     prisma.scan.findMany({
       where,
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       skip,
       take: limit,
       include: {
@@ -217,7 +217,7 @@ export async function getScanFindingsController(
     prisma.finding.count({ where }),
     prisma.finding.findMany({
       where,
-      orderBy: [{ severity: "desc" }, { createdAt: "desc" }],
+      orderBy: [{ severity: "desc" }, { createdAt: "desc" }, { id: "desc" }],
       skip,
       take: limit,
       include: {
@@ -240,7 +240,7 @@ export async function getScanSbomController(request: Request, response: Response
     prisma.dependency.count({ where }),
     prisma.dependency.findMany({
       where,
-      orderBy: [{ packageName: "asc" }, { version: "asc" }],
+      orderBy: [{ packageName: "asc" }, { version: "asc" }, { id: "asc" }],
       skip,
       take: limit,
     }),

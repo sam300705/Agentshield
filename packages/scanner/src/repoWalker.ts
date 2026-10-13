@@ -21,6 +21,7 @@ export interface WalkRepositoryOptions {
   maxFileSizeBytes?: number;
   maxTotalBytes?: number;
   signal?: AbortSignal;
+  onIgnored?: (entryPath: string) => void;
 }
 
 export async function walkRepository(
@@ -43,9 +44,10 @@ export async function walkRepository(
   function isIgnored(entryPath: string): boolean {
     const relative = path.relative(rootPath, entryPath).split(path.sep).join("/");
     return (
-      options.ignorePatterns?.some(
-        (pattern) => relative === pattern || relative.startsWith(`${pattern.replace(/\/$/, "")}/`),
-      ) ?? false
+      options.ignorePatterns?.some((rawPattern) => {
+        const pattern = rawPattern.replace(/\/+$/, "");
+        return pattern.length > 0 && (relative === pattern || relative.startsWith(`${pattern}/`));
+      }) ?? false
     );
   }
 
@@ -56,7 +58,10 @@ export async function walkRepository(
     for await (const entry of directory) {
       checkCancelled();
       const entryPath = path.join(directoryPath, entry.name);
-      if (isIgnored(entryPath)) continue;
+      if (isIgnored(entryPath)) {
+        options.onIgnored?.(entryPath);
+        continue;
+      }
       if (entry.isDirectory()) {
         if (!excludedDirectories.has(entry.name)) await visitDirectory(entryPath);
         continue;

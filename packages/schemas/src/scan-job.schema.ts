@@ -29,10 +29,7 @@ export const createRepositoryScanSchema = z
   .object({
     repositoryId: boundedString(128),
     ref: boundedString(256),
-    commitSha: z
-      .string()
-      .regex(/^[a-f0-9]{7,64}$/i)
-      .optional(),
+    commitSha: fullGitHubCommitSchema.optional(),
     policyBundleVersion: boundedString(128),
     options: scanOptionsSchema.default({}),
   })

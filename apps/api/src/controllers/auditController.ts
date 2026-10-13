@@ -25,7 +25,7 @@ export async function listAuditEventsController(
     prisma.auditEvent.count({ where }),
     prisma.auditEvent.findMany({
       where,
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       skip,
       take: limit,
     }),

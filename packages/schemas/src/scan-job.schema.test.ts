@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { scanJobPayloadSchema } from "./scan-job.schema.js";
+import { createRepositoryScanSchema, scanJobPayloadSchema } from "./scan-job.schema.js";
 
 describe("scan job payload schema", () => {
   it("normalizes a manual provider-neutral scan request", () => {
@@ -68,3 +68,32 @@ it.each([undefined, "abcdef1", "0".repeat(40), "a".repeat(64)])(
     ).toBe(false);
   },
 );
+
+describe("createRepositoryScanSchema", () => {
+  it("accepts valid 40-character commit SHA", () => {
+    expect(
+      createRepositoryScanSchema.parse({
+        repositoryId: "repo-1",
+        ref: "main",
+        commitSha: "0123456789abcdef0123456789abcdef01234567",
+        policyBundleVersion: "2026.06.0",
+      }),
+    ).toMatchObject({
+      commitSha: "0123456789abcdef0123456789abcdef01234567",
+    });
+  });
+
+  it.each(["abcdef1", "0".repeat(40), "a".repeat(64), "not-hex-sha!"])(
+    "rejects invalid commit SHA %s",
+    (commitSha) => {
+      expect(() =>
+        createRepositoryScanSchema.parse({
+          repositoryId: "repo-1",
+          ref: "main",
+          commitSha,
+          policyBundleVersion: "2026.06.0",
+        }),
+      ).toThrow();
+    },
+  );
+});

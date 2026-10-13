@@ -15,6 +15,7 @@ interface InstallationTokenResponse {
 }
 
 interface RepositoryListResponse {
+  total_count?: number;
   repositories: Array<{
     id: number;
     full_name: string;
@@ -180,6 +181,9 @@ export class FetchGitHubAppClient
       }));
       repositories.push(...pageItems);
       if (pageItems.length < 100) return repositories;
+      if (typeof data.total_count === "number" && repositories.length >= data.total_count) {
+        return repositories;
+      }
       if (page === MAX_REPOSITORY_PAGES) {
         throw new Error(
           "GITHUB_REPOSITORY_LIMIT_EXCEEDED: repository synchronization requires more than the bounded page limit.",

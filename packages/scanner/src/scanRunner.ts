@@ -13,6 +13,8 @@ export interface ScanRunnerResult {
   targetPath: string;
   findings: Finding[];
   dependencies: Dependency[];
+  scannedFiles?: string[];
+  skippedFiles?: string[];
 }
 
 const TEXT_FILE_EXTENSIONS = new Set([
@@ -78,10 +80,16 @@ export async function runScan(
   options: WalkRepositoryOptions = {},
 ): Promise<ScanRunnerResult> {
   const targetRoot = path.resolve(targetPath);
+  const skippedFiles: string[] = [];
   const filePaths = await walkRepository(targetRoot, {
     ...options,
     // Only explicit caller/operator exclusions are trusted, never checkout-controlled settings.
     ignorePatterns: options.ignorePatterns ?? [],
+    onIgnored: (entryPath) => {
+      const relative = path.relative(targetRoot, entryPath).split(path.sep).join("/");
+      skippedFiles.push(relative);
+      options.onIgnored?.(entryPath);
+    },
   });
   const findings: Finding[] = [];
   const dependencies: Dependency[] = [];
@@ -120,5 +128,7 @@ export async function runScan(
     targetPath: targetRoot,
     findings: sortFindings(findings),
     dependencies,
+    scannedFiles: filePaths.map((f) => path.relative(targetRoot, f).split(path.sep).join("/")),
+    skippedFiles: skippedFiles.sort((left, right) => left.localeCompare(right)),
   };
 }
