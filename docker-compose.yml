@@ -4,7 +4,7 @@ services:
     container_name: agentshield-postgres
     restart: unless-stopped
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-agentshield}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-agentshield_dev_password}

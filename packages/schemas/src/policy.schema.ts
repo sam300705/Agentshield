@@ -62,17 +62,19 @@ export const policyRuleSchema = z
     }
   });
 
-export const policyRuleDictionarySchema = z.record(policyRuleSchema).superRefine((rules, context) => {
-  for (const [dictionaryKey, rule] of Object.entries(rules)) {
-    if (dictionaryKey !== rule.id) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: [dictionaryKey, "id"],
-        message: "Policy rule dictionary key must match the rule id",
-      });
+export const policyRuleDictionarySchema = z
+  .record(policyRuleSchema)
+  .superRefine((rules, context) => {
+    for (const [dictionaryKey, rule] of Object.entries(rules)) {
+      if (dictionaryKey !== rule.id) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [dictionaryKey, "id"],
+          message: "Policy rule dictionary key must match the rule id",
+        });
+      }
     }
-  }
-});
+  });
 
 export const policyDecisionSchema = z.object({
   id: z.string().min(1),
@@ -92,4 +94,3 @@ export type PolicyRuleTarget = z.infer<typeof policyRuleTargetSchema>;
 export type PolicyRule = z.infer<typeof policyRuleSchema>;
 export type PolicyRuleDictionary = z.infer<typeof policyRuleDictionarySchema>;
 export type PolicyDecision = z.infer<typeof policyDecisionSchema>;
-

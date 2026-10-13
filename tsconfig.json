@@ -4,7 +4,13 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["prisma/**/*.ts", "prisma.config.ts", "server.ts", "scripts/**/*.ts"],
+  "include": [
+    "prisma/**/*.ts",
+    "prisma.config.ts",
+    "playwright.config.ts",
+    "e2e/**/*.ts",
+    "scripts/**/*.ts"
+  ],
   "references": [
     {
       "path": "./packages/schemas"

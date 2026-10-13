@@ -1,0 +1,120 @@
+import { createServer, type Server } from "node:http";
+
+import express from "express";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { createRateLimiter, rateLimitRouteIdentity } from "./rateLimit.js";
+
+const servers: Server[] = [];
+
+async function start(app: express.Express): Promise<{ origin: string; server: Server }> {
+  const server = createServer(app);
+  servers.push(server);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (address == null || typeof address === "string") throw new Error("Test server did not bind.");
+  return { origin: `http://127.0.0.1:${address.port}`, server };
+}
+
+afterEach(async () => {
+  await Promise.all(
+    servers
+      .splice(0)
+      .map(
+        (server) =>
+          new Promise<void>((resolve, reject) =>
+            server.close((error) => (error == null ? resolve() : reject(error))),
+          ),
+      ),
+  );
+});
+
+describe("rate limiter", () => {
+  it("rejects requests over the configured limit", async () => {
+    const app = express();
+    app.use(createRateLimiter({ enabled: true, max: 1, windowMs: 60_000 }));
+    app.get("/health", (_request, response) => response.json({ ok: true }));
+    const { origin } = await start(app);
+
+    const first = await fetch(`${origin}/health`);
+    const second = await fetch(`${origin}/health`);
+
+    expect(first.status).toBe(200);
+    expect(first.headers.get("ratelimit-limit")).toBe("1");
+    expect(second.status).toBe(429);
+    const body = (await second.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("RATE_LIMITED");
+  });
+
+  it("passes through every request when disabled", async () => {
+    const app = express();
+    app.use(createRateLimiter({ enabled: false, max: 1, windowMs: 60_000 }));
+    app.get("/health", (_request, response) => response.json({ ok: true }));
+    const { origin } = await start(app);
+
+    const responses = await Promise.all([fetch(`${origin}/health`), fetch(`${origin}/health`)]);
+
+    expect(responses.map((response) => response.status)).toEqual([200, 200]);
+  });
+});
+
+it("bounds active bucket cardinality without evicting existing limits", () => {
+  const limiter = createRateLimiter({
+    enabled: true,
+    max: 1,
+    windowMs: 60_000,
+    keyForRequest: (request) => request.ip ?? "unknown",
+  });
+  const res = {
+    locals: {},
+    getHeader: vi.fn(),
+    setHeader: vi.fn(),
+    status: vi.fn(),
+    json: vi.fn(),
+  };
+  res.status.mockReturnValue(res);
+  const next = vi.fn();
+  for (let index = 0; index < 10000; index++)
+    limiter(
+      { ip: `identity-${index}`, method: "GET", path: "/" } as unknown as express.Request,
+      res as unknown as express.Response,
+      next,
+    );
+  expect(next).toHaveBeenCalledTimes(10000);
+  limiter(
+    { ip: "overflow", method: "GET", path: "/" } as unknown as express.Request,
+    res as unknown as express.Response,
+    next,
+  );
+  expect(res.status).toHaveBeenLastCalledWith(429);
+  expect(res.json).toHaveBeenLastCalledWith({
+    error: {
+      code: "RATE_LIMITED",
+      message: "Too many active request identities. Try again later.",
+      correlationId: "unknown",
+    },
+  });
+  limiter(
+    { ip: "identity-0", method: "GET", path: "/" } as unknown as express.Request,
+    res as unknown as express.Response,
+    next,
+  );
+  expect(next).toHaveBeenCalledTimes(10000);
+  expect(res.status).toHaveBeenLastCalledWith(429);
+  expect(res.json).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      error: expect.objectContaining({ correlationId: "unknown" }) as unknown,
+    }),
+  );
+});
+
+it("shares the admission budget across random IDs and versioned aliases before routing", async () => {
+  const app = express();
+  app.use(createRateLimiter({ enabled: true, max: 1, windowMs: 60_000 }));
+  app.get("/api/v1/scans/:id", (_req, res) => res.json({ ok: true }));
+  app.get("/api/scans/:id", (_req, res) => res.json({ ok: true }));
+  const { origin } = await start(app);
+  expect((await fetch(`${origin}/api/v1/scans/a`)).status).toBe(200);
+  expect((await fetch(`${origin}/api/scans/b`)).status).toBe(429);
+  expect(rateLimitRouteIdentity({ method: "GET", path: "/not/a/known/route" })).toBe("GET:other");
+});

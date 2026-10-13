@@ -15,7 +15,10 @@ export interface RemediationPlaybook {
 }
 
 function formatCodeSnippet(snippet: SafeCodeSnippet): string {
-  const before = snippet.before == null ? "" : `Before:\n\`\`\`${snippet.language}\n${snippet.before}\n\`\`\`\n\n`;
+  const before =
+    snippet.before == null
+      ? ""
+      : `Before:\n\`\`\`${snippet.language}\n${snippet.before}\n\`\`\`\n\n`;
 
   return `${before}After:\n\`\`\`${snippet.language}\n${snippet.after}\n\`\`\``;
 }
