@@ -22,6 +22,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { prisma } from "../db/prisma.js";
+import { receiptSigningSettings } from "../security/receiptSigningConfig.js";
+export { receiptSigningSettings } from "../security/receiptSigningConfig.js";
 
 const SYSTEM_ACTOR = "System";
 const DEMO_TARGET_PATH = "../../examples/vulnerable-repo";
@@ -216,15 +218,15 @@ async function persistDependency(
     data: {
       id: dependency.id,
       scanId: dependency.scanId,
-      packageName: dependency.packageName,
-      version: dependency.version,
+      packageName: sanitizeText(dependency.packageName),
+      version: sanitizeText(dependency.version),
       packageManager: dependency.packageManager,
       scope: dependency.scope,
-      manifestPath: dependency.manifestPath,
-      purl: dependency.purl ?? null,
-      license: dependency.license ?? null,
-      supplier: dependency.supplier ?? null,
-      metadata: toInputJson(dependency.metadata),
+      manifestPath: sanitizeText(dependency.manifestPath),
+      purl: dependency.purl == null ? null : sanitizeText(dependency.purl),
+      license: dependency.license == null ? null : sanitizeText(dependency.license),
+      supplier: dependency.supplier == null ? null : sanitizeText(dependency.supplier),
+      metadata: toInputJson(sanitizeEvidence(dependency.metadata)),
       createdAt: dependency.createdAt,
     },
   });
@@ -361,15 +363,6 @@ export async function persistAdvisories(
     }
   }
   return count;
-}
-
-export function receiptSigningSettings(env: Record<string, string | undefined>) {
-  const privateKey = env.RECEIPT_SIGNING_PRIVATE_KEY?.trim() || undefined;
-  const keyId = env.RECEIPT_SIGNING_KEY_ID?.trim() || undefined;
-  if ((privateKey == null) !== (keyId == null)) {
-    throw new Error("Receipt signing requires both private key and key ID.");
-  }
-  return { privateKey, keyId };
 }
 
 async function persistSecurityReceipt(

@@ -11,6 +11,7 @@ const GITHUB_TOKEN_PATTERN = /\b(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]{20,255}\b
 const STRIPE_KEY_PATTERN = /\bsk_live_[A-Za-z0-9]{20,255}\b/g;
 const AWS_ACCESS_KEY_PATTERN = /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g;
 const CONNECTION_STRING_PATTERN = /\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?):\/\/[^\s"'<>]+/gi;
+const URL_USERINFO_PATTERN = /([a-z][a-z0-9+.-]*:\/\/)[^\s/"'<>]+@/gi;
 const CREDENTIAL_URL_PATTERN =
   /([?&](?:access_token|api_key|apikey|client_secret|password|secret|token)=)[^&\s"'<>]+/gi;
 const SECRET_ASSIGNMENT_PATTERN =
@@ -23,9 +24,23 @@ function redact(label: string): string {
 }
 
 function sanitizeString(value: string): string {
+  // Package URLs percent-encode dependency versions, including URL credentials.
+  // Decode once only for this known format; leave ordinary encoded text unchanged.
+  if (value.startsWith("pkg:")) {
+    try {
+      const decoded = decodeURIComponent(value.slice(4));
+      const redacted = decoded
+        .replace(URL_USERINFO_PATTERN, `$1${redact("URL_USERINFO")}@`)
+        .replace(CREDENTIAL_URL_PATTERN, `$1${redact("URL_CREDENTIAL")}`);
+      if (redacted !== decoded) return `pkg:${redacted}`;
+    } catch {
+      return redact("INVALID_PACKAGE_URL");
+    }
+  }
   let sanitized = value;
   sanitized = sanitized.replace(PRIVATE_KEY_PATTERN, redact("PRIVATE_KEY"));
   sanitized = sanitized.replace(CONNECTION_STRING_PATTERN, redact("CONNECTION_STRING"));
+  sanitized = sanitized.replace(URL_USERINFO_PATTERN, `$1${redact("URL_USERINFO")}@`);
   sanitized = sanitized.replace(CREDENTIAL_URL_PATTERN, `$1${redact("URL_CREDENTIAL")}`);
   sanitized = sanitized.replace(AWS_SECRET_ASSIGNMENT_PATTERN, `$1${redact("AWS_SECRET")}`);
   sanitized = sanitized.replace(SECRET_ASSIGNMENT_PATTERN, `$1${redact("SECRET")}`);
@@ -46,6 +61,8 @@ function sensitiveFieldName(key: string): boolean {
 
 function sanitizeUnknown(value: unknown): JsonValue {
   if (value === null) return null;
+  if (value instanceof Date)
+    return Number.isFinite(value.getTime()) ? value.toISOString() : redact("INVALID_DATE");
   if (typeof value === "string") return sanitizeString(value);
   if (typeof value === "boolean" || typeof value === "number") return value;
   if (Array.isArray(value)) return value.map(sanitizeUnknown);

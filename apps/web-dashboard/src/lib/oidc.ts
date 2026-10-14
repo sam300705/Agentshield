@@ -271,6 +271,9 @@ export class OidcSession {
 }
 
 function validateOidcUrls(config: OidcConfig): void {
+  if (!config.scopes.includes("openid")) {
+    throw new Error("OIDC scopes must include openid.");
+  }
   const urls = [
     config.issuer,
     config.redirectUri,

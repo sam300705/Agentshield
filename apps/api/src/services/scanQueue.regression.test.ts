@@ -216,3 +216,17 @@ it.each([false, true])(
     expect(scan.data.completedAt).toEqual(now);
   },
 );
+
+it("clears current failure metadata during claim and successful completion", async () => {
+  await processNextScanJob("worker", { execute: () => Promise.resolve("scan") });
+  const claim = db.scanJob.updateMany.mock.calls[0]?.[0] as { data: Record<string, unknown> };
+  const completion = db.scanJob.updateMany.mock.calls.at(-1)?.[0] as {
+    data: Record<string, unknown>;
+  };
+  expect(claim.data).toMatchObject({ status: "RUNNING", failureCode: null, failureMessage: null });
+  expect(completion.data).toMatchObject({
+    status: "COMPLETED",
+    failureCode: null,
+    failureMessage: null,
+  });
+});

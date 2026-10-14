@@ -82,6 +82,24 @@ export function ScanResults() {
     getCoreRowModel: getCoreRowModel(),
   });
 
+  const dependencyColumns = useMemo<ColumnDef<Dependency>[]>(
+    () => [
+      { header: "Package", accessorKey: "packageName" },
+      { header: "Version", accessorKey: "version" },
+      { header: "Scope", accessorKey: "scope" },
+      { header: "Manifest", accessorKey: "manifestPath" },
+    ],
+    [],
+  );
+  const dependencyTable = useReactTable({
+    data: dependencies,
+    columns: dependencyColumns,
+    getCoreRowModel: getCoreRowModel(),
+    getRowId: (row) => row.id,
+    manualPagination: true,
+    rowCount: dependencyTotal,
+  });
+
   if (isLoading) {
     return <LoadingState label="Loading scan results" />;
   }
@@ -192,22 +210,33 @@ export function ScanResults() {
         <div className="overflow-hidden rounded border border-slate-200 bg-white">
           <table className="min-w-full divide-y divide-slate-200 text-sm">
             <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-              <tr>
-                <th className="px-4 py-3">Package</th>
-                <th className="px-4 py-3">Version</th>
-                <th className="px-4 py-3">Scope</th>
-                <th className="px-4 py-3">Manifest</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200">
-              {dependencies.map((dependency) => (
-                <tr key={dependency.id}>
-                  <td className="px-4 py-3 font-medium text-slate-950">{dependency.packageName}</td>
-                  <td className="px-4 py-3 text-slate-600">{dependency.version}</td>
-                  <td className="px-4 py-3 text-slate-600">{dependency.scope}</td>
-                  <td className="px-4 py-3 text-slate-600">{dependency.manifestPath}</td>
+              {dependencyTable.getHeaderGroups().map((group) => (
+                <tr key={group.id}>
+                  {group.headers.map((header) => (
+                    <th className="px-4 py-3" scope="col" key={header.id}>
+                      {flexRender(header.column.columnDef.header, header.getContext())}
+                    </th>
+                  ))}
                 </tr>
               ))}
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              {dependencyTable.getRowModel().rows.map((row) => (
+                <tr key={row.id}>
+                  {row.getVisibleCells().map((cell) => (
+                    <td className="px-4 py-3 text-slate-600" key={cell.id}>
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+              {dependencies.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="px-4 py-3">
+                    No SBOM items were returned for this scan.
+                  </td>
+                </tr>
+              ) : null}
             </tbody>
           </table>
           <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3 text-sm">

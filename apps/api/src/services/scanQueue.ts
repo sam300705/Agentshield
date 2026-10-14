@@ -411,6 +411,8 @@ export async function processNextScanJob(
       lastHeartbeatAt: new Date(),
       attempts: { increment: 1 },
       progress: 5,
+      failureCode: null,
+      failureMessage: null,
     },
   });
   if (claimed.count !== 1) return true;
@@ -476,6 +478,8 @@ export async function processNextScanJob(
         leaseExpiresAt: null,
         lastHeartbeatAt: new Date(),
         nextAttemptAt: null,
+        failureCode: null,
+        failureMessage: null,
       },
     });
     if (completed.count !== 1) throw new Error("WORKER_LEASE_LOST");

@@ -91,3 +91,24 @@ it("redacts fine-grained GitHub PATs in free-form resource and command evidence"
   const evidence = sanitizeEvidence({ command: `curl -H 'x-token: ${token}'` });
   expect(JSON.stringify(evidence)).not.toContain(token);
 });
+
+it.each(["https", "git+https", "ssh"])(
+  "redacts URL userinfo for %s without hiding the host",
+  (scheme) => {
+    const value = `${scheme}://synthetic-user:synthetic-password@example.test/repo.git`;
+    const safe = sanitizeText(value);
+    expect(safe).not.toContain("synthetic-user");
+    expect(safe).not.toContain("synthetic-password");
+    expect(safe).toContain("example.test/repo.git");
+  },
+);
+
+it("redacts percent-encoded credential versions in package URLs and preserves dates", () => {
+  const spec = "git+https://synthetic-user:synthetic-password@example.test/repo.git";
+  const safe = sanitizeText(`pkg:npm/alpha@${encodeURIComponent(spec)}`);
+  expect(safe).not.toContain("synthetic-user");
+  expect(safe).not.toContain("synthetic-password");
+  expect(sanitizeEvidence({ createdAt: new Date("2026-01-01T00:00:00Z") })).toEqual({
+    createdAt: "2026-01-01T00:00:00.000Z",
+  });
+});

@@ -50,6 +50,7 @@ describe("tenant dashboard and request regressions", () => {
       contains({
         platformRiskScore: "F",
         latestScan: contains({
+          platformRiskScore: "A",
           severityCounts: { critical: 0, high: 0, medium: 0, low: 0 },
         }),
       }),

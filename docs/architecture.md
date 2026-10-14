@@ -1,5 +1,7 @@
 # Architecture
 
+Current production boundaries and phase acceptance design: [Phases 1–4](flagship-architecture-phases1-4.md). The demo sequence below is historical; current demo admission is queued and returns 202, as described in [API contracts](api-contracts.md).
+
 AgentShield is organized as a TypeScript monorepo because the most important engineering boundary in v1 is contract integrity, not service distribution. The scanner, policy engine, remediation generator, API, and dashboard all depend on shared Zod schemas, which keeps runtime validation and TypeScript inference aligned across the stack.
 
 ## Monorepo Design Decisions

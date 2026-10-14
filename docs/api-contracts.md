@@ -4,7 +4,7 @@ This document covers the primary demo scan endpoints exposed by `apps/api`. All 
 
 ## `POST /api/scans/run-demo`
 
-Runs the deterministic demo scan against `examples/vulnerable-repo`.
+Queues the deterministic demo scan against `examples/vulnerable-repo`. Requires authenticated `scan:run` permission. An optional `Idempotency-Key` header must contain 8–128 safe identifier characters; otherwise the server derives a key from the request correlation ID.
 
 ### Request
 
@@ -16,24 +16,25 @@ No request body is required.
 
 ### Success Response
 
-Status: `201 Created`
+Status: `202 Accepted`
 
 ```json
 {
-  "scanId": "clxscan0001demo"
+  "scanId": "clxscan0001demo",
+  "jobId": "job0001demo",
+  "status": "QUEUED",
+  "correlationId": "request0001"
 }
 ```
 
 ### Operational Behavior
 
-- Creates a `Scan` record with status `RUNNING`.
-- Writes a `SCAN_CREATED` audit event.
-- Runs the scanner package against the local vulnerable demo repository.
-- Evaluates findings with the policy engine.
-- Generates remediation only for `BLOCK` and `REQUIRE_APPROVAL` policy decisions.
-- Creates pending approvals for `REQUIRE_APPROVAL` decisions.
-- Persists findings, dependencies, policy decisions, remediation, approvals, and completion audit data.
-- Marks the scan as `COMPLETED` or `FAILED`.
+- Atomically creates the queued scan/job and attributed admission audit record, or returns the existing scoped job for an idempotent replay. Its status may already have advanced.
+- Returns before scanning. The worker claims and executes the job with bounded retries.
+- Poll `GET /api/v1/scans/:scanId/progress` for job status/progress. Read findings and SBOM when complete.
+- Worker evaluates policy, generates eligible remediation, and transactionally persists evidence and completion history.
+- Execution status and security gate are separate: a completed scan may still BLOCK or REQUIRE_APPROVAL.
+- Cancellation, failures, and retry exhaustion remain explicit terminal/recovery states.
 
 ### Error Response
 
@@ -41,8 +42,11 @@ Status: `500 Internal Server Error`
 
 ```json
 {
-  "error": "INTERNAL_SERVER_ERROR",
-  "message": "An unexpected error occurred."
+  "error": {
+    "code": "INTERNAL_SERVER_ERROR",
+    "message": "An unexpected error occurred.",
+    "correlationId": "request0001"
+  }
 }
 ```
 

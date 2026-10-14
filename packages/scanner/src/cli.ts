@@ -241,7 +241,7 @@ async function main(): Promise<void> {
           unresolvedCount,
           gate,
           receipt,
-          ...(advisories === undefined ? {} : { advisories }),
+          ...(advisories === undefined ? {} : { advisories: sanitizeEvidence(advisories) }),
         }),
       );
     } else
@@ -254,8 +254,8 @@ async function main(): Promise<void> {
             unresolvedCount,
             findings: result.findings,
             decisions,
-            dependencies: result.dependencies,
-            ...(advisories === undefined ? {} : { advisories }),
+            dependencies: sanitizeEvidence(result.dependencies),
+            ...(advisories === undefined ? {} : { advisories: sanitizeEvidence(advisories) }),
             gate,
             receipt,
           },

@@ -44,7 +44,7 @@ export async function getDashboardSummaryController(
     prisma.agentApproval.count({ where: { organizationId, status: ApprovalStatus.PENDING } }),
     prisma.scan.findFirst({
       where: scanWhere,
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       include: {
         _count: { select: { findings: true, dependencies: true } },
       },
@@ -146,7 +146,10 @@ export async function getDashboardSummaryController(
       dependenciesCount: latestScan._count.dependencies,
       severityCounts,
       decisionCounts,
-      platformRiskScore,
+      platformRiskScore: calculatePlatformRiskScore({
+        ...severityCounts,
+        ...decisionCounts,
+      }),
     },
   });
 }

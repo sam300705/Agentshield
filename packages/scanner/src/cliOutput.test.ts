@@ -126,3 +126,24 @@ it("scans a credential beyond the default per-file limit when within explicit CL
     await rm(root, { recursive: true, force: true });
   }
 }, 30000);
+
+it("redacts credential-bearing dependency specs in real CLI JSON output", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "agentshield-dependency-output-"));
+  try {
+    await writeFile(
+      path.join(root, "package.json"),
+      JSON.stringify({
+        dependencies: {
+          alpha: "git+https://synthetic-user:synthetic-password@example.test/repo.git",
+        },
+      }),
+    );
+    const output = await scan(root, "json");
+    expect(output).not.toContain("synthetic-user");
+    expect(output).not.toContain("synthetic-password");
+    expect(output).toContain("example.test/repo.git");
+    expect((JSON.parse(output) as { dependencies: unknown[] }).dependencies).toHaveLength(1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 15000);
