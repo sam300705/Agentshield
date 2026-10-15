@@ -72,3 +72,27 @@ collection keys through process warnings. Conversion now retains Map keys instea
 of coercing them into object strings; an actual scanner regression spies on
 process.emitWarning and verifies private key material never enters scan output.
 This is additional Phase 1 evidence hardening, not provider qualification.
+
+## Current-head automated review remediation (P1-R2)
+
+Inspected head: `df952b915ad10367457323e697432225cc6f1c1a`. Review state was
+COMMENTED, not independent acceptance. Four reports were confirmed and addressed:
+
+| Review reference           | Failure / candidate correction                                                                                                                                                                                | Boundary regression                                                                                                                                                                                                           |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 4286933600 / HIGH          | File-wide template detection suppressed valid Kubernetes documents beside templates. Detect incompleteness per document and inspect only independently valid document ranges, preserving global line numbers. | LF/CRLF mixed ConfigMap/privileged-Pod scanner fixtures; actual CLI reports BLOCK and PARTIAL, not an empty passing gate.                                                                                                     |
+| 4286933611 / MEDIUM        | Shutdown restored retry budget to zero before later archival, misnumbering the executed claim. Add monotonic claimSequence; preserve retry-budget counters separately and label historical uncertainty.       | Real PostgreSQL ABA archive is claim 1; two consecutive shutdowns archive claims 1 and 2, followed by claim 3; existing audit-injection rollback retained.                                                                    |
+| 4286933624 / MEDIUM        | Random occurrence UUID chose metadata, including devDependencies on a production row. Prefer production and canonical sanitized source semantics; aggregate dependencyFields.                                 | Deliberately reverse both UUID ordering and source ordering; actual persisted collision retains production metadata and both source sections.                                                                                 |
+| Review 5538214770 / MEDIUM | Decision transaction committed before required approval, permitting a close to split the operation. Reuse a transaction-aware approval helper under the same lock and transaction.                            | Real DB scheduler pauses after the gateway's first transaction commits, closes the session and verifies a complete successful decision/approval pair; both approval-audit and decision-audit injection roll back all records. |
+
+Implementation evidence is not independent acceptance; no thread is resolved.
+The narrow work package and additive migration impact are recorded in the plan
+and database upgrade guide. Local workspace tests: 396 PASS; six browser tests,
+types/lint/build, real PostgreSQL completion/upgrade/gateway/lease/round-2/GitHub
+regressions PASS. Final published-head CI still needs its own publication evidence.
+
+Failure investigation: the baseline rehearsal helper splits migration SQL on
+semicolons, including comments. A semicolon in the new unpublished migration's
+comment caused drift-rehearsal syntax failure. Rewording that comment preserved
+the unchanged SQL operation and restored populated-upgrade/drift-refusal checks.
+The disposable database was recreated to retest the final migration bytes.

@@ -35,3 +35,23 @@ identity, unsigned coverage receipts and seed preservation/rollback/serializatio
 A customer-owned fixture in the demo tenant survives, including its audit and
 receipt. Cleanup targets generated test-owned IDs; importing `prisma/seed.ts`
 does not run its CLI. These test hooks are not production recovery commands.
+
+## Monotonic scan claim numbering
+
+`20261015190000_scan_claim_sequence` additively adds non-null `ScanJob.claimSequence`
+with default zero. Every new-worker claim increments it in the claim/audit transaction;
+shutdown may restore the retry-budget `attempts` counter but never this sequence.
+Archived failures and cancellation history distinguish `CLAIM_SEQUENCE` from
+`LEGACY_RETRY_COUNTER` and retain the separate retry-budget value.
+
+Zero on historical rows means no post-upgrade claim has been numbered. It does not
+assert that the job never ran. Old lifetime execution counts cannot be reconstructed;
+legacy audits are never rewritten. The populated-upgrade regression preserves a
+failed job's identity, status, retry count and failure context while verifying zero
+initial sequence, alongside existing customer scan/audit/receipt/session preservation.
+
+Drain/stop old workers before upgrading and start only migrated, regenerated-client
+workers. Mixed old/new workers cannot promise this numbering because old workers do
+not increment the column. For code rollback, stop workers, retain the additive column
+and history, and acknowledge that old code restores its earlier retry-numbering
+limitations. No schema rollback/drop or production operation is performed here.

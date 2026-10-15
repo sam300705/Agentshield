@@ -191,3 +191,25 @@ Final YAML hardening retains structured Map keys during document conversion,
 preventing the library from emitting raw repository keys in coercion warnings.
 A dedicated regression checks the actual scanner's warning and result boundaries.
 This additive change requires its own published-head CI, not the earlier candidate's.
+
+## Subsequent current-head feedback — P1-R2
+
+After the previous publication, current-head automated review identified four more
+Phase 1 issues. Full environment access did not satisfy independent acceptance.
+The [review register](phase1-review-fix-register.md) now records per-document YAML
+coverage/findings, stable consolidated source metadata, monotonic claim numbering,
+and atomic decision/required-approval/audit creation with deterministic regressions.
+
+New migration `20261015190000_scan_claim_sequence` adds one default-zero counter;
+all earlier migration bytes are preserved. Historical lifetime claim counts remain
+unknown; old retry counters are explicitly labelled rather than rewritten. Drain
+old workers for upgrade/rollback as described in the database guide.
+
+Local verification: 396 workspace tests, six browser tests, strict types, lint,
+build and real PostgreSQL completion, populated upgrades/drift refusal, gateway,
+lease takeover, round-2 and synthetic GitHub lifecycle checks PASS. The completion
+suite now forces closure after the gateway's first committed transaction and
+injects failure into each of the two audits, verifying pairwise atomicity.
+Final publication SHA/tree and its own CI belong in PR #16's publication record.
+No earlier successful head qualifies this candidate. Reviews remain open and
+independent acceptance is pending; Phase 2 and production remain gated.

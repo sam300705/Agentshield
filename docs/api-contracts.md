@@ -175,6 +175,11 @@ or create new approvals. An admitted decision is not an external-action lock:
 closure does not undo actions already completed or prevent a cooperative caller
 from acting on a previously returned decision. The SDK is not runtime enforcement.
 
+A gateway decision requiring approval, its required approval and both authoritative
+audits now commit in one transaction under that session lock. Closure cannot fall
+between decision persistence and approval creation. Either audit failure rolls the
+whole admission back; an idempotency conflict creates no new decision audit.
+
 ## Scan coverage and receipt compatibility
 
 New scans expose `metadata.coverage`; new canonical receipts include optional
@@ -214,3 +219,8 @@ conflicting nonproduction scopes become UNKNOWN. Counts reflect persisted rows,
 and advisory links use persisted identities. No credential hash, reversible
 encoding or secret-derived discriminator is added, avoiding low-entropy secret
 hash disclosure. Analysis/enrichment uses original inventory only in memory.
+
+Consolidated metadata selects a production source first, then stable sanitized
+source semantics; generated IDs only break ties between identical public content.
+`dependencyFields` aggregates observed section names. A production row cannot
+randomly inherit development-section metadata from UUID ordering.

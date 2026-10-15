@@ -47,6 +47,28 @@ and [proposed contracts](action-approval-execution-contracts.md).
 
 ## Phase backlog and gates
 
+### Work package P1-R2: current-head automated feedback
+
+Objective/evidence: verify and close four new findings on `df952b915ad10367457323e697432225cc6f1c1a`:
+mixed templated YAML must retain independently valid checks; shutdown must not
+misnumber claim history; consolidated metadata must not depend on random IDs;
+required approval and its decision must commit under the same session lock.
+Scope is scanner, dependency persistence, queue claims, gateway/approval service,
+shared existing contracts and regression scripts. No Phase 2 admission or provider writes.
+
+Reuse: extend the existing YAML parser, Prisma transactions and declarative policy.
+Security invariants: valid document findings survive partial coverage; public
+metadata uses stable source semantics; claim sequence never decrements; a decision
+requiring approval cannot commit separately from its approval/audits. Dependencies:
+existing Phase 1 candidate and disposable PostgreSQL, not external credentials.
+Migration: additive claim-sequence column, zero for historical rows; pre-upgrade
+attempt numbering remains explicitly legacy/uncertain. Existing SQL is immutable.
+Tests: actual CLI mixed-document BLOCK, randomized source-ID consolidation,
+repeated PostgreSQL shutdowns, concurrent closure and approval/audit rollback.
+Acceptance: local checks and final-head CI, then independent review. Recovery:
+revert code additively while retaining the harmless new column and all history;
+never rewrite old audits or reset a populated database.
+
 | Track              | Current status                                     | Required next evidence                                                                                         |
 | ------------------ | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | R0 research        | PARTIAL: desk research and pilot protocol recorded | Actual team interviews, comparator trials, pilot outcomes and buyer evidence                                   |
