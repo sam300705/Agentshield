@@ -28,3 +28,86 @@ Actual PostgreSQL persisted-SBOM regression is added to the existing CI database
 ## Remaining gates
 
 Phase 1 remains PARTIAL: production session create/read/close lifecycle and full coverage propagation remain outstanding. Existing ACTIVE/tenant/actor gateway checks remain enforced. Independent acceptance remains pending. Phases 2–4 still require accepted predecessor integration and their own fixes/live qualification; Phase 5 is not advanced.
+
+## Completion update — 2026-10-15 (supersedes remaining implementation gaps above)
+
+Recovered from published follow-up `3b062d263afd96f96158bb4982b84a47861383fa`
+on `phase1/flagship-integrity-followup`, targeting the unchanged Phase 1 base
+`phase1/consolidate-stabilize` (`f996445bde6cde57011461c45a1fd8eb007518ab`).
+The subsequent local completion work described in the request was absent in this
+machine; this completion was newly implemented after inspecting the published
+branch. Earlier onboarding edits in `/workspace/Agentshield` remain untouched;
+this work uses the separate ordinary checkout `/workspace/Agentshield-phase1`.
+The requested `docs/industry-product-implementation-plan.md` is absent from this
+published branch. No Phase 2–4 feature or branch was changed.
+
+### Review finding → invariant → regression
+
+| Current review finding           | Invariant / implementation                                                                                                                                                                           | Regression evidence                                                                                                                    |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| 4272394287: PURL encoding        | Redact decoded components, retain structural/scoped-name encoding, reconstruct changed components; nested encodings are bounded and malformed inputs fail closed.                                    | `packages/schemas/src/evidenceRedaction.test.ts`: scoped names, encoded/nested versions, qualifiers, malformed encoding and safe URLs. |
+| 4272394303: URL authority        | Userinfo stops at `/`, `?`, `#`; ordinary query/fragment email addresses keep their host. Encoded credential query keys are redacted.                                                                | Same suite: authority boundaries and query/fragment preservation.                                                                      |
+| 4272394296: retry history        | Claim CAS includes attempt and retry bound. Successful claim and sanitized attributed prior-failure audit commit atomically before current fields are cleared. A losing claimant creates no history. | `pnpm test:phase1-completion`: actual PostgreSQL claim race, durable history after success and audit-injection rollback.               |
+| 4272394313: dependency collision | Consolidate redacted public identity, retain conservative scope, link advisories to persisted IDs, count persisted rows; no secret-derived discriminator/hash.                                       | Same PostgreSQL regression: colliding raw versions, production scope, persisted count, advisory relation, absence of credentials.      |
+
+The lifecycle contract now has authenticated tenant/actor-owned create/read/close
+routes and SDK methods. Creation uses tenant/actor/key serialization, exact context
+replay/conflict and atomic audit. Terminal replay never reopens a session. Session
+closure shares transaction locking with event ingestion, authorization admission
+and approval creation. Cross-owner responses avoid existence disclosure. Existing
+admitted external work is not reversed; this remains a cooperative SDK contract.
+
+Coverage now distinguishes enumerated/inspected/unsupported files and excluded
+entries through walker, scanner, all four CLI formats, metadata/API, UI and canonical
+receipts. Excluded directories never invent hidden-file counts. Historical coverage
+is unavailable, not backfilled. Optional coverage changes new hashes/signatures;
+absent fields preserve old verification. Unsigned canonical payload retention does
+not make a signed receipt or prove safety. No reader private-key distribution change.
+
+The additive migration `20261015120000_phase1_session_lifecycle` preserves existing
+migration files/checksums and adds nullable idempotency/context columns and audit
+enum values. The legacy upgrade test preserves populated scan, audit, receipt,
+session and tenant relationships. Imported seed helpers do not execute the CLI.
+Disposable-database tests prove seed rollback and concurrent serialization while
+retaining customer-owned data, audits and receipts inside the demo tenant.
+
+### Local commands and outcomes
+
+Runtime: Node 24.19.0 (supported by `engines`), repository-pinned pnpm 9.15.4.
+PostgreSQL: dedicated loopback Docker `postgres:16-alpine` instance; synthetic local
+credentials only. Database scripts were run with `NODE_ENV=test`; the completion
+regression additionally requires `AGENTSHIELD_DISPOSABLE_DATABASE=true`.
+
+- `pnpm install --frozen-lockfile --store-dir /tmp/agentshield-pnpm-store`: PASS.
+- `pnpm db:generate`, `pnpm db:validate`, `pnpm db:deploy`: PASS, including fresh deployment of all eight migrations.
+- `pnpm format:check`, `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm test:docs`: PASS.
+- `pnpm test`: PASS, 374 workspace tests (schemas 39, remediation 1, SDK 22, policy 55, web 42, scanner 50, API 165).
+- `pnpm test:integration`, `pnpm test:database-upgrade`, `pnpm test:lease-takeover`, `pnpm test:phase1-round2`, `pnpm test:phase1-completion`, `pnpm test:gateway`, `pnpm test:github-lifecycle`: PASS against disposable PostgreSQL where applicable. Gateway/GitHub regressions are synthetic, not live-provider qualification.
+- `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium pnpm test:e2e`: PASS, all six browser tests. Coverage UI has additional component regression tests.
+- Compiled API HTTP smoke on local port 3301: PASS for readiness, authentication/RBAC, strict identity/query validation, create/replay/conflict, actor privacy, close and terminal replay.
+- Source SARIF gate with the existing CI exclusions and `scripts/validate-sarif.ts`: PASS. Fixture BLOCK exit 3 and SARIF validation remain required publication CI gates.
+- Local Docker image build: attempted twice. Docker config initially used an unwritable home; a disposable `DOCKER_CONFIG` fixed that. Build then failed fetching pnpm inside Corepack's runtime stage, including with predefined proxy build arguments. Verification stayed enabled. This is not a local container-build pass; final-head CI must qualify the unchanged container recipe.
+
+### Failures investigated and fixed
+
+Ambient pnpm was 11; a local pinned 9.15.4 install restored the repository toolchain.
+An initial npm cache path was unwritable; the existing disposable cache corrected it.
+The original retry regression caught removal of the claim's exhaustion predicate;
+claim now checks both expected attempt and maximum-attempt bound. New code initially
+failed strict type/lint/format checks; fixes preserve all rules. Source scanning
+flagged a literal synthetic query credential in a new test; constructing its test
+value removed the source finding without changing exclusions or assertions.
+Injected PostgreSQL audit failures are expected regression outcomes proving rollback,
+not ignored application failures.
+
+### Publication and acceptance register
+
+The published baseline and its earlier green CI do not qualify this completion.
+Implementation commits and final published identity are recorded in PR #16's body
+and Git history; the publication record below will be updated after CI completes.
+Review findings have implementation/regression dispositions, not independent
+acceptance. Existing review threads remain open pending review of the new head.
+Live OIDC, GitHub App/webhook/provider behavior, deployment and independent security
+acceptance are unverified here. Phase 1 acceptance remains PARTIAL until its
+independent gate is satisfied; no dependent phase is advanced. Next permitted step:
+review the final Phase 1 head and qualify its outstanding external gates.

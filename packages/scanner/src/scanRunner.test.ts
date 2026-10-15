@@ -51,3 +51,25 @@ it("proves ignore matching semantics under exact prefix vs wildcard patterns", a
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it("distinguishes enumerated, inspected, unsupported and excluded entries without guessing hidden files", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "agentshield-coverage-"));
+  try {
+    await mkdir(path.join(root, "node_modules"));
+    await writeFile(path.join(root, "node_modules", "hidden.txt"), "not enumerated");
+    await writeFile(path.join(root, "readme.txt"), "safe text");
+    await writeFile(path.join(root, "image.png"), new Uint8Array([0, 1, 2]));
+    const result = await runScan(root, "coverage");
+    expect(result.coverage).toMatchObject({
+      status: "PARTIAL",
+      enumeratedFiles: 2,
+      inspectedFiles: 1,
+      unsupportedFiles: 1,
+      excludedEntries: 1,
+    });
+    expect(result.scannedFiles).toEqual(["readme.txt"]);
+    await expect(runScan(root, "limited", { maxFiles: 1 })).rejects.toThrow("file limit");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

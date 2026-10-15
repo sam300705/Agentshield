@@ -129,3 +129,33 @@ it("rejects unsigned extension data added to a valid signed receipt", () => {
   };
   expect(verifySignedSecurityReceipt(poisoned, { [key.keyId]: key.publicKeyPem })).toBe(false);
 });
+
+it("binds optional coverage in new receipts while preserving legacy hashes and signature semantics", () => {
+  const coverage = {
+    status: "PARTIAL" as const,
+    scope:
+      "Supported static checks within the observed scope; not proof of safety or complete event capture." as const,
+    enumeratedFiles: 2,
+    inspectedFiles: 1,
+    unsupportedFiles: 1,
+    excludedEntries: 1,
+  };
+  const current = createSecurityReceipt({ ...receipt, evidence: { synthetic: true }, coverage });
+  expect(current.receiptHash).not.toBe(receipt.receiptHash);
+  expect(receipt).not.toHaveProperty("coverage");
+  const key = generateEd25519KeyPair("coverage-key");
+  const signed = signSecurityReceipt(current, { keyId: key.keyId, privateKey: key.privateKeyPem });
+  expect(verifySignedSecurityReceipt(signed, { [key.keyId]: key.publicKeyPem })).toBe(true);
+  expect(
+    verifySignedSecurityReceipt(
+      { ...signed, payload: { ...current, coverage: { ...coverage, inspectedFiles: 2 } } },
+      { [key.keyId]: key.publicKeyPem },
+    ),
+  ).toBe(false);
+  expect(
+    verifySignedSecurityReceipt(
+      signSecurityReceipt(receipt, { keyId: key.keyId, privateKey: key.privateKeyPem }),
+      { [key.keyId]: key.publicKeyPem },
+    ),
+  ).toBe(true);
+});

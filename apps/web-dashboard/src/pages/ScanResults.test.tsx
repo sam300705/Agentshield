@@ -4,12 +4,14 @@ import { createRoot } from "react-dom/client";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { expect, it, vi } from "vitest";
 import { ScanResults } from "./ScanResults";
+const metadata = vi.hoisted((): { coverage: unknown } => ({ coverage: undefined }));
 const getSbom = vi.hoisted(() => vi.fn());
 vi.mock("../lib/api", () => ({
   api: {
     getScan: () =>
       Promise.resolve({
         data: {
+          metadata,
           repositoryName: "synthetic/repo",
           status: "COMPLETED",
           _count: { findings: 0, dependencies: 101 },
@@ -48,6 +50,7 @@ it("renders API SBOM columns and preserves server pagination and empty state", a
       );
       await Promise.resolve();
     });
+    expect(host.textContent).toContain("Coverage unavailable for this historical scan");
     const sbom = Array.from(host.querySelectorAll("button")).find(
       (button) => button.textContent === "SBOM Inventory",
     )!;
@@ -77,5 +80,44 @@ it("renders API SBOM columns and preserves server pagination and empty state", a
       await Promise.resolve();
     });
     host.remove();
+  }
+});
+
+it("shows observed coverage and limitations without claiming hidden directory file counts", async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  metadata.coverage = {
+    status: "PARTIAL",
+    scope:
+      "Supported static checks within the observed scope; not proof of safety or complete event capture.",
+    enumeratedFiles: 2,
+    inspectedFiles: 1,
+    unsupportedFiles: 1,
+    excludedEntries: 1,
+  };
+  getSbom.mockResolvedValue({ data: [], total: 0 });
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  try {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/scans/scan"]}>
+          <Routes>
+            <Route path="/scans/:scanId" element={<ScanResults />} />
+          </Routes>
+        </MemoryRouter>,
+      );
+      await Promise.resolve();
+    });
+    expect(host.textContent).toContain(
+      "PARTIAL: 2 files enumerated; 1 inspected; 1 unsupported; 1 entries excluded.",
+    );
+    expect(host.textContent).toContain("not proof of safety");
+    expect(host.textContent).toContain("Files beneath them were not enumerated");
+  } finally {
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+    metadata.coverage = undefined;
   }
 });

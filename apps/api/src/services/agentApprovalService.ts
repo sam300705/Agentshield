@@ -101,6 +101,7 @@ export async function ensureAgentApproval(
 
   try {
     const created = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${input.sessionId}))`);
       const session = await tx.agentSession.findFirst({
         where: {
           id: input.sessionId,

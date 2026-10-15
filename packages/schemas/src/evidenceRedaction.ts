@@ -11,9 +11,8 @@ const GITHUB_TOKEN_PATTERN = /\b(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]{20,255}\b
 const STRIPE_KEY_PATTERN = /\bsk_live_[A-Za-z0-9]{20,255}\b/g;
 const AWS_ACCESS_KEY_PATTERN = /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g;
 const CONNECTION_STRING_PATTERN = /\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?):\/\/[^\s"'<>]+/gi;
-const URL_USERINFO_PATTERN = /([a-z][a-z0-9+.-]*:\/\/)[^\s/"'<>]+@/gi;
-const CREDENTIAL_URL_PATTERN =
-  /([?&](?:access_token|api_key|apikey|client_secret|password|secret|token)=)[^&\s"'<>]+/gi;
+const URL_USERINFO_PATTERN = /([a-z][a-z0-9+.-]*:\/\/)[^\s/?#"'<>]+@/gi;
+const URL_QUERY_PATTERN = /([?&])([^=&#\s"'<>]+)=([^&#\s"'<>]*)/g;
 const SECRET_ASSIGNMENT_PATTERN =
   /\b((?:api[_-]?key|authorization|client[_-]?secret|github[_-]?token|password|private[_-]?key|secret|token)\s*[:=]\s*["']?)[^\s,;"']{8,}/gi;
 const AWS_SECRET_ASSIGNMENT_PATTERN =
@@ -24,32 +23,100 @@ function redact(label: string): string {
 }
 
 function sanitizeString(value: string): string {
-  // Package URLs percent-encode dependency versions, including URL credentials.
-  // Decode once only for this known format; leave ordinary encoded text unchanged.
+  // Decode components, never the PURL structure. Preserve namespace and version
+  // delimiters and their original encoding when no credential was removed.
   if (value.startsWith("pkg:")) {
     try {
-      const decoded = decodeURIComponent(value.slice(4));
-      const redacted = decoded
-        .replace(URL_USERINFO_PATTERN, `$1${redact("URL_USERINFO")}@`)
-        .replace(CREDENTIAL_URL_PATTERN, `$1${redact("URL_CREDENTIAL")}`);
-      if (redacted !== decoded) return `pkg:${redacted}`;
+      return value
+        .split(/([/@?#&=])/)
+        .map((component, index, parts) => {
+          if (/^[/@?#&=]$/.test(component)) return component;
+          if (index > 1 && parts[index - 1] === "=" && credentialQueryKey(parts[index - 2] ?? ""))
+            return encodeURIComponent(redact("URL_CREDENTIAL"));
+          return sanitizeEncodedComponent(component);
+        })
+        .join("");
     } catch {
       return redact("INVALID_PACKAGE_URL");
     }
   }
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) {
+    try {
+      return sanitizePlainText(value)
+        .split(/([/?#&=])/)
+        .map((part) => (/%[a-f0-9]{2}/i.test(part) ? sanitizeEncodedComponent(part) : part))
+        .join("");
+    } catch {
+      return redact("INVALID_URL");
+    }
+  }
+  // Nested encodings occur in dependency URLs. Re-encode only changed content.
+  if (/%[a-f0-9]{2}/i.test(value)) {
+    try {
+      const decoded = decodeURIComponent(value);
+      if (decoded !== value) {
+        const safe = sanitizeDecodedLayers(decoded, 1);
+        if (safe !== decoded) return encodeURIComponent(safe);
+      }
+    } catch {
+      return redact("INVALID_ENCODING");
+    }
+  }
+  return sanitizePlainText(value);
+}
+
+function sanitizePlainText(value: string): string {
   let sanitized = value;
   sanitized = sanitized.replace(PRIVATE_KEY_PATTERN, redact("PRIVATE_KEY"));
   sanitized = sanitized.replace(CONNECTION_STRING_PATTERN, redact("CONNECTION_STRING"));
   sanitized = sanitized.replace(URL_USERINFO_PATTERN, `$1${redact("URL_USERINFO")}@`);
-  sanitized = sanitized.replace(CREDENTIAL_URL_PATTERN, `$1${redact("URL_CREDENTIAL")}`);
+  sanitized = sanitized.replace(
+    URL_QUERY_PATTERN,
+    (match: string, separator: string, key: string) =>
+      credentialQueryKey(key) ? `${separator}${key}=${redact("URL_CREDENTIAL")}` : match,
+  );
+
   sanitized = sanitized.replace(AWS_SECRET_ASSIGNMENT_PATTERN, `$1${redact("AWS_SECRET")}`);
-  sanitized = sanitized.replace(SECRET_ASSIGNMENT_PATTERN, `$1${redact("SECRET")}`);
+  sanitized = sanitized.replace(SECRET_ASSIGNMENT_PATTERN, (match: string, prefix: string) =>
+    match.includes(REDACTION_PREFIX) ? match : `${prefix}${redact("SECRET")}`,
+  );
+
   sanitized = sanitized.replace(BEARER_PATTERN, redact("BEARER_TOKEN"));
   sanitized = sanitized.replace(JWT_PATTERN, redact("JWT"));
   sanitized = sanitized.replace(GITHUB_TOKEN_PATTERN, redact("GITHUB_TOKEN"));
   sanitized = sanitized.replace(STRIPE_KEY_PATTERN, redact("STRIPE_KEY"));
   sanitized = sanitized.replace(AWS_ACCESS_KEY_PATTERN, redact("AWS_ACCESS_KEY_ID"));
   return sanitized;
+}
+
+function sanitizeDecodedLayers(value: string, depth: number): string {
+  if (depth > 8) return redact("ENCODING_LIMIT");
+  if (/%[a-f0-9]{2}/i.test(value)) {
+    const decoded = decodeURIComponent(value);
+    const safe = sanitizeDecodedLayers(decoded, depth + 1);
+    if (safe !== decoded) return encodeURIComponent(safe);
+  }
+  // No recursive decoding in this call: the remaining layer is plain text.
+  return sanitizePlainText(value);
+}
+
+function sanitizeEncodedComponent(value: string): string {
+  const decoded = decodeURIComponent(value);
+  const safe = sanitizeDecodedLayers(decoded, 1);
+  return safe === decoded ? value : encodeURIComponent(safe);
+}
+
+function credentialQueryKey(key: string): boolean {
+  try {
+    for (let depth = 0; depth < 8; depth++) {
+      const decoded = decodeURIComponent(key);
+      if (decoded === key) return sensitiveFieldName(key) || /^(?:apikey|access_token)$/i.test(key);
+      key = decoded;
+    }
+    return true;
+  } catch {
+    return true;
+  }
 }
 
 function sensitiveFieldName(key: string): boolean {

@@ -22,13 +22,14 @@ const EXIT_CODES: Record<PolicyDecisionType | "INTERNAL_FAILURE", number> = {
   INTERNAL_FAILURE: 4,
 };
 
-function sarif(findings: Finding[], decisions: PolicyDecision[]) {
+function sarif(findings: Finding[], decisions: PolicyDecision[], coverage: unknown) {
   const decisionByFinding = new Map(decisions.map((decision) => [decision.findingId, decision]));
   return {
     version: "2.1.0",
     $schema: "https://json.schemastore.org/sarif-2.1.0.json",
     runs: [
       {
+        properties: { coverage },
         tool: {
           driver: {
             name: "AgentShield",
@@ -204,6 +205,7 @@ async function main(): Promise<void> {
       scannerVersion: CLI_VERSION,
       policyBundleVersion: values.policy,
       findingCounts,
+      ...(result.coverage == null ? {} : { coverage: result.coverage }),
       decisionCounts,
       approvalState: decisions.some((item) => item.decision === "REQUIRE_APPROVAL")
         ? "PENDING"
@@ -213,7 +215,10 @@ async function main(): Promise<void> {
       completedAt,
       gateResult: gate,
     });
-    if (format === "human")
+    if (format === "human") {
+      console.log(
+        `Coverage: ${result.coverage?.status ?? "UNAVAILABLE"} ${JSON.stringify(result.coverage ?? null)}`,
+      );
       printHuman(
         target,
         result.findings,
@@ -223,8 +228,10 @@ async function main(): Promise<void> {
         advisoryCount,
         unresolvedCount,
       );
-    else if (format === "sarif")
-      console.log(JSON.stringify(sarif(result.findings, decisions), null, 2));
+    } else if (format === "sarif")
+      console.log(
+        JSON.stringify(sarif(result.findings, decisions, result.coverage ?? null), null, 2),
+      );
     else if (format === "jsonl") {
       for (const finding of result.findings)
         console.log(
@@ -237,6 +244,7 @@ async function main(): Promise<void> {
       console.log(
         JSON.stringify({
           type: "summary",
+          coverage: result.coverage ?? null,
           advisoryCount,
           unresolvedCount,
           gate,
@@ -250,6 +258,7 @@ async function main(): Promise<void> {
           {
             scanId,
             target,
+            coverage: result.coverage ?? null,
             advisoryCount,
             unresolvedCount,
             findings: result.findings,

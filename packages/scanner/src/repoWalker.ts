@@ -21,6 +21,8 @@ export interface WalkRepositoryOptions {
   maxFileSizeBytes?: number;
   maxTotalBytes?: number;
   signal?: AbortSignal;
+  onEnumeratedFile?: () => void;
+  onExcluded?: (entryPath: string) => void;
   onIgnored?: (entryPath: string) => void;
 }
 
@@ -58,14 +60,18 @@ export async function walkRepository(
     for await (const entry of directory) {
       checkCancelled();
       const entryPath = path.join(directoryPath, entry.name);
+      if (entry.isFile()) options.onEnumeratedFile?.();
       if (isIgnored(entryPath)) {
+        options.onExcluded?.(entryPath);
         options.onIgnored?.(entryPath);
         continue;
       }
       if (entry.isDirectory()) {
         if (!excludedDirectories.has(entry.name)) await visitDirectory(entryPath);
+        else options.onExcluded?.(entryPath);
         continue;
       }
+      if (!entry.isFile()) options.onExcluded?.(entryPath);
       if (entry.isFile()) {
         if (visitedFiles >= maxFiles) throw new Error(`Scan exceeds file limit of ${maxFiles}`);
         visitedFiles += 1;

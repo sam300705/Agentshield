@@ -333,3 +333,67 @@ it("rejects reuse of ALLOW authorization across actions and resources", () => {
     "not bound",
   );
 });
+
+it("validates session creation bodies and rejects unsafe session path identifiers before transport", async () => {
+  const transport = vi.fn<typeof fetch>();
+  const client = new AgentShieldClient({
+    baseUrl: "https://agentshield.example.test",
+    fetchImpl: transport,
+  });
+  for (const id of ["../foreign", "a/b", "a?query=1", "a#fragment", "%2f", ""]) {
+    await expect(client.getSession(id)).rejects.toThrow();
+    await expect(client.closeSession(id)).rejects.toThrow();
+  }
+  await expect(
+    client.createSession({
+      repositoryId: "repo",
+      source: "sdk",
+      taskSummary: "task",
+      idempotencyKey: "key",
+      actor: "spoofed",
+    } as Parameters<typeof client.createSession>[0]),
+  ).rejects.toThrow();
+  expect(transport).not.toHaveBeenCalled();
+});
+
+it("uses bounded lifecycle routes and validates session responses", async () => {
+  const data = {
+    id: "session:1",
+    organizationId: "org",
+    repositoryId: "repo",
+    actor: "actor",
+    source: "sdk",
+    taskSummary: "task",
+    status: "ACTIVE",
+    correlationId: "corr",
+    startedAt: new Date().toISOString(),
+    completedAt: null,
+  };
+  const transport = vi
+    .fn<typeof fetch>()
+    .mockImplementation(() =>
+      Promise.resolve(new Response(JSON.stringify({ data }), { status: 200 })),
+    );
+  const client = new AgentShieldClient({
+    baseUrl: "https://agentshield.example.test",
+    fetchImpl: transport,
+  });
+  await client.createSession({
+    repositoryId: "repo",
+    source: "sdk",
+    taskSummary: "task",
+    idempotencyKey: "create-key",
+  });
+  expect(transport.mock.calls[0]![0]).toBe(
+    "https://agentshield.example.test/api/v1/agent/sessions",
+  );
+  await client.getSession("session:1");
+  expect(transport.mock.calls[1]![0]).toBe(
+    "https://agentshield.example.test/api/v1/agent/sessions/session%3A1",
+  );
+  await client.closeSession("session:1");
+  expect(transport.mock.calls[2]![0]).toBe(
+    "https://agentshield.example.test/api/v1/agent/sessions/session%3A1/close",
+  );
+  expect(transport.mock.calls[2]![1]?.body).toBe("{}");
+});

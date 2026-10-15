@@ -16,3 +16,22 @@ The baseline command never runs automatically from Render, a worker, or API star
 CI uses real PostgreSQL to create a pre-history control-plane database with persisted scan data, execute the same baseline command and incremental deploy, verify all history entries and unchanged scan contents, and reject deliberately introduced drift. Fresh migration deployment remains an independent existing CI gate. These fixtures qualify the workflow without claiming a real deployed database was upgraded.
 
 Reference: [Prisma v6 baseline workflow](https://www.prisma.io/docs/orm/v6/prisma-migrate/getting-started).
+
+## Phase 1 lifecycle forward migration
+
+`20261015120000_phase1_session_lifecycle` adds nullable session idempotency/context
+columns, a tenant/actor/key unique index and three audit enum values. Existing SQL
+and checksums remain unchanged; old sessions retain NULL fields. Coverage is held
+in existing JSON scan metadata and canonical receipt payloads without rewriting
+historical rows. The populated upgrade regression now checks preserved tenant,
+session, audit and receipt identity/digests as well as scan data.
+
+`AGENTSHIELD_DISPOSABLE_DATABASE=true pnpm test:phase1-completion` additionally
+requires the existing localhost database guard. Run it only in an explicitly
+provisioned disposable database named `agentshield`. It injects test-tenant audit
+failures and replaces labelled synthetic demo seeds. It proves create/close and
+retry-transition rollback, claim/closure races, collision persistence/advisory
+identity, unsigned coverage receipts and seed preservation/rollback/serialization.
+A customer-owned fixture in the demo tenant survives, including its audit and
+receipt. Cleanup targets generated test-owned IDs; importing `prisma/seed.ts`
+does not run its CLI. These test hooks are not production recovery commands.

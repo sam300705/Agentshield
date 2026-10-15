@@ -147,3 +147,38 @@ it("redacts credential-bearing dependency specs in real CLI JSON output", async 
     await rm(root, { recursive: true, force: true });
   }
 }, 15000);
+
+it.each(["json", "jsonl", "human", "sarif"])(
+  "exports honest bounded coverage in %s",
+  async (format) => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "agentshield-coverage-output-"));
+    try {
+      await writeFile(path.join(root, "readme.txt"), "safe text");
+      await writeFile(path.join(root, "image.png"), new Uint8Array([0, 1, 2]));
+      const output = await scan(root, format);
+      if (format === "human") {
+        expect(output).toContain("Coverage: PARTIAL");
+        expect(output).toContain("not proof of safety");
+        return;
+      }
+      const parsed =
+        format === "jsonl"
+          ? (JSON.parse(output.trim().split("\n").at(-1)!) as Record<string, unknown>)
+          : (JSON.parse(output) as Record<string, unknown>);
+      const coverage =
+        format === "sarif"
+          ? (parsed.runs as { properties: { coverage: unknown } }[])[0]!.properties.coverage
+          : parsed.coverage;
+      expect(coverage).toMatchObject({
+        status: "PARTIAL",
+        enumeratedFiles: 2,
+        inspectedFiles: 1,
+        unsupportedFiles: 1,
+        excludedEntries: 0,
+      });
+      if (format !== "sarif") expect(parsed.receipt).toMatchObject({ coverage });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);

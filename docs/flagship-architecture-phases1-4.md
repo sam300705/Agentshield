@@ -36,9 +36,12 @@ TanStack SBOM rendering and queued demo admission documentation. A reader-only A
 needs no signing key; supplied configuration is validated without logging key material.
 Historical failures stay in audit records while current progress fields are reset.
 
-Remaining: production session creation/closure with authenticated ownership and shared
-locking with event ingestion/authorization; complete coverage propagation into persisted
-results/receipts; verify real PostgreSQL seed preservation, rollback and concurrency.
+This follow-up now implements session creation/read/closure with authenticated ownership
+and shared locking with event ingestion, authorization and new approval creation.
+Coverage propagates into CLI, persisted results, UI and receipts. Real disposable
+PostgreSQL regressions verify seed preservation, rollback and concurrency. Final-head
+CI and independent acceptance remain gates; these implementation results do not
+establish live-provider qualification.
 Do not call an internal skippedFiles array end-to-end coverage. An excluded directory
 is not an enumerated count of skipped files. Report unavailable enrichment and partial
 inspection explicitly. Retain raw action hashes in memory and sanitized display data.

@@ -59,6 +59,9 @@ enum DependencyScope {
 }
 
 enum AuditAction {
+  SCAN_ATTEMPT_ARCHIVED
+  SESSION_CREATED
+  SESSION_CLOSED
   SCAN_CANCELLATION_REQUESTED
   SCAN_CREATED
   SCAN_COMPLETED
@@ -137,30 +140,30 @@ enum EdgeConfidence {
 }
 
 model Scan {
-  id             String             @id @default(cuid())
-  repositoryName String
-  repositoryUrl  String?
-  branch         String
-  commitSha      String?
-  status         ScanStatus         @default(QUEUED)
-  metadata       Json               @default("{}")
-  startedAt      DateTime           @default(now())
-  completedAt    DateTime?
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
-  findings       Finding[]
-  dependencies   Dependency[]
-  auditEvents    AuditEvent[]
-  organizationId String?
-  organization   Organization?      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  repositoryId   String?
-  repository     Repository?        @relation(fields: [repositoryId], references: [id], onDelete: SetNull)
-  sessionId      String?
-  session        AgentSession?      @relation(fields: [sessionId], references: [id], onDelete: SetNull)
-  job            ScanJob?
-  simulations    PolicySimulation[]
-  receipt        SecurityReceipt?
-  advisories     Advisory[]
+  id               String                  @id @default(cuid())
+  repositoryName   String
+  repositoryUrl    String?
+  branch           String
+  commitSha        String?
+  status           ScanStatus              @default(QUEUED)
+  metadata         Json                    @default("{}")
+  startedAt        DateTime                @default(now())
+  completedAt      DateTime?
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  findings         Finding[]
+  dependencies     Dependency[]
+  auditEvents      AuditEvent[]
+  organizationId   String?
+  organization     Organization?           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  repositoryId     String?
+  repository       Repository?             @relation(fields: [repositoryId], references: [id], onDelete: SetNull)
+  sessionId        String?
+  session          AgentSession?           @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  job              ScanJob?
+  simulations      PolicySimulation[]
+  receipt          SecurityReceipt?
+  advisories       Advisory[]
   githubDeliveries GitHubWebhookDelivery[]
 
   @@index([status])
@@ -349,6 +352,8 @@ model Repository {
 }
 
 model AgentSession {
+  idempotencyKey String?
+  contextDigest  String?
   id             String             @id @default(cuid())
   organizationId String
   organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -368,6 +373,7 @@ model AgentSession {
   simulations    PolicySimulation[]
   scans          Scan[]
 
+  @@unique([organizationId, actor, idempotencyKey])
   @@unique([organizationId, correlationId])
   @@index([organizationId, startedAt])
   @@index([repositoryId, startedAt])

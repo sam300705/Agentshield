@@ -1,3 +1,4 @@
+import type { ScanCoverage } from "@agentshield/schemas";
 import {
   sanitizeEvidence,
   agentEventSchema,
@@ -38,6 +39,7 @@ export type AgentEventInput = Omit<AgentEvent, "evidence" | "integrity"> & {
 };
 
 export interface ReceiptInput {
+  coverage?: ScanCoverage;
   id: string;
   scanId: string;
   repository: string;
@@ -223,6 +225,7 @@ export function createSecurityReceipt(input: ReceiptInput): SecurityReceipt {
     decisionCounts: input.decisionCounts,
     approvalState: input.approvalState,
     evidenceDigest,
+    ...(input.coverage == null ? {} : { coverage: input.coverage }),
     startedAt: input.startedAt,
     completedAt: input.completedAt,
     gateResult: input.gateResult,

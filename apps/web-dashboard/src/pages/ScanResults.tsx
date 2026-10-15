@@ -1,4 +1,4 @@
-import type { Dependency } from "@agentshield/schemas";
+import { scanCoverageSchema, type Dependency } from "@agentshield/schemas";
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from "@tanstack/react-table";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -100,12 +100,33 @@ export function ScanResults() {
     rowCount: dependencyTotal,
   });
 
+  const coverage = scanCoverageSchema.safeParse(scan?.metadata?.coverage);
+
   if (isLoading) {
     return <LoadingState label="Loading scan results" />;
   }
 
   return (
     <div className="space-y-5">
+      <section
+        aria-label="Scan coverage"
+        className="rounded-xl border border-slate-200 bg-white p-4"
+      >
+        <h3 className="font-semibold">Scan coverage</h3>
+        {coverage.success ? (
+          <>
+            <p>
+              {coverage.data.status}: {coverage.data.enumeratedFiles} files enumerated;{" "}
+              {coverage.data.inspectedFiles} inspected; {coverage.data.unsupportedFiles}{" "}
+              unsupported; {coverage.data.excludedEntries} entries excluded.
+            </p>
+            <p>{coverage.data.scope}</p>
+            <p>Excluded directories count as entries. Files beneath them were not enumerated.</p>
+          </>
+        ) : (
+          <p>Coverage unavailable for this historical scan. No completeness claim is made.</p>
+        )}
+      </section>
       <div className="flex flex-col justify-between gap-3 md:flex-row md:items-end">
         <div>
           <Link className="text-sm font-medium text-slate-500 hover:text-slate-950" to="/scans">

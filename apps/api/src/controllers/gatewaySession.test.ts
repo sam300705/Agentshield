@@ -1,6 +1,8 @@
 import { expect, it, vi } from "vitest";
 import type { Request, Response } from "express";
 const db = vi.hoisted(() => ({
+  $executeRaw: vi.fn(),
+  $transaction: vi.fn(),
   agentSession: { findFirst: vi.fn() },
   auditEvent: { create: vi.fn() },
 }));
@@ -15,6 +17,7 @@ vi.mock("../security/auth.js", () => ({
   getCorrelationId: () => "corr",
 }));
 import { authorizeAgentActionController } from "./agentGatewayController.js";
+db.$transaction.mockImplementation((callback: (tx: typeof db) => unknown) => callback(db));
 it.each(["READ_FILE", "WRITE_FILE", "RUN_COMMAND"])(
   "requires an active owned session before %s decisions",
   async (action) => {

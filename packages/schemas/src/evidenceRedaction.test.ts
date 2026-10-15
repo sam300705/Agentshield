@@ -112,3 +112,45 @@ it("redacts percent-encoded credential versions in package URLs and preserves da
     createdAt: "2026-01-01T00:00:00.000Z",
   });
 });
+
+it.each([
+  "https://example.test?email=user@example.org",
+  "https://example.test#contact=user@example.org",
+  "https://example.test/path%20with%20spaces?q=hello%40world.test",
+  "pkg:npm/%40scope/name@1.0.0?repository_url=https%3A%2F%2Fexample.test#src/index.js",
+])("preserves safe authority and PURL components: %s", (value) => {
+  expect(sanitizeText(value)).toBe(value);
+});
+
+it("retains encoded scoped PURL identity and redacts nested version credentials", () => {
+  const query = "fixture-query";
+  const raw = `git+https://fixture-user:fixture-pass@example.test/repo.git?token=${query}`;
+  for (const version of [encodeURIComponent(raw), encodeURIComponent(encodeURIComponent(raw))]) {
+    const safe = sanitizeText(`pkg:npm/%40scope/name@${version}?type=source#src/main.ts`);
+    expect(safe).toMatch(/^pkg:npm\/%40scope\/name@[^/@?#]+\?type=source#src\/main.ts$/);
+    const decoded = decodeURIComponent(decodeURIComponent(safe));
+    expect(decoded).not.toContain("fixture-user");
+    expect(decoded).not.toContain("fixture-pass");
+    expect(decoded).not.toContain("fixture-query");
+    expect(decoded).toContain("example.test/repo.git");
+  }
+});
+
+it("redacts credentials in authority without consuming query email or fragment", () => {
+  const safe = sanitizeText("https://fixture:password@example.test?email=user@example.org#contact");
+  expect(safe).toBe("https://[REDACTED:URL_USERINFO]@example.test?email=user@example.org#contact");
+});
+
+it("fails closed for malformed encoded PURL components", () => {
+  expect(sanitizeText("pkg:npm/alpha@git%ZZprivate")).toBe("[REDACTED:INVALID_PACKAGE_URL]");
+});
+
+it("redacts encoded credential query keys without consuming the URL fragment", () => {
+  const secret = "synthetic-query-value";
+  const safe = sanitizeText(`https://example.test?%74oken=${secret}#public-fragment`);
+  expect(safe).not.toContain(secret);
+  expect(safe).toContain("#public-fragment");
+  const purl = sanitizeText(`pkg:npm/%40scope/name@1?access%5Ftoken=${secret}#src/main.ts`);
+  expect(purl).not.toContain(secret);
+  expect(purl).toContain("#src/main.ts");
+});

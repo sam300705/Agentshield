@@ -394,27 +394,53 @@ export async function processNextScanJob(
   });
   if (candidate == null) return false;
 
-  const claimed = await prisma.scanJob.updateMany({
-    where: {
-      id: candidate.id,
-      status: candidate.status,
-      lockedAt: null,
-      cancelRequestedAt: null,
-      deadLetteredAt: null,
-      attempts: { lt: prisma.scanJob.fields.maxAttempts },
-    },
-    data: {
-      status: ScanStatus.RUNNING,
-      lockedAt: new Date(),
-      lockedBy: workerId,
-      leaseExpiresAt: new Date(Date.now() + SCAN_LEASE_MS),
-      lastHeartbeatAt: new Date(),
-      attempts: { increment: 1 },
-      progress: 5,
-      failureCode: null,
-      failureMessage: null,
-    },
+  const claimed = await prisma.$transaction(async (tx) => {
+    const result = await tx.scanJob.updateMany({
+      where: {
+        id: candidate.id,
+        status: candidate.status,
+        attempts: { equals: candidate.attempts, lt: prisma.scanJob.fields.maxAttempts },
+        lockedAt: null,
+        cancelRequestedAt: null,
+        deadLetteredAt: null,
+      },
+      data: {
+        status: ScanStatus.RUNNING,
+        lockedAt: new Date(),
+        lockedBy: workerId,
+        leaseExpiresAt: new Date(Date.now() + SCAN_LEASE_MS),
+        lastHeartbeatAt: new Date(),
+        attempts: { increment: 1 },
+        progress: 5,
+        failureCode: null,
+        failureMessage: null,
+      },
+    });
+    if (result.count === 1 && (candidate.failureCode != null || candidate.failureMessage != null)) {
+      await tx.auditEvent.create({
+        data: {
+          action: "SCAN_ATTEMPT_ARCHIVED",
+          actor: candidate.requester,
+          organizationId: candidate.scan.organizationId,
+          scanId: candidate.scanId,
+          entityType: "ScanJob",
+          entityId: candidate.id,
+          correlationId: candidate.correlationId,
+          metadata: {
+            attempt: candidate.attempts,
+            failureCode: candidate.failureCode == null ? null : sanitizeText(candidate.failureCode),
+            failureMessage:
+              candidate.failureMessage == null
+                ? null
+                : sanitizeText(candidate.failureMessage).slice(0, MAX_FAILURE_MESSAGE_LENGTH),
+            previousStatus: candidate.status,
+          },
+        },
+      });
+    }
+    return result;
   });
+
   if (claimed.count !== 1) return true;
 
   const abortController = new AbortController();
