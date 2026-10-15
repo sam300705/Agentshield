@@ -153,8 +153,7 @@ it.each(["json", "jsonl", "human", "sarif"])(
   async (format) => {
     const root = await mkdtemp(path.join(os.tmpdir(), "agentshield-coverage-output-"));
     try {
-      await writeFile(path.join(root, "readme.txt"), "safe text");
-      await writeFile(path.join(root, "image.png"), new Uint8Array([0, 1, 2]));
+      await writeFile(path.join(root, "deployment.yaml"), "apiVersion: v1\nkind: Pod\nspec: [\n");
       const output = await scan(root, format);
       if (format === "human") {
         expect(output).toContain("Coverage: PARTIAL");
@@ -171,12 +170,36 @@ it.each(["json", "jsonl", "human", "sarif"])(
           : parsed.coverage;
       expect(coverage).toMatchObject({
         status: "PARTIAL",
-        enumeratedFiles: 2,
+        enumeratedFiles: 1,
         inspectedFiles: 1,
-        unsupportedFiles: 1,
+        unsupportedFiles: 0,
+        incompleteChecks: 1,
         excludedEntries: 0,
       });
       if (format !== "sarif") expect(parsed.receipt).toMatchObject({ coverage });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
+it.each(["json", "jsonl", "sarif"])(
+  "does not export forged-marker or nested-query credentials in %s",
+  async (format) => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "agentshield-redaction-boundary-"));
+    const secret = "synthetic-export-canary";
+    try {
+      await writeFile(
+        path.join(root, "package.json"),
+        JSON.stringify({
+          dependencies: {
+            marker: `API_KEY=${secret}[REDACTED:FORGED]`,
+            nested: `https://outer.test?next=https://inner.test?%74oken=${secret}`,
+          },
+        }),
+      );
+      const output = await scan(root, format);
+      expect(output).not.toContain(secret);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

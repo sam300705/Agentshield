@@ -73,3 +73,40 @@ it("distinguishes enumerated, inspected, unsupported and excluded entries withou
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it.each([
+  "apiVersion: v1\nkind: Pod\nspec: [\n",
+  "apiVersion: v1\nkind: Pod\n---\ninvalid: [\n",
+  "apiVersion: v1\nkind: Pod\nspec: {{ .Values.spec }}\n",
+])("reports partial coverage when a YAML check cannot parse its input", async (content) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "agentshield-parser-"));
+  try {
+    await writeFile(path.join(root, "deployment.yaml"), content);
+    const result = await runScan(root, "parser");
+    expect(result.coverage).toMatchObject({
+      status: "PARTIAL",
+      inspectedFiles: 1,
+      incompleteChecks: 1,
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it.each(["pnpm-lock.yaml", "yarn.lock", "package-lock.json"])(
+  "uses npm PURLs with a separate scoped namespace under %s",
+  async (lockfile) => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "agentshield-purl-"));
+    try {
+      await writeFile(path.join(root, lockfile), "");
+      await writeFile(
+        path.join(root, "package.json"),
+        JSON.stringify({ dependencies: { "@scope/example": "1.0.0" } }),
+      );
+      const result = await runScan(root, "purl");
+      expect(result.dependencies[0]?.purl).toBe("pkg:npm/%40scope/example@1.0.0");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);

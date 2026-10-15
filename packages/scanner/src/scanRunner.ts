@@ -84,6 +84,7 @@ export async function runScan(
   const skippedFiles: string[] = [];
   let enumeratedFiles = 0;
   let excludedEntries = 0;
+  let incompleteChecks = 0;
   const inspectedFiles: string[] = [];
   const filePaths = await walkRepository(targetRoot, {
     ...options,
@@ -124,7 +125,14 @@ export async function runScan(
     }
 
     if (isYamlFile(filePath)) {
-      findings.push(...(await scanKubernetesManifest(scannerInput)));
+      findings.push(
+        ...(await scanKubernetesManifest({
+          ...scannerInput,
+          onIncomplete: () => {
+            incompleteChecks += 1;
+          },
+        })),
+      );
     }
 
     if (isPackageJson(filePath)) {
@@ -144,13 +152,16 @@ export async function runScan(
     scannedFiles: inspectedFiles,
     coverage: {
       status:
-        excludedEntries > 0 || inspectedFiles.length < filePaths.length ? "PARTIAL" : "COMPLETE",
+        incompleteChecks > 0 || excludedEntries > 0 || inspectedFiles.length < filePaths.length
+          ? "PARTIAL"
+          : "COMPLETE",
       scope:
         "Supported static checks within the observed scope; not proof of safety or complete event capture.",
       enumeratedFiles,
       inspectedFiles: inspectedFiles.length,
       unsupportedFiles: filePaths.length - inspectedFiles.length,
       excludedEntries,
+      incompleteChecks,
     },
     skippedFiles: skippedFiles.sort((left, right) => left.localeCompare(right)),
   };

@@ -92,6 +92,7 @@ it("shows observed coverage and limitations without claiming hidden directory fi
     enumeratedFiles: 2,
     inspectedFiles: 1,
     unsupportedFiles: 1,
+    incompleteChecks: 1,
     excludedEntries: 1,
   };
   getSbom.mockResolvedValue({ data: [], total: 0 });
@@ -111,6 +112,7 @@ it("shows observed coverage and limitations without claiming hidden directory fi
     expect(host.textContent).toContain(
       "PARTIAL: 2 files enumerated; 1 inspected; 1 unsupported; 1 entries excluded.",
     );
+    expect(host.textContent).toContain("1 supported checks could not complete parsing");
     expect(host.textContent).toContain("not proof of safety");
     expect(host.textContent).toContain("Files beneath them were not enumerated");
   } finally {

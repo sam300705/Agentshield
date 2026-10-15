@@ -120,6 +120,11 @@ export function ScanResults() {
               {coverage.data.inspectedFiles} inspected; {coverage.data.unsupportedFiles}{" "}
               unsupported; {coverage.data.excludedEntries} entries excluded.
             </p>
+            {coverage.data.incompleteChecks == null ? (
+              <p>Parser completion diagnostics unavailable for this scan.</p>
+            ) : (
+              <p>{coverage.data.incompleteChecks} supported checks could not complete parsing.</p>
+            )}
             <p>{coverage.data.scope}</p>
             <p>Excluded directories count as entries. Files beneath them were not enumerated.</p>
           </>

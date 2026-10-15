@@ -8,6 +8,7 @@ export interface KubernetesScannerInput {
   scanId: string;
   targetRoot: string;
   filePath: string;
+  onIncomplete?: () => void;
 }
 
 interface KubernetesFindingInput {
@@ -76,12 +77,24 @@ export async function scanKubernetesManifest(input: KubernetesScannerInput): Pro
   const content = await readFile(input.filePath, "utf8");
   const relativePath = toRelativePath(input.targetRoot, input.filePath);
   const documents = parseAllDocuments(content);
+  // Do not publish parser messages or source text: either may contain credentials.
+  let incomplete =
+    /{{|{%/.test(content) ||
+    documents.some((document) => document.errors.length > 0 || document.warnings.length > 0);
+  if (incomplete) input.onIncomplete?.();
   const containsKubernetesManifest = documents.some((document) => {
     if (document.errors.length > 0) {
       return false;
     }
 
-    return isKubernetesDocument(document.toJSON());
+    try {
+      if (/{{|{%/.test(content)) return false;
+      return isKubernetesDocument(document.toJSON());
+    } catch {
+      if (!incomplete) input.onIncomplete?.();
+      incomplete = true;
+      return false;
+    }
   });
 
   if (!containsKubernetesManifest) {

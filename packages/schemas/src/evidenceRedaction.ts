@@ -1,3 +1,4 @@
+import { PackageURL } from "packageurl-js";
 import type { JsonValue } from "./json.schema.js";
 
 const REDACTION_PREFIX = "[REDACTED:";
@@ -29,11 +30,13 @@ function sanitizeString(value: string): string {
     try {
       // PURL components must encode reserved URL characters. Reject malformed
       // raw URLs rather than splitting their authority into apparently safe tokens.
+      PackageURL.fromString(value);
       const identity = value.split(/[?#]/, 1)[0] ?? "";
       const at = identity.indexOf("@");
       if (
         !/^pkg:[a-z][a-z0-9.+-]*\/[^\s]+$/i.test(value) ||
-        /[:\s"'<>]/.test(value.slice(4)) ||
+        /[:\s"'<>]/.test(identity.slice(4)) ||
+        value.includes("://") ||
         value.includes("[") ||
         value.includes("]") ||
         (at !== -1 &&
@@ -79,20 +82,28 @@ function sanitizeString(value: string): string {
   return sanitizePlainText(value);
 }
 
-function sanitizePlainText(value: string): string {
+function sanitizePlainText(value: string, depth = 0): string {
+  if (depth > 8) return redact("NESTING_LIMIT");
   let sanitized = value;
   sanitized = sanitized.replace(PRIVATE_KEY_PATTERN, redact("PRIVATE_KEY"));
   sanitized = sanitized.replace(CONNECTION_STRING_PATTERN, redact("CONNECTION_STRING"));
   sanitized = sanitized.replace(URL_USERINFO_PATTERN, `$1${redact("URL_USERINFO")}@`);
   sanitized = sanitized.replace(
     URL_QUERY_PATTERN,
-    (match: string, separator: string, key: string) =>
-      credentialQueryKey(key) ? `${separator}${key}=${redact("URL_CREDENTIAL")}` : match,
+    (_match: string, separator: string, key: string, nested: string) => {
+      if (credentialQueryKey(key)) return `${separator}${key}=${redact("URL_CREDENTIAL")}`;
+      // An outer query value may itself be a URL; do not let it consume inner keys.
+      return `${separator}${key}=${sanitizePlainText(nested, depth + 1)}`;
+    },
   );
 
   sanitized = sanitized.replace(AWS_SECRET_ASSIGNMENT_PATTERN, `$1${redact("AWS_SECRET")}`);
   sanitized = sanitized.replace(SECRET_ASSIGNMENT_PATTERN, (match: string, prefix: string) =>
-    match.includes(REDACTION_PREFIX) ? match : `${prefix}${redact("SECRET")}`,
+    /^\[REDACTED:(?:SECRET|URL_CREDENTIAL|AWS_SECRET|PRIVATE_KEY|CONNECTION_STRING|URL_USERINFO|BEARER_TOKEN|JWT|GITHUB_TOKEN|STRIPE_KEY|AWS_ACCESS_KEY_ID)\]$/.test(
+      match.slice(prefix.length),
+    )
+      ? match
+      : `${prefix}${redact("SECRET")}`,
   );
 
   sanitized = sanitized.replace(BEARER_PATTERN, redact("BEARER_TOKEN"));

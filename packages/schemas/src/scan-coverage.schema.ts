@@ -9,6 +9,8 @@ export const scanCoverageSchema = z
     enumeratedFiles: z.number().int().nonnegative(),
     inspectedFiles: z.number().int().nonnegative(),
     unsupportedFiles: z.number().int().nonnegative(),
+    // Optional for canonical compatibility with historical receipts.
+    incompleteChecks: z.number().int().nonnegative().optional(),
     excludedEntries: z.number().int().nonnegative(),
   })
   .strict();

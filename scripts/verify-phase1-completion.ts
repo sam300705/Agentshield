@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { prisma as queueDb } from "../apps/api/src/db/prisma.js";
 import { PrismaClient } from "@prisma/client";
 import {
   agentSessionResponseSchema,
@@ -293,6 +294,7 @@ try {
       devDependencies: { alpha: versionB },
     }),
   );
+  await writeFile(path.join(directory, "deployment.yaml"), "apiVersion: v1\nkind: Pod\nspec: [\n");
   const scanId = await runConfiguredScan({
     source: "MANUAL",
     targetPath: directory,
@@ -320,7 +322,9 @@ try {
   const storedReceipt = await db.securityReceipt.findUniqueOrThrow({ where: { scanId } });
   assert.equal(storedReceipt.signature, null);
   const receipt = securityReceiptSchema.parse(storedReceipt.signedPayload);
-  assert(receipt.coverage);
+  assert.equal(receipt.coverage?.status, "PARTIAL");
+  assert.equal(receipt.coverage?.incompleteChecks, 1);
+  assert.deepEqual(receipt.coverage, (scan.metadata as { coverage: unknown }).coverage);
   assert(verifyReceiptHash(receipt));
   assert(
     !verifyReceiptHash({ ...receipt, coverage: { ...receipt.coverage, excludedEntries: 99 } }),
@@ -353,6 +357,37 @@ try {
     dependencies[0]!.id,
   );
 
+  // Actual scanner -> PostgreSQL persistence must not retain either review canary.
+  const privateCanary = "synthetic-private-canary";
+  const nestedCanary = "synthetic-nested-canary";
+  await writeFile(
+    path.join(directory, "package.json"),
+    JSON.stringify({
+      dependencies: {
+        forged: `API_KEY=${privateCanary}[REDACTED:FORGED]`,
+        nested: `https://outer.test?next=https://inner.test?%74oken=${nestedCanary}`,
+      },
+    }),
+  );
+  const sanitizedScan = await runConfiguredScan({
+    source: "MANUAL",
+    targetPath: directory,
+    targetPathLabel: "redaction-regression",
+    repositoryName: "synthetic/redaction",
+    branch: "main",
+    organizationId: org,
+    triggeredBy: "synthetic-actor",
+    correlationId: "redaction-regression",
+    labels: [],
+    policyBundleVersion: POLICY_RULE_VERSION,
+    options: scanOptionsSchema.parse({}),
+  });
+  const persisted = JSON.stringify(
+    await db.dependency.findMany({ where: { scanId: sanitizedScan } }),
+  );
+  assert(!persisted.includes(privateCanary));
+  assert(!persisted.includes(nestedCanary));
+
   const job = await enqueueDemoScan(`retry-${suffix}`, org, "retry-correlation", "synthetic-actor");
   await db.scanJob.update({
     where: { id: job.id },
@@ -381,6 +416,62 @@ try {
   assert.equal(archived[0]!.correlationId, "retry-correlation");
   assert(!JSON.stringify(archived).includes("fixture-password"));
   assert.equal((await db.scanJob.findUniqueOrThrow({ where: { id: job.id } })).failureCode, null);
+
+  // Force an ABA: a real selection is paused while a second worker claims,
+  // shuts down and restores the attempt counter. Only scheduling is intercepted.
+  const abaJob = await enqueueDemoScan(`aba-${suffix}`, org, "aba-correlation", "synthetic-actor");
+  const originalFind = queueDb.scanJob.findFirst.bind(queueDb.scanJob);
+  let selected!: () => void;
+  let release!: () => void;
+  const selectedBarrier = new Promise<void>((resolve) => {
+    selected = resolve;
+  });
+  const releaseBarrier = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let pause = true;
+  queueDb.scanJob.findFirst = (async (...args: Parameters<typeof originalFind>) => {
+    const row = await originalFind(...args);
+    if (pause && row?.id === abaJob.id) {
+      pause = false;
+      selected();
+      await releaseBarrier;
+    }
+    return row;
+  }) as typeof queueDb.scanJob.findFirst;
+  const staleClaim = processNextScanJob("stale-aba-worker", executor);
+  try {
+    await selectedBarrier;
+    const shutdown = new AbortController();
+    await processNextScanJob(
+      "shutdown-aba-worker",
+      {
+        execute: () => {
+          shutdown.abort();
+          return Promise.reject(new Error("SYNTHETIC_ABA_FAILURE"));
+        },
+      },
+      shutdown.signal,
+    );
+    const reset = await db.scanJob.findUniqueOrThrow({ where: { id: abaJob.id } });
+    assert.equal(reset.attempts, 0);
+    assert.equal(reset.failureCode, "WORKER_SHUTDOWN");
+    // Make it due without changing its status, counter or failure evidence.
+    await db.scanJob.update({ where: { id: abaJob.id }, data: { nextAttemptAt: null } });
+  } finally {
+    queueDb.scanJob.findFirst = originalFind;
+    release();
+    await staleClaim;
+  }
+  const abaHistory = await db.auditEvent.findMany({
+    where: { entityId: abaJob.id, action: "SCAN_ATTEMPT_ARCHIVED" },
+  });
+  assert.equal(abaHistory.length, 1);
+  assert(JSON.stringify(abaHistory).includes("SYNTHETIC_ABA_FAILURE"));
+  assert.equal(
+    (await db.scanJob.findUniqueOrThrow({ where: { id: abaJob.id } })).status,
+    "COMPLETED",
+  );
 
   const cancelledJob = await enqueueDemoScan(
     `cancel-${suffix}`,
@@ -416,6 +507,12 @@ try {
   const beforeImport = await db.scan.count();
   const { seedDemoData } = await import("../prisma/seed.js");
   assert.equal(await db.scan.count(), beforeImport);
+  const forbiddenTarget = new URL(process.env.DATABASE_URL!);
+  forbiddenTarget.pathname = "/unapproved_database";
+  await assert.rejects(seedDemoData(forbiddenTarget.href), /Refusing to seed/);
+  forbiddenTarget.pathname = "/agentshield";
+  forbiddenTarget.searchParams.set("schema", "customer");
+  await assert.rejects(seedDemoData(forbiddenTarget.href), /Refusing to seed/);
   await db.organization.upsert({
     where: { id: "demo-organization" },
     update: {},
@@ -454,7 +551,7 @@ try {
     },
   });
   const customerBefore = await db.scan.findUniqueOrThrow({ where: { id: customer.id } });
-  await seedDemoData(db);
+  await seedDemoData(process.env.DATABASE_URL);
   const seededBefore = await db.scan.findMany({
     where: {
       organizationId: "demo-organization",
@@ -476,7 +573,9 @@ try {
       orderBy: { id: "asc" },
     }),
   };
-  await assert.rejects(seedDemoData(db, () => Promise.reject(new Error("synthetic rollback"))));
+  await assert.rejects(
+    seedDemoData(process.env.DATABASE_URL, () => Promise.reject(new Error("synthetic rollback"))),
+  );
   assert.deepEqual(
     await db.scan.findMany({ where: { id: { in: seededBefore.map((s) => s.id) } } }),
     seededBefore,
@@ -498,7 +597,10 @@ try {
     },
     childrenBefore,
   );
-  await Promise.all([seedDemoData(db), seedDemoData(db)]);
+  await Promise.all([
+    seedDemoData(process.env.DATABASE_URL),
+    seedDemoData(process.env.DATABASE_URL),
+  ]);
   assert.equal(
     await db.scan.count({
       where: {

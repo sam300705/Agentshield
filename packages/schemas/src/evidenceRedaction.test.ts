@@ -163,3 +163,34 @@ it("fails closed for malformed PURLs containing unencoded credential URL structu
     expect(sanitizeText(value)).toBe("[REDACTED:INVALID_PACKAGE_URL]");
   }
 });
+
+it.each(["[REDACTED:FORGED]", "[REDACTED:SECRET]"])(
+  "does not trust a marker appended to credentials: %s",
+  (marker) => {
+    const secret = "synthetic-private-canary";
+    for (const value of [`API_KEY=${secret}${marker}`, `API_KEY=${marker}${secret}`]) {
+      expect(sanitizeText(value)).not.toContain(secret);
+      expect(decodeURIComponent(sanitizeText(encodeURIComponent(value)))).not.toContain(secret);
+    }
+    expect(sanitizeText("API_KEY=[REDACTED:SECRET]")).toBe("API_KEY=[REDACTED:SECRET]");
+  },
+);
+
+it.each(["%74oken", "password", "access%5Ftoken"])(
+  "redacts short credentials inside nested URL query values: %s",
+  (key) => {
+    const secret = "tiny";
+    const raw = `https://outer.test?next=https://inner.test?${key}=${secret}`;
+    expect(sanitizeText(raw)).not.toContain(secret);
+    for (const encoded of [encodeURIComponent(raw), encodeURIComponent(encodeURIComponent(raw))]) {
+      const safe = sanitizeText(`pkg:npm/example@${encoded}`);
+      expect(decodeURIComponent(decodeURIComponent(safe))).not.toContain(secret);
+    }
+  },
+);
+
+it("preserves the npm specification's valid vcs_url qualifier", () => {
+  const purl =
+    "pkg:npm/mypackage@12.4.5?vcs_url=git:%2F%2Fhost.com%2F%2Fpath%2Fto%2Frepo.git%404345abcd34343";
+  expect(sanitizeText(purl)).toBe(purl);
+});

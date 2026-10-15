@@ -402,14 +402,21 @@ export async function processNextScanJob(
   if (candidate == null) return false;
 
   const claimed = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "ScanJob" WHERE "id" = ${candidate.id} FOR UPDATE`;
+    const current = await tx.scanJob.findUnique({
+      where: { id: candidate.id },
+      include: { scan: { select: { organizationId: true } } },
+    });
+    if (current == null) return { count: 0 };
     const result = await tx.scanJob.updateMany({
       where: {
         id: candidate.id,
-        status: candidate.status,
-        attempts: { equals: candidate.attempts, lt: prisma.scanJob.fields.maxAttempts },
+        status: { in: [ScanStatus.QUEUED, ScanStatus.FAILED] },
+        attempts: { equals: current.attempts, lt: prisma.scanJob.fields.maxAttempts },
         lockedAt: null,
         cancelRequestedAt: null,
         deadLetteredAt: null,
+        OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: new Date() } }],
       },
       data: {
         status: ScanStatus.RUNNING,
@@ -423,24 +430,24 @@ export async function processNextScanJob(
         failureMessage: null,
       },
     });
-    if (result.count === 1 && (candidate.failureCode != null || candidate.failureMessage != null)) {
+    if (result.count === 1 && (current.failureCode != null || current.failureMessage != null)) {
       await tx.auditEvent.create({
         data: {
           action: "SCAN_ATTEMPT_ARCHIVED",
-          actor: candidate.requester,
-          organizationId: candidate.scan.organizationId,
+          actor: current.requester,
+          organizationId: current.scan.organizationId,
           scanId: candidate.scanId,
           entityType: "ScanJob",
           entityId: candidate.id,
-          correlationId: candidate.correlationId,
+          correlationId: current.correlationId,
           metadata: {
-            attempt: candidate.attempts,
-            failureCode: candidate.failureCode == null ? null : sanitizeText(candidate.failureCode),
+            attempt: current.attempts,
+            failureCode: current.failureCode == null ? null : sanitizeText(current.failureCode),
             failureMessage:
-              candidate.failureMessage == null
+              current.failureMessage == null
                 ? null
-                : sanitizeText(candidate.failureMessage).slice(0, MAX_FAILURE_MESSAGE_LENGTH),
-            previousStatus: candidate.status,
+                : sanitizeText(current.failureMessage).slice(0, MAX_FAILURE_MESSAGE_LENGTH),
+            previousStatus: current.status,
           },
         },
       });
