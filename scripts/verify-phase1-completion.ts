@@ -75,6 +75,22 @@ async function invoke(
 function sessionData(output: unknown) {
   return agentSessionResponseSchema.parse((output as { data: unknown }).data);
 }
+async function waitForBarrier(barrier: Promise<void>): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      barrier,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("Regression scheduling barrier timed out")),
+          10_000,
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 async function fault(action: string) {
   // Only a generated identifier and this test's organization are interpolated.
   assert.match(action, /^[A-Z_]+$/);
@@ -282,6 +298,100 @@ try {
     approvalsBefore,
   );
 
+  // Freeze scheduling after the gateway's first real transaction commits.
+  // Closing in the old decision/approval gap must not split this operation.
+  const atomicSession = sessionData(
+    (await invoke(createAgentSessionController, { ...input, idempotencyKey: "atomic-approval" }))
+      .output,
+  );
+  const atomicInput = {
+    ...protectedAction,
+    sessionId: atomicSession.id,
+    idempotencyKey: "atomic-action",
+  };
+  const originalTransaction = queueDb.$transaction.bind(queueDb);
+  let committed!: () => void;
+  let releaseGateway!: () => void;
+  const committedBarrier = new Promise<void>((resolve) => {
+    committed = resolve;
+  });
+  const gatewayBarrier = new Promise<void>((resolve) => {
+    releaseGateway = resolve;
+  });
+  let pauseTransaction = true;
+  queueDb.$transaction = (async (...args: Parameters<typeof originalTransaction>) => {
+    const result = await originalTransaction(...args);
+    if (pauseTransaction) {
+      pauseTransaction = false;
+      committed();
+      await gatewayBarrier;
+    }
+    return result;
+  }) as typeof queueDb.$transaction;
+  const authorizing = invoke(authorizeAgentActionController, atomicInput);
+  try {
+    await waitForBarrier(committedBarrier);
+    assert.equal(
+      (await invoke(closeAgentSessionController, {}, { sessionId: atomicSession.id })).status,
+      200,
+    );
+  } finally {
+    queueDb.$transaction = originalTransaction;
+    releaseGateway();
+  }
+  const authorized = await authorizing;
+  assert.equal(authorized.status, 200);
+  const atomicApproval = await db.agentApproval.findFirstOrThrow({
+    where: { sessionId: atomicSession.id },
+  });
+  assert.equal(
+    (authorized.output as { data: { approvalId: string } }).data.approvalId,
+    atomicApproval.id,
+  );
+  assert.equal(
+    await db.auditEvent.count({ where: { entityId: atomicSession.id, action: "POLICY_DECIDED" } }),
+    1,
+  );
+  assert.equal(
+    await db.auditEvent.count({
+      where: { entityId: atomicApproval.id, action: "APPROVAL_REQUESTED" },
+    }),
+    1,
+  );
+
+  const rollbackSession = sessionData(
+    (await invoke(createAgentSessionController, { ...input, idempotencyKey: "atomic-rollback" }))
+      .output,
+  );
+  for (const action of ["APPROVAL_REQUESTED", "POLICY_DECIDED"]) {
+    await fault(action);
+    await assert.rejects(
+      invoke(authorizeAgentActionController, {
+        ...atomicInput,
+        sessionId: rollbackSession.id,
+        idempotencyKey: action,
+      }),
+    );
+    assert.equal(await db.agentApproval.count({ where: { sessionId: rollbackSession.id } }), 0);
+    assert.equal(
+      await db.auditEvent.count({
+        where: { entityId: rollbackSession.id, action: "POLICY_DECIDED" },
+      }),
+      0,
+    );
+    assert.equal(
+      await db.auditEvent.count({
+        where: {
+          organizationId: org,
+          action: "APPROVAL_REQUESTED",
+          metadata: { path: ["sessionId"], equals: rollbackSession.id },
+        },
+      }),
+      0,
+    );
+  }
+  await fault("DISABLED");
+
   // Distinct credential-bearing versions collapse only after redaction.
   const versionA = "git+https://fixture-a:fixture-password-a@example.test/repo.git";
   const versionB = "git+https://fixture-b:fixture-password-b@example.test/repo.git";
@@ -311,6 +421,14 @@ try {
   const dependencies = await db.dependency.findMany({ where: { scanId } });
   assert.equal(dependencies.length, 1);
   assert.equal(dependencies[0]!.scope, "PRODUCTION");
+  assert.equal(
+    (dependencies[0]!.metadata as { dependencyField: string }).dependencyField,
+    "dependencies",
+  );
+  assert.deepEqual((dependencies[0]!.metadata as { dependencyFields: string[] }).dependencyFields, [
+    "dependencies",
+    "devDependencies",
+  ]);
   const scan = await db.scan.findUniqueOrThrow({ where: { id: scanId } });
   assert.equal(
     (scan.metadata as { aggregateCounts: { dependencies: number } }).aggregateCounts.dependencies,
@@ -402,6 +520,7 @@ try {
   await fault("SCAN_ATTEMPT_ARCHIVED");
   await assert.rejects(processNextScanJob("rollback-worker", executor));
   assert.equal((await db.scanJob.findUniqueOrThrow({ where: { id: job.id } })).attempts, 1);
+  assert.equal((await db.scanJob.findUniqueOrThrow({ where: { id: job.id } })).claimSequence, 0);
   await fault("DISABLED");
   await Promise.all([
     processNextScanJob("claimer-a", executor),
@@ -441,7 +560,7 @@ try {
   }) as typeof queueDb.scanJob.findFirst;
   const staleClaim = processNextScanJob("stale-aba-worker", executor);
   try {
-    await selectedBarrier;
+    await waitForBarrier(selectedBarrier);
     const shutdown = new AbortController();
     await processNextScanJob(
       "shutdown-aba-worker",
@@ -467,10 +586,50 @@ try {
     where: { entityId: abaJob.id, action: "SCAN_ATTEMPT_ARCHIVED" },
   });
   assert.equal(abaHistory.length, 1);
+  assert.equal((abaHistory[0]!.metadata as { attempt: number }).attempt, 1);
+  assert.equal(
+    (abaHistory[0]!.metadata as { attemptNumberSource: string }).attemptNumberSource,
+    "CLAIM_SEQUENCE",
+  );
   assert(JSON.stringify(abaHistory).includes("SYNTHETIC_ABA_FAILURE"));
   assert.equal(
     (await db.scanJob.findUniqueOrThrow({ where: { id: abaJob.id } })).status,
     "COMPLETED",
+  );
+
+  const repeatedJob = await enqueueDemoScan(
+    `repeated-shutdown-${suffix}`,
+    org,
+    "repeat-correlation",
+    "synthetic-actor",
+  );
+  for (let claim = 1; claim <= 2; claim += 1) {
+    const shutdown = new AbortController();
+    await processNextScanJob(
+      `repeat-${claim}`,
+      {
+        execute: () => {
+          shutdown.abort();
+          return Promise.reject(new Error(`shutdown-${claim}`));
+        },
+      },
+      shutdown.signal,
+    );
+    const current = await db.scanJob.findUniqueOrThrow({ where: { id: repeatedJob.id } });
+    assert.equal(current.attempts, 0);
+    assert.equal(current.claimSequence, claim);
+  }
+  await processNextScanJob("repeat-complete", executor);
+  const repeatedHistory = await db.auditEvent.findMany({
+    where: { entityId: repeatedJob.id, action: "SCAN_ATTEMPT_ARCHIVED" },
+  });
+  assert.deepEqual(
+    repeatedHistory.map((a) => (a.metadata as { attempt: number }).attempt).sort(),
+    [1, 2],
+  );
+  assert.equal(
+    (await db.scanJob.findUniqueOrThrow({ where: { id: repeatedJob.id } })).claimSequence,
+    3,
   );
 
   const cancelledJob = await enqueueDemoScan(

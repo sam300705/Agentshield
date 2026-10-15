@@ -205,3 +205,23 @@ it.each(["json", "jsonl", "sarif"])(
     }
   },
 );
+
+it("blocks a valid privileged Pod beside templated YAML in actual CLI output", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "agentshield-cli-mixed-yaml-"));
+  try {
+    await writeFile(
+      path.join(root, "deployment.yaml"),
+      "apiVersion: v1\nkind: ConfigMap\ndata:\n  value: '{{ .Values.value }}'\n---\napiVersion: v1\nkind: Pod\nspec:\n  privileged: true\n",
+    );
+    const result = JSON.parse(await scan(root, "json")) as {
+      gate: string;
+      coverage: { status: string };
+      findings: { severity: string }[];
+    };
+    expect(result.gate).toBe("BLOCK");
+    expect(result.coverage.status).toBe("PARTIAL");
+    expect(result.findings.some((f) => f.severity === "CRITICAL")).toBe(true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

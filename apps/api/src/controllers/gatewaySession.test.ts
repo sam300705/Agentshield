@@ -9,7 +9,7 @@ const db = vi.hoisted(() => ({
 const ensure = vi.hoisted(() => vi.fn());
 vi.mock("../db/prisma.js", () => ({ prisma: db }));
 vi.mock("../services/agentApprovalService.js", () => ({
-  ensureAgentApproval: ensure,
+  ensureAgentApprovalInTransaction: ensure,
   createAgentActionDigest: () => "a".repeat(64),
 }));
 vi.mock("../security/auth.js", () => ({

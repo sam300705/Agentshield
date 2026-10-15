@@ -77,35 +77,47 @@ export async function scanKubernetesManifest(input: KubernetesScannerInput): Pro
   const content = await readFile(input.filePath, "utf8");
   const relativePath = toRelativePath(input.targetRoot, input.filePath);
   const documents = parseAllDocuments(content);
-  // Do not publish parser messages or source text: either may contain credentials.
-  let incomplete =
-    /{{|{%/.test(content) ||
-    documents.some((document) => document.errors.length > 0 || document.warnings.length > 0);
-  if (incomplete) input.onIncomplete?.();
-  const containsKubernetesManifest = documents.some((document) => {
+  // Keep independently valid documents even when another document is incomplete.
+  // Never emit parser messages or object-key coercion warnings from untrusted text.
+  let incomplete = false;
+  const markIncomplete = () => {
+    if (!incomplete) input.onIncomplete?.();
+    incomplete = true;
+  };
+  const ranges: Array<readonly [number, number]> = [];
+  for (const document of documents) {
+    const range = document.range;
+    if (range == null) {
+      markIncomplete();
+      continue;
+    }
+    const source = content.slice(range[0], range[1]);
     if (document.errors.length > 0) {
-      return false;
+      markIncomplete();
+      continue;
     }
-
+    // Partial rendering must not hide static fields in otherwise parseable YAML.
+    if (document.warnings.length > 0 || /{{|{%/.test(source)) markIncomplete();
     try {
-      if (/{{|{%/.test(content)) return false;
-      // Map keys stay structured: object coercion can log raw untrusted keys.
-      return isKubernetesDocument(document.toJS({ mapAsMap: true }));
+      if (isKubernetesDocument(document.toJS({ mapAsMap: true })))
+        ranges.push([range[0], range[1]]);
     } catch {
-      if (!incomplete) input.onIncomplete?.();
-      incomplete = true;
-      return false;
+      markIncomplete();
     }
-  });
-
-  if (!containsKubernetesManifest) {
-    return [];
   }
+  if (ranges.length === 0) return [];
 
   const findings: Finding[] = [];
   const lines = content.split(/\r?\n/);
 
+  let offset = 0;
+  let rangeIndex = 0;
   for (const [lineIndex, rawLine] of lines.entries()) {
+    const lineStartOffset = offset;
+    offset += rawLine.length + (content[offset + rawLine.length] === "\r" ? 2 : 1);
+    while (ranges[rangeIndex] != null && ranges[rangeIndex]![1] <= lineStartOffset) rangeIndex += 1;
+    const range = ranges[rangeIndex];
+    if (range == null || lineStartOffset + rawLine.length < range[0]) continue;
     const lineNumber = lineIndex + 1;
     const line = rawLine.trim();
 

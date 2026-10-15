@@ -285,7 +285,10 @@ export async function requestJobCancellation(
             job.failureMessage == null
               ? null
               : sanitizeText(job.failureMessage).slice(0, MAX_FAILURE_MESSAGE_LENGTH),
-          previousAttempt: job.attempts,
+          previousAttempt: job.claimSequence > 0 ? job.claimSequence : job.attempts,
+          previousAttemptNumberSource:
+            job.claimSequence > 0 ? "CLAIM_SEQUENCE" : "LEGACY_RETRY_COUNTER",
+          previousRetryBudgetAttempt: job.attempts,
           jobCorrelationId: job.correlationId,
           terminal,
           requestedBy: job.requester,
@@ -425,6 +428,7 @@ export async function processNextScanJob(
         leaseExpiresAt: new Date(Date.now() + SCAN_LEASE_MS),
         lastHeartbeatAt: new Date(),
         attempts: { increment: 1 },
+        claimSequence: { increment: 1 },
         progress: 5,
         failureCode: null,
         failureMessage: null,
@@ -441,7 +445,10 @@ export async function processNextScanJob(
           entityId: candidate.id,
           correlationId: current.correlationId,
           metadata: {
-            attempt: current.attempts,
+            attempt: current.claimSequence > 0 ? current.claimSequence : current.attempts,
+            attemptNumberSource:
+              current.claimSequence > 0 ? "CLAIM_SEQUENCE" : "LEGACY_RETRY_COUNTER",
+            retryBudgetAttempt: current.attempts,
             failureCode: current.failureCode == null ? null : sanitizeText(current.failureCode),
             failureMessage:
               current.failureMessage == null

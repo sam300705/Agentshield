@@ -30,6 +30,7 @@ try {
       await tx.$executeRaw`UPDATE "Scan" SET "organizationId"='preserved-org' WHERE "id"='preserved-scan'`;
       await tx.$executeRaw`INSERT INTO "Repository" ("id","organizationId","provider","externalId","fullName","updatedAt") VALUES ('preserved-repo','preserved-org','LOCAL','synthetic','synthetic/upgrade',CURRENT_TIMESTAMP)`;
       await tx.$executeRaw`INSERT INTO "AgentSession" ("id","organizationId","repositoryId","actor","source","taskSummary","correlationId") VALUES ('preserved-session','preserved-org','preserved-repo','synthetic-actor','synthetic','Preserve historical session','preserved-correlation')`;
+      await tx.$executeRaw`INSERT INTO "ScanJob" ("id","scanId","idempotencyKey","status","attempts","failureCode","failureMessage","updatedAt") VALUES ('preserved-job','preserved-scan','preserved-key','FAILED',2,'HISTORICAL_FAILURE','Synthetic preserved history',CURRENT_TIMESTAMP)`;
       await tx.$executeRaw`INSERT INTO "AuditEvent" ("id","actor","action","entityType","entityId","scanId","organizationId","metadata") VALUES ('preserved-audit','synthetic-actor','SCAN_CREATED','Scan','preserved-scan','preserved-scan','preserved-org','{"synthetic":true}')`;
       await tx.$executeRaw`INSERT INTO "SecurityReceipt" ("id","scanId","scannerVersion","policyBundleVersion","findingCounts","decisionCounts","approvalState","evidenceDigest","gateResult","receiptHash") VALUES ('preserved-receipt','preserved-scan','synthetic','synthetic','{}','{}','NONE','legacy-evidence-digest','ALLOW','legacy-receipt-hash')`;
     },
@@ -37,6 +38,9 @@ try {
   );
   const before = await legacy.$queryRawUnsafe<Array<Record<string, unknown>>>(
     `SELECT * FROM "${schema}"."Scan" WHERE "id"='preserved-scan'`,
+  );
+  const jobBefore = await legacy.$queryRawUnsafe(
+    `SELECT "id","scanId","status"::text,"attempts","failureCode","failureMessage" FROM "${schema}"."ScanJob" WHERE "id"='preserved-job'`,
   );
   const auditBefore = await legacy.$queryRawUnsafe(
     `SELECT * FROM "${schema}"."AuditEvent" WHERE "id"='preserved-audit'`,
@@ -84,6 +88,18 @@ try {
       `SELECT "idempotencyKey","contextDigest" FROM "${schema}"."AgentSession" WHERE "id"='preserved-session'`,
     ),
     [{ idempotencyKey: null, contextDigest: null }],
+  );
+  assert.deepEqual(
+    await legacy.$queryRawUnsafe(
+      `SELECT "id","scanId","status"::text,"attempts","failureCode","failureMessage" FROM "${schema}"."ScanJob" WHERE "id"='preserved-job'`,
+    ),
+    jobBefore,
+  );
+  assert.deepEqual(
+    await legacy.$queryRawUnsafe(
+      `SELECT "claimSequence" FROM "${schema}"."ScanJob" WHERE "id"='preserved-job'`,
+    ),
+    [{ claimSequence: 0 }],
   );
   const applied = await legacy.$queryRawUnsafe<Array<{ migration_name: string }>>(
     `SELECT migration_name FROM "${schema}"."_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL ORDER BY migration_name`,

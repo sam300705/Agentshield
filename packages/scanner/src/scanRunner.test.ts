@@ -128,3 +128,48 @@ it("does not emit raw YAML collection keys through conversion warnings", async (
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it.each(["\n", "\r\n"])(
+  "retains a valid privileged Pod beside a templated document with %j newlines",
+  async (newline) => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "agentshield-mixed-yaml-"));
+    const lines = [
+      "apiVersion: v1",
+      "kind: ConfigMap",
+      "data:",
+      "  value: '{{ .Values.value }}'",
+      "---",
+      "apiVersion: v1",
+      "kind: Pod",
+      "spec:",
+      "  privileged: true",
+    ];
+    try {
+      await writeFile(path.join(root, "deployment.yaml"), lines.join(newline));
+      const result = await runScan(root, "mixed-yaml");
+      expect(result.coverage).toMatchObject({ status: "PARTIAL", incompleteChecks: 1 });
+      expect(result.findings).toContainEqual(
+        expect.objectContaining({ category: "KUBERNETES", severity: "CRITICAL", lineStart: 9 }),
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
+it("retains a known critical static field inside a parseable templated Pod", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "agentshield-templated-pod-"));
+  try {
+    await writeFile(
+      path.join(root, "deployment.yaml"),
+      "apiVersion: v1\nkind: Pod\nmetadata:\n  name: '{{ .Values.name }}'\nspec:\n  privileged: true\n",
+    );
+    const result = await runScan(root, "templated-pod");
+    expect(result.coverage).toMatchObject({ status: "PARTIAL", incompleteChecks: 1 });
+    expect(
+      result.findings.some((f) => f.category === "KUBERNETES" && f.severity === "CRITICAL"),
+    ).toBe(true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

@@ -441,6 +441,7 @@ model ScanJob {
   status              ScanStatus @default(QUEUED)
   progress            Int        @default(0)
   attempts            Int        @default(0)
+  claimSequence       Int        @default(0)
   maxAttempts         Int        @default(3)
   nextAttemptAt       DateTime?
   lockedAt            DateTime?

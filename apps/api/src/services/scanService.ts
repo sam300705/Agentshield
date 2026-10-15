@@ -1,6 +1,7 @@
 import type { ScanCoverage } from "@agentshield/schemas";
 import {
   createSecurityReceipt,
+  canonicalJson,
   POLICY_RULE_VERSION,
   evaluateFindings,
   signSecurityReceipt,
@@ -223,6 +224,9 @@ export function consolidateDependencies(dependencies: Dependency[]): Dependency[
       version: sanitizeText(raw.version),
       manifestPath: sanitizeText(raw.manifestPath),
       purl: raw.purl == null ? null : sanitizeText(raw.purl),
+      license: raw.license == null ? null : sanitizeText(raw.license),
+      supplier: raw.supplier == null ? null : sanitizeText(raw.supplier),
+      metadata: sanitizeEvidence(raw.metadata) as Dependency["metadata"],
     };
     const key = JSON.stringify([
       dependency.scanId,
@@ -237,7 +241,21 @@ export function consolidateDependencies(dependencies: Dependency[]): Dependency[
   return [...groups.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([, group]) => {
-      group.sort((a, b) => a.id.localeCompare(b.id));
+      const sourceKey = (d: Dependency) =>
+        canonicalJson({
+          scope: d.scope,
+          packageManager: d.packageManager,
+          metadata: d.metadata,
+          purl: d.purl ?? null,
+          license: d.license ?? null,
+          supplier: d.supplier ?? null,
+        });
+      group.sort(
+        (a, b) =>
+          Number(b.scope === "PRODUCTION") - Number(a.scope === "PRODUCTION") ||
+          sourceKey(a).localeCompare(sourceKey(b)) ||
+          a.id.localeCompare(b.id),
+      );
       const first = group[0]!;
       const scopes = [...new Set(group.map((d) => d.scope))].sort();
       return {
@@ -251,6 +269,13 @@ export function consolidateDependencies(dependencies: Dependency[]): Dependency[
           ...first.metadata,
           consolidatedOccurrences: group.length,
           observedScopes: scopes,
+          dependencyFields: [
+            ...new Set(
+              group
+                .map((d) => d.metadata.dependencyField)
+                .filter((field): field is string => typeof field === "string"),
+            ),
+          ].sort(),
         },
       };
     });
