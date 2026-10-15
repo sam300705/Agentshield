@@ -280,6 +280,13 @@ export async function requestJobCancellation(
         metadata: {
           jobId: job.id,
           previousStatus: job.status,
+          previousFailureCode: job.failureCode == null ? null : sanitizeText(job.failureCode),
+          previousFailureMessage:
+            job.failureMessage == null
+              ? null
+              : sanitizeText(job.failureMessage).slice(0, MAX_FAILURE_MESSAGE_LENGTH),
+          previousAttempt: job.attempts,
+          jobCorrelationId: job.correlationId,
           terminal,
           requestedBy: job.requester,
           requestedAt: now.toISOString(),

@@ -81,7 +81,7 @@ regression additionally requires `AGENTSHIELD_DISPOSABLE_DATABASE=true`.
 - `pnpm install --frozen-lockfile --store-dir /tmp/agentshield-pnpm-store`: PASS.
 - `pnpm db:generate`, `pnpm db:validate`, `pnpm db:deploy`: PASS, including fresh deployment of all eight migrations.
 - `pnpm format:check`, `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm test:docs`: PASS.
-- `pnpm test`: PASS, 374 workspace tests (schemas 39, remediation 1, SDK 22, policy 55, web 42, scanner 50, API 165).
+- `pnpm test`: PASS, 375 workspace tests (schemas 40, remediation 1, SDK 22, policy 55, web 42, scanner 50, API 165).
 - `pnpm test:integration`, `pnpm test:database-upgrade`, `pnpm test:lease-takeover`, `pnpm test:phase1-round2`, `pnpm test:phase1-completion`, `pnpm test:gateway`, `pnpm test:github-lifecycle`: PASS against disposable PostgreSQL where applicable. Gateway/GitHub regressions are synthetic, not live-provider qualification.
 - `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium pnpm test:e2e`: PASS, all six browser tests. Coverage UI has additional component regression tests.
 - Compiled API HTTP smoke on local port 3301: PASS for readiness, authentication/RBAC, strict identity/query validation, create/replay/conflict, actor privacy, close and terminal replay.
@@ -111,3 +111,38 @@ Live OIDC, GitHub App/webhook/provider behavior, deployment and independent secu
 acceptance are unverified here. Phase 1 acceptance remains PARTIAL until its
 independent gate is satisfied; no dependent phase is advanced. Next permitted step:
 review the final Phase 1 head and qualify its outstanding external gates.
+
+### Published implementation checkpoint and final-head evidence
+
+Implementation checkpoint: `80f09a4390514181b45247974b7673c227d8183a`,
+tree `6aa7d8e8360124a34c8acd96a1c42e3704ec11dc`. GitHub's published tree
+matched the tested local tree. Both exact-checkpoint CI runs passed, including
+container generation/build, PostgreSQL upgrades/completion regressions, all
+workspace tests, six browser tests and the fixture/source security gates:
+
+- [Push CI 38732236358](https://github.com/sam300705/Agentshield/actions/runs/38732236358).
+- [PR CI 38732241713](https://github.com/sam300705/Agentshield/actions/runs/38732241713).
+
+The subsequent additive hardening rejects malformed PURLs with unencoded URL
+structures before component splitting and preserves prior sanitized failure context
+in cancellation audit metadata. Schema regressions and the real PostgreSQL
+completion regression cover these cases. Final local verification is 375 workspace
+tests plus the checks above; cancellation coverage additionally passed targeted
+lint/types/PostgreSQL reruns. All eight existing migration files (including the
+lock file) remain byte-identical to the published baseline. The local container
+network limitation was qualified by successful GitHub CI, not by disabling trust.
+
+The GitHub CLI PR editor failed on deprecated classic-project GraphQL fields;
+the authorized PR title/body update succeeded using the REST endpoint without
+changing its base or posting review messages. A new cancellation regression
+initially missed its import, which was corrected before rerunning it successfully.
+
+The final hardening/documentation commit must receive its own CI, independently of
+the successful checkpoint above. Its exact published SHA/tree and final-head run
+URLs are recorded in the [PR #16 publication record](https://github.com/sam300705/Agentshield/pull/16)
+and [final-head checks](https://github.com/sam300705/Agentshield/pull/16/checks).
+This committed handoff's own identity is available from Git history rather than a
+self-referential SHA embedded in the file. No earlier passing run substitutes for
+that final-head verification. Review threads remain unresolved for independent
+review; out-of-date line positions are not acceptance. The next permitted task is
+independent Phase 1 security review and controlled live-provider qualification.

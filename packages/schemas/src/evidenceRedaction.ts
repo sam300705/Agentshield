@@ -27,6 +27,20 @@ function sanitizeString(value: string): string {
   // delimiters and their original encoding when no credential was removed.
   if (value.startsWith("pkg:")) {
     try {
+      // PURL components must encode reserved URL characters. Reject malformed
+      // raw URLs rather than splitting their authority into apparently safe tokens.
+      const identity = value.split(/[?#]/, 1)[0] ?? "";
+      const at = identity.indexOf("@");
+      if (
+        !/^pkg:[a-z][a-z0-9.+-]*\/[^\s]+$/i.test(value) ||
+        /[:\s"'<>]/.test(value.slice(4)) ||
+        value.includes("[") ||
+        value.includes("]") ||
+        (at !== -1 &&
+          (identity.indexOf("@", at + 1) !== -1 || identity.slice(at + 1).includes("/")))
+      )
+        return redact("INVALID_PACKAGE_URL");
+
       return value
         .split(/([/@?#&=])/)
         .map((component, index, parts) => {

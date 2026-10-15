@@ -154,3 +154,12 @@ it("redacts encoded credential query keys without consuming the URL fragment", (
   expect(purl).not.toContain(secret);
   expect(purl).toContain("#src/main.ts");
 });
+
+it("fails closed for malformed PURLs containing unencoded credential URL structures", () => {
+  for (const value of [
+    "pkg:npm/alpha@git+https://fixture:fixture-pass@example.test/repo",
+    "pkg:npm/alpha@1?repository_url=https://fixture:fixture-pass@example.test/repo",
+  ]) {
+    expect(sanitizeText(value)).toBe("[REDACTED:INVALID_PACKAGE_URL]");
+  }
+});

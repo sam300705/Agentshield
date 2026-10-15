@@ -26,7 +26,11 @@ import {
   persistAdvisories,
   consolidateDependencies,
 } from "../apps/api/src/services/scanService.js";
-import { enqueueDemoScan, processNextScanJob } from "../apps/api/src/services/scanQueue.js";
+import {
+  enqueueDemoScan,
+  processNextScanJob,
+  requestJobCancellation,
+} from "../apps/api/src/services/scanQueue.js";
 
 assertSafeSeedTarget(process.env.NODE_ENV, process.env.DATABASE_URL ?? "");
 // An additional explicit opt-in is required for fault injection and seed replacement.
@@ -377,6 +381,36 @@ try {
   assert.equal(archived[0]!.correlationId, "retry-correlation");
   assert(!JSON.stringify(archived).includes("fixture-password"));
   assert.equal((await db.scanJob.findUniqueOrThrow({ where: { id: job.id } })).failureCode, null);
+
+  const cancelledJob = await enqueueDemoScan(
+    `cancel-${suffix}`,
+    org,
+    "cancel-correlation",
+    "synthetic-actor",
+  );
+  await db.scanJob.update({
+    where: { id: cancelledJob.id },
+    data: {
+      status: "FAILED",
+      attempts: 1,
+      failureCode: "SYNTHETIC_PRIOR_FAILURE",
+      failureMessage: "https://fixture:fixture-password@example.test/error",
+    },
+  });
+  assert(
+    await requestJobCancellation(cancelledJob.id, org, {
+      actor: "synthetic-actor",
+      correlationId: "cancel-request",
+    }),
+  );
+  const cancellationAudit = await db.auditEvent.findFirstOrThrow({
+    where: { scanId: cancelledJob.scanId, action: "SCAN_CANCELLATION_REQUESTED" },
+  });
+  assert.equal(
+    (cancellationAudit.metadata as { previousFailureCode: string }).previousFailureCode,
+    "SYNTHETIC_PRIOR_FAILURE",
+  );
+  assert(!JSON.stringify(cancellationAudit).includes("fixture-password"));
 
   // Importing helpers must not execute the CLI or create a client with side effects.
   const beforeImport = await db.scan.count();
