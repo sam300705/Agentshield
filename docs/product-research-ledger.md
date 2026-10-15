@@ -22,7 +22,8 @@ solution before proposing a component. Record negative findings and unavailable
 sources. Do not infer competitive absence from a missing README feature.
 Next research pass: public issue histories and operator incident reports with
 independent corroboration, then consented interviews and controlled comparative pilots.
-Repeated user problems have **not yet been established** in this pass.
+Repeated production need for AgentShield has **not yet been established**. Public
+issue patterns below are provisional problem evidence, separate from buyer demand.
 
 ## Reproducible lookup ledger
 
@@ -51,6 +52,29 @@ Selected fetched-byte SHA-256 fingerprints (not claims of publisher signatures):
 - R8 README: `65e87e68f4a16aefa1f1fba55b2e7a9b9bc8716393b7ddb013fc7c7bef4e4bc1`.
 - R10 src/package-url.js: `b9967047c90a8640076b9dff8024f1823a0e74e76f96363912dd91a78df7df2c`.
 - R11 npm definition: `ec4c8e20cfce0b44dc4c1cd43e8fe58de70bbb935c89a2073dffe22f5ea4821b`.
+
+## Public problem evidence and contrary results
+
+Additional exact GitHub issue queries on 2026-10-15 used
+`gh api --method GET search/issues -f q='<query>' -f per_page=<limit>`.
+Counts are search results, not affected customer counts or validated incidents.
+
+| Exact query / observed count                                                     | Evidence read                                                                                                                                                                                                                                                                                                                                | Interpretation and confidence                                                                                                                                                                                                                                                                                                                                                                |
+| -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `repo:agentgateway/agentgateway is:issue authorization` / 197, first 5 inspected | [3635](https://github.com/agentgateway/agentgateway/issues/3635), [3668](https://github.com/agentgateway/agentgateway/issues/3668), [2536](https://github.com/agentgateway/agentgateway/issues/2536), [3989](https://github.com/agentgateway/agentgateway/issues/3989); 3374 title only. Direct issue status and 2536 comments also fetched. | Repeated reports concern OAuth issuer/discovery interoperability across clients/providers. 2536 comments dated July 29 and August 13 report similar Keycloak/Entra issues; 3635 is dated September 23. This corroborates recurring integration friction within one ecosystem, not AgentShield demand or independently reproduced vulnerabilities. All four inspected issue states were open. |
+| `repo:cli/cli is:issue approval stale review` / 12, first 4 inspected            | [2342](https://github.com/cli/cli/issues/2342), [2053](https://github.com/cli/cli/issues/2053), [9839](https://github.com/cli/cli/issues/9839), [8363](https://github.com/cli/cli/issues/8363)                                                                                                                                               | Historical reports about review dismissal/re-review, branch-policy diagnostics and configuration. They show existing workflows and friction, but do not demonstrate that a new exact-action product is needed. No current reproduction.                                                                                                                                                      |
+| `repo:temporalio/sdk-typescript is:issue timeout activity duplicate` / 1         | [1115](https://github.com/temporalio/sdk-typescript/issues/1115), dated 2023-05-02                                                                                                                                                                                                                                                           | Report concerns workflow failure classification and explicitly lacks a minimal reproduction. Weak evidence; does not establish duplicate effects or justify orchestration replacement.                                                                                                                                                                                                       |
+
+Issue 3989 reports missing request identity in denied model-call logs and supplies
+a reproduction/code path for agentgateway v1.6.0. It was created on this lookup
+date and had no comments. Treat it as an unconfirmed capture-boundary hypothesis
+to evaluate in a comparator trial, not a proven competitor deficiency. No issue
+was filed, commented on or changed during research.
+
+Implication: prioritize diagnosable identity/configuration boundaries and honest
+capture status; retain mature identity components. Do not build custom OAuth proxy
+infrastructure in response to these reports. The exact-action/unknown-outcome value
+proposition still needs direct interviews and controlled baseline comparison.
 
 ## Comparator matrix
 
