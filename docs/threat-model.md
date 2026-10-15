@@ -1,5 +1,14 @@
 # Threat Model
 
+Current bounded threat-to-regression evidence and limitations are maintained in the
+[Phase 1 review register](phase1-review-fix-register.md). The product direction and
+phase gates are in the [implementation plan](industry-product-implementation-plan.md).
+The historical v1 scope below does not establish enforcement of provider actions.
+Append-oriented application history trusts the database administrator; hashes and
+signatures do not prove complete capture or safety. The SDK can be bypassed by a
+caller with direct provider credentials. A future enforced adapter must hold those
+credentials outside the agent and document every bypass assumption.
+
 ## Security Objective
 
 AgentShield protects pre-merge and review workflows where AI coding agents may introduce risky code, unsafe infrastructure, suspicious automation behavior, or dependency drift. The primary goal is not to replace human review; it is to make high-risk agent output visible, auditable, and policy-controlled before merge.

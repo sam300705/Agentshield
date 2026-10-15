@@ -194,6 +194,13 @@ still fail closed, and checkout-controlled ignore files cannot relax authoritati
 checks. Optional advisory enrichment retains its separate disabled/unavailable
 status; coverage does not claim provider qualification.
 
+New coverage includes optional `incompleteChecks`: the number of applicable checks
+that could not finish parsing, counted once per affected YAML file/check. YAML
+errors, warnings, conversion failures and unrendered template syntax yield PARTIAL
+even if secret text inspection completed. Parser source/messages are not exported.
+Older records without this field have unavailable parser completion diagnostics;
+do not infer zero. The field propagates through CLI, metadata, console and receipts.
+
 Coverage participates in new canonical hashes and Ed25519 signatures when present.
 Its absence preserves legacy payload/hash behavior. New unsigned receipts retain
 their canonical payload in the existing `signedPayload` storage column, but only

@@ -146,3 +146,43 @@ self-referential SHA embedded in the file. No earlier passing run substitutes fo
 that final-head verification. Review threads remain unresolved for independent
 review; out-of-date line positions are not acceptance. The next permitted task is
 independent Phase 1 security review and controlled live-provider qualification.
+
+## Review remediation and bounded product research — 2026-10-15
+
+The subsequent read-only review verified published head
+`d0247207641e5db8e2ab4f14a0036921aac594ec` and exact-head successful quality
+runs 38732887743 (push) and 38732893632 (PR). It reproduced six additional
+defects despite passing CI. This assistant authored earlier implementation;
+the review was not independent human/organizational acceptance.
+
+The newly authorized package repairs marker spoofing and nested query leakage,
+PURL validation/npm scope construction, shutdown ABA failure-history loss, seed
+writer/guard target mismatch, and YAML parse-completion coverage. The
+[failure register](phase1-review-fix-register.md) records scenarios and regressions;
+the [ADR](adr-phase1-integrity-boundaries.md) records reuse and compatibility.
+No SQL or deployment configuration is changed. Existing migration files and
+customer-record cleanup scope are preserved. No review thread is resolved.
+
+Local checkpoint: 390 workspace tests, lint, strict types, build, frozen install,
+format/docs checks, real disposable PostgreSQL completion (including forced ABA
+and audit rollback), and populated upgrade/drift refusal PASS. Six browser tests,
+integration, lease takeover, round-2 database, gateway and synthetic GitHub lifecycle
+checks PASS. Source/fixture SARIF gates retain existing exclusions and expected
+fixture BLOCK exit 3. Exact-head publication results belong in the PR record after
+execution. PostgreSQL audit errors deliberately injected by the completion suite
+are asserted rollback outcomes. Local container build was not repeated; the
+unchanged recipe requires exact-head CI qualification.
+
+[Product plan](industry-product-implementation-plan.md),
+[proposed contracts/transitions](action-approval-execution-contracts.md),
+[dated research protocol/ledger/comparator/pilot plan](product-research-ledger.md),
+and [reuse decisions](reuse-decision-ledger.md) now exist. They distinguish code,
+proposal and untested hypotheses. Detailed gateway documentation returned 403;
+pinned source README evidence was inspected without treating it as executed
+qualification. Actual customer feedback, repeated demand and willingness to pay
+remain unverified; no outreach occurred.
+
+Phase 1 remains PARTIAL pending final published-head checks and independent
+acceptance. Phase 2 and dependent implementation remain BLOCKED; no stacked PR
+is merged/retargeted. Live OIDC/GitHub, production key custody, restore/RPO/RTO,
+performance/cost qualification and production deployment are not claimed.
