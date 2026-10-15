@@ -163,7 +163,7 @@ the [ADR](adr-phase1-integrity-boundaries.md) records reuse and compatibility.
 No SQL or deployment configuration is changed. Existing migration files and
 customer-record cleanup scope are preserved. No review thread is resolved.
 
-Local checkpoint: 390 workspace tests, lint, strict types, build, frozen install,
+Local checkpoint: 391 workspace tests, lint, strict types, build, frozen install,
 format/docs checks, real disposable PostgreSQL completion (including forced ABA
 and audit rollback), and populated upgrade/drift refusal PASS. Six browser tests,
 integration, lease takeover, round-2 database, gateway and synthetic GitHub lifecycle
@@ -186,3 +186,8 @@ Phase 1 remains PARTIAL pending final published-head checks and independent
 acceptance. Phase 2 and dependent implementation remain BLOCKED; no stacked PR
 is merged/retargeted. Live OIDC/GitHub, production key custody, restore/RPO/RTO,
 performance/cost qualification and production deployment are not claimed.
+
+Final YAML hardening retains structured Map keys during document conversion,
+preventing the library from emitting raw repository keys in coercion warnings.
+A dedicated regression checks the actual scanner's warning and result boundaries.
+This additive change requires its own published-head CI, not the earlier candidate's.

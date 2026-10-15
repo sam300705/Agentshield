@@ -26,12 +26,12 @@ function toRelativePath(targetRoot: string, filePath: string): string {
   return path.relative(targetRoot, filePath) || path.basename(filePath);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function isKubernetesDocument(value: unknown): boolean {
-  return isRecord(value) && typeof value.apiVersion === "string" && typeof value.kind === "string";
+  return (
+    value instanceof Map &&
+    typeof value.get("apiVersion") === "string" &&
+    typeof value.get("kind") === "string"
+  );
 }
 
 function createFingerprint(
@@ -89,7 +89,8 @@ export async function scanKubernetesManifest(input: KubernetesScannerInput): Pro
 
     try {
       if (/{{|{%/.test(content)) return false;
-      return isKubernetesDocument(document.toJSON());
+      // Map keys stay structured: object coercion can log raw untrusted keys.
+      return isKubernetesDocument(document.toJS({ mapAsMap: true }));
     } catch {
       if (!incomplete) input.onIncomplete?.();
       incomplete = true;

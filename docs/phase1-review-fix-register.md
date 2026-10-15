@@ -59,10 +59,16 @@ accepts some raw URL structures, so AgentShield retains its stricter raw-URL gua
 An upstream annotated-tag object produced a raw-source 404; fetching its commit
 resolved the source review. These are recorded causes, not ignored failed checks.
 
-Local verification: 390 workspace tests; strict types, lint, build, frozen install,
+Local verification: 391 workspace tests; strict types, lint, build, frozen install,
 format/docs checks, real PostgreSQL completion and populated upgrade checks PASS.
 All six browser tests, integration, lease takeover, round-2 database, gateway and
 synthetic GitHub lifecycle checks PASS. Source SARIF gate and fixture BLOCK exit 3
 plus SARIF validation PASS with unchanged exclusions. Published-head results belong
 in the PR publication record after execution.
 No live-provider, independent acceptance or production deployment claim follows.
+
+A final surrounding-code check found that YAML object conversion could emit raw
+collection keys through process warnings. Conversion now retains Map keys instead
+of coercing them into object strings; an actual scanner regression spies on
+process.emitWarning and verifies private key material never enters scan output.
+This is additional Phase 1 evidence hardening, not provider qualification.

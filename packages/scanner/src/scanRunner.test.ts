@@ -1,7 +1,7 @@
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { runScan } from "./scanRunner.js";
 
 it("does not let a checkout exclude its own mandatory secret findings", async () => {
@@ -110,3 +110,21 @@ it.each(["pnpm-lock.yaml", "yarn.lock", "package-lock.json"])(
     }
   },
 );
+
+it("does not emit raw YAML collection keys through conversion warnings", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "agentshield-parser-warning-"));
+  const warning = vi.spyOn(process, "emitWarning");
+  const privateValue = "synthetic-parser-private-canary";
+  try {
+    await writeFile(
+      path.join(root, "deployment.yaml"),
+      `apiVersion: v1\nkind: Pod\n? [${privateValue}, other]\n: harmless\n`,
+    );
+    const result = await runScan(root, "parser-warning");
+    expect(warning).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).not.toContain(privateValue);
+  } finally {
+    warning.mockRestore();
+    await rm(root, { recursive: true, force: true });
+  }
+});
