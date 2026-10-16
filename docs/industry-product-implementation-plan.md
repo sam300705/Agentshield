@@ -69,6 +69,14 @@ Acceptance: local checks and final-head CI, then independent review. Recovery:
 revert code additively while retaining the harmless new column and all history;
 never rewrite old audits or reset a populated database.
 
+CI contingency within P1-R2: push run 38789534936 failed archive-limit fixture
+cleanup with ENOTEMPTY while the same-head PR run passed. Inspecting pinned tar
+7.5.22 showed onentry is observational and can still schedule filesystem work.
+Move existing path/type/budget checks to its documented filter admission hook;
+retain every rejection assertion, align fixture cleanup with bounded retries and
+verify forbidden entries never reach filesystem operations. This repairs an
+existing boundary without enabling repository admission or advancing Phase 3.
+
 | Track              | Current status                                     | Required next evidence                                                                                         |
 | ------------------ | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | R0 research        | PARTIAL: desk research and pilot protocol recorded | Actual team interviews, comparator trials, pilot outcomes and buyer evidence                                   |

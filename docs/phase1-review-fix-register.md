@@ -96,3 +96,29 @@ semicolons, including comments. A semicolon in the new unpublished migration's
 comment caused drift-rehearsal syntax failure. Rewording that comment preserved
 the unchanged SQL operation and restored populated-upgrade/drift-refusal checks.
 The disposable database was recreated to retest the final migration bytes.
+
+### CI-discovered archive admission correction
+
+At candidate `eec88d38bfb6fa0fcb46402aa56b1824505ebe80`, push CI 38789534936
+failed the existing file-count archive test during fixture cleanup (ENOTEMPTY);
+PR CI 38789540232 passed. Investigation of installed/locked tar 7.5.22 source and
+README showed that onentry observation does not reject an entry before Unpack
+schedules filesystem work. This affects actual limit/link admission, not just CI.
+
+The existing validation now runs in tar's documented filter hook and returns false
+for forbidden paths/types/budgets before extraction. Regression probes verify
+oversized files, symlinks and hardlinks never call filesystem stat/lstat/mkdir/open;
+a real temporary-workspace regression retains cleanup after a later entry fails.
+Fixtures use bounded cleanup retries, matching the existing production strategy;
+archive-bound assertions are unchanged. No check was disabled or rerun unchanged.
+Repeated isolated archive tests exercise the observed cleanup race. These fixtures
+do not qualify arbitrary delayed I/O, every cancellation case or live provider
+behavior; Phase 3 qualification and disabled admission remain unchanged.
+
+Corrected archive checkpoint: 400 workspace tests PASS, plus 12 fresh-process runs
+of the 20-test archive suite (240 stress executions, not additional unique tests).
+Lint, strict types and API/dependency builds PASS. The first parameterized test
+fixture accidentally attached a link target to a regular file, so tar correctly
+rejected it before the size check; only link entries now carry that fixture field.
+All production rejections and filesystem probes remain enforced. Publication CI
+must qualify this corrected head separately from the earlier mixed CI result.

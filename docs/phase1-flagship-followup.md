@@ -213,3 +213,18 @@ injects failure into each of the two audits, verifying pairwise atomicity.
 Final publication SHA/tree and its own CI belong in PR #16's publication record.
 No earlier successful head qualifies this candidate. Reviews remain open and
 independent acceptance is pending; Phase 2 and production remain gated.
+
+The first P1-R2 published candidate had passing PR CI but a failing push CI caused
+by an archive fixture cleanup race. Investigation found existing tar checks ran in
+onentry, which could not veto filesystem admission. An additive correction uses
+the documented filter hook, with forbidden-entry filesystem probes and partial
+workspace cleanup regression. See the review register for the failed run and
+limitations. The corrected head must receive both of its own CI runs; an older
+passing PR run does not qualify it.
+
+The archive correction subsequently passed all 400 workspace tests, with 12
+fresh-process runs of its 20-test boundary suite and passing lint/types/API build.
+It rejects oversized files and links before filesystem calls, using pinned tar's
+supported filter API rather than private library internals. The final corrected
+head and both exact-head CI outcomes are recorded in PR #16's publication record.
+Independent acceptance and all dependent phase gates remain pending.
