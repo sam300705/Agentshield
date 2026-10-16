@@ -204,7 +204,7 @@ export async function ingestAgentEvent(
               sequence: input.sequence,
               timestamp: input.timestamp,
               actor: input.actor,
-              source: input.source,
+              source: sanitizeText(input.source).slice(0, 256),
               type: input.type,
               riskLevel: input.riskLevel,
               summary: sanitizeText(input.summary),

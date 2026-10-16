@@ -44,3 +44,34 @@ it("propagates the persisted requester through local demo execution", async () =
   });
   expect(mocks.run).toHaveBeenCalledWith("scan", "org-1", "corr-1", signal, "caller-1", undefined);
 });
+
+it("executes legacy demo policy markers only for the fixed local demo", async () => {
+  const payload = {
+    organizationId: "org-1",
+    repositoryId: "local-demo",
+    provider: "LOCAL",
+    repositoryName: "demo",
+    ref: "main",
+    policyBundleVersion: "demo",
+    trigger: "MANUAL",
+    requester: "caller-1",
+    correlationId: "corr-1",
+    options: {},
+  };
+  const signal = new AbortController().signal;
+  const prepare = vi.fn();
+  const executor = new ConfiguredScanJobExecutor({ prepare });
+  await executor.execute({ scanId: "scan", signal, payload });
+  expect(mocks.run).toHaveBeenCalled();
+  mocks.run.mockClear();
+  for (const invalid of [
+    { ...payload, provider: "GITHUB" },
+    { ...payload, repositoryId: "registered-local-repository" },
+    { ...payload, policyBundleVersion: "unknown" },
+  ])
+    await expect(executor.execute({ scanId: "scan", signal, payload: invalid })).rejects.toThrow(
+      "Unsupported policy bundle version.",
+    );
+  expect(prepare).not.toHaveBeenCalled();
+  expect(mocks.run).not.toHaveBeenCalled();
+});

@@ -673,7 +673,13 @@ export async function processNextScanJob(
       });
       if (persistedScan?.status === ScanStatus.COMPLETED) {
         await tx.scanJob.updateMany({
-          where: { id: candidate.id, lockedBy: leaseOwner, status: ScanStatus.RUNNING },
+          where: {
+            id: candidate.id,
+            lockedBy: leaseOwner,
+            status: ScanStatus.RUNNING,
+            leaseExpiresAt: { gt: new Date() },
+            attempts: claimed.attempt,
+          },
           data: {
             status: ScanStatus.COMPLETED,
             progress: 100,
@@ -686,7 +692,13 @@ export async function processNextScanJob(
         return;
       }
       const transitioned = await tx.scanJob.updateMany({
-        where: { id: candidate.id, lockedBy: leaseOwner, status: ScanStatus.RUNNING },
+        where: {
+          id: candidate.id,
+          lockedBy: leaseOwner,
+          status: ScanStatus.RUNNING,
+          leaseExpiresAt: { gt: new Date() },
+          attempts: claimed.attempt,
+        },
         data: {
           status: cancelled
             ? ScanStatus.CANCELLED

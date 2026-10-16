@@ -29,7 +29,13 @@ export class ConfiguredScanJobExecutor implements ScanJobExecutor {
 
   async execute(input: ScanJobExecutionInput): Promise<string> {
     const payload = scanJobPayloadSchema.parse(input.payload);
-    if (payload.policyBundleVersion !== POLICY_RULE_VERSION)
+    // Phase 2's original supported demo jobs used this exact legacy marker.
+    // Normalize only the fixed local demo executor, never repository jobs.
+    const legacyDemo =
+      payload.provider === "LOCAL" &&
+      payload.repositoryId === "local-demo" &&
+      payload.policyBundleVersion === "demo";
+    if (!legacyDemo && payload.policyBundleVersion !== POLICY_RULE_VERSION)
       throw new Error("Unsupported policy bundle version.");
     if (payload.provider === "LOCAL" && payload.repositoryId === "local-demo") {
       if (process.env.NODE_ENV === "production") throw new Error("DEMO_DISABLED");

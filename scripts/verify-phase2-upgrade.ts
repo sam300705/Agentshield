@@ -20,7 +20,12 @@ const all = await migrationNames();
 const integrity = "20261006000000_backend_integrity";
 const common = all.filter((name) => name < integrity);
 const histories = [
-  { name: "accepted_phase1", migrations: all.filter((name) => name !== integrity) },
+  {
+    name: "accepted_phase1",
+    migrations: all.filter(
+      (name) => name !== integrity && name <= "20261015190000_scan_claim_sequence",
+    ),
+  },
   { name: "existing_phase2", migrations: [...common, integrity] },
 ];
 try {
@@ -57,8 +62,23 @@ try {
       await db.$executeRaw`INSERT INTO "Repository" ("id","organizationId","provider","externalId","fullName","updatedAt") VALUES ('preserve-repo','preserve-org','LOCAL','1','synthetic/preserve',CURRENT_TIMESTAMP)`;
       await db.$executeRaw`INSERT INTO "AgentSession" ("id","organizationId","repositoryId","actor","source","taskSummary","correlationId") VALUES ('preserve-session','preserve-org','preserve-repo','synthetic-actor','test','Preserved session','preserve-session')`;
       await db.$executeRaw`INSERT INTO "Scan" ("id","organizationId","repositoryId","repositoryName","branch","status","updatedAt") VALUES ('preserve-scan','preserve-org','preserve-repo','synthetic/preserve','main','FAILED',CURRENT_TIMESTAMP)`;
-      await db.$executeRaw`INSERT INTO "ScanJob" ("id","scanId","idempotencyKey","status","attempts","failureCode","failureMessage","correlationId","policyBundleVersion","repositoryRef","requester","updatedAt") VALUES ('preserve-job','preserve-scan','preserve-job','FAILED',2,'HISTORICAL_FAILURE','Preserved synthetic failure','preserve-job','synthetic','main','synthetic-actor',CURRENT_TIMESTAMP)`;
+      await db.$executeRaw`INSERT INTO "ScanJob" ("id","scanId","idempotencyKey","status","attempts","failureCode","failureMessage","correlationId","policyBundleVersion","repositoryRef","requester","nextAttemptAt","updatedAt") VALUES ('preserve-job','preserve-scan','preserve-job','FAILED',2,'HISTORICAL_FAILURE','Preserved synthetic failure','preserve-job','synthetic','main','synthetic-actor','2099-01-01',CURRENT_TIMESTAMP)`;
       await db.$executeRaw`INSERT INTO "AuditEvent" ("id","organizationId","scanId","actor","action","entityType","entityId") VALUES ('preserve-audit','preserve-org','preserve-scan','synthetic-actor','SCAN_CREATED','Scan','preserve-scan')`;
+      if (history.name === "existing_phase2") {
+        await db.$executeRaw`INSERT INTO "Scan" ("id","organizationId","repositoryName","branch","status","updatedAt") VALUES ('preserve-legacy-scan','preserve-org','agentshield-vulnerable-demo-target','main','QUEUED',CURRENT_TIMESTAMP)`;
+        const payload = JSON.stringify({
+          organizationId: "preserve-org",
+          repositoryId: "local-demo",
+          provider: "LOCAL",
+          repositoryName: "agentshield-vulnerable-demo-target",
+          ref: "main",
+          policyBundleVersion: "demo",
+          trigger: "MANUAL",
+          requester: "synthetic-actor",
+          correlationId: "legacy-demo",
+        });
+        await db.$executeRaw`INSERT INTO "ScanJob" ("id","scanId","idempotencyKey","status","policyBundleVersion","repositoryRef","requester","correlationId","payload","updatedAt") VALUES ('preserve-legacy-demo','preserve-legacy-scan','legacy-demo','QUEUED','demo','local-demo','synthetic-actor','legacy-demo',${payload}::jsonb,CURRENT_TIMESTAMP)`;
+      }
       const tables = [
         "Organization",
         "Repository",
@@ -77,6 +97,9 @@ try {
         env,
         maxBuffer: 1024 * 1024,
       });
+      // New columns change SELECT * result types in PostgreSQL's cached plans.
+      // Reconnect the rehearsal observer after DDL, as during the documented rollout.
+      await db.$disconnect();
       for (let i = 0; i < tables.length; i++) {
         const after = await db.$queryRawUnsafe<Array<Record<string, unknown>>>(
           `SELECT * FROM "${tables[i]}"`,
@@ -95,6 +118,17 @@ try {
       await assert.rejects(
         db.$executeRaw`INSERT INTO "Scan" ("id","repositoryId","organizationId","repositoryName","branch","updatedAt") VALUES ('foreign','preserve-repo','foreign-org','foreign','main',CURRENT_TIMESTAMP)`,
       );
+      if (history.name === "existing_phase2") {
+        const result = await run(
+          process.execPath,
+          ["--import", "tsx", "scripts/verify-upgraded-demo-job.ts"],
+          {
+            env: { ...env, RECEIPT_SIGNING_PRIVATE_KEY: "", RECEIPT_SIGNING_KEY_ID: "" },
+            maxBuffer: 1024 * 1024,
+          },
+        );
+        assert(result.stderr.includes("PASS parent-format demo executes"));
+      }
       console.warn(
         `PASS populated ${history.name} -> integrated migration history; records preserved, foreign parent rejected.`,
       );
