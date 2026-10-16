@@ -65,7 +65,12 @@ it("executes legacy demo policy markers only for the fixed local demo", async ()
   expect(mocks.run).toHaveBeenCalled();
   mocks.run.mockClear();
   for (const invalid of [
-    { ...payload, provider: "GITHUB" },
+    {
+      ...payload,
+      provider: "GITHUB",
+      commitSha: "0123456789abcdef0123456789abcdef01234567",
+      integrationId: "7654321",
+    },
     { ...payload, repositoryId: "registered-local-repository" },
     { ...payload, policyBundleVersion: "unknown" },
   ])
