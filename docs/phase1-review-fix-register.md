@@ -122,3 +122,22 @@ fixture accidentally attached a link target to a regular file, so tar correctly
 rejected it before the size check; only link entries now carry that fixture field.
 All production rejections and filesystem probes remain enforced. Publication CI
 must qualify this corrected head separately from the earlier mixed CI result.
+
+## P1-R3: stale selection versus actual claimed executor fence
+
+Automated finding 4291537679 on `b4060d1b5ef3a6feae3070157876ac99ef9ad97e`
+is confirmed (MEDIUM). Worker A can select queued attempt 0, pause, then reclaim
+the row after worker B fails attempt 1. The locked claim correctly increments the
+database to attempt 2, but the old executor argument still used A's selected 0+1.
+The real scan lease check therefore rejected valid ownership and could dead-letter
+the job when this consumed its last retry.
+
+The successful claim now returns its actual attempt; the executor fence uses that
+value. Failed/lost claims return no admission. No schema, provider or phase change.
+The new disposable-PostgreSQL regression pauses a genuine selection, runs a failing
+worker, makes the row due and reclaims at maxAttempts=2 with the real configured
+scanner/executor. Reinstating the old expression makes this regression fail;
+restoring the correction makes the job and scan COMPLETED at attempt 2, claim 2,
+with no dead-letter. This is execution-boundary evidence, not a mocked lease check.
+Existing failure-history, claim rollback, cancellation and seed regressions remain.
+Independent acceptance and exact corrected-head publication checks remain separate.

@@ -77,6 +77,18 @@ retain every rejection assertion, align fixture cleanup with bounded retries and
 verify forbidden entries never reach filesystem operations. This repairs an
 existing boundary without enabling repository admission or advancing Phase 3.
 
+### Work package P1-R3: pass the locked claim's attempt to execution
+
+Evidence: review 4291537679 on `b4060d1` identifies a stale selected attempt after
+another worker fails and the selected row is reclaimed. Objective/invariant: the
+executor fence uses the attempt established by the successful locked claim, never
+the earlier selection. Scope: scanQueue and its real PostgreSQL regression; no
+provider operation, new phase or schema change. Reuse existing claim transaction
+and configured executor. Test: pause a genuine selection, fail another worker,
+reclaim at the final retry and run the actual fenced scanner successfully, without
+false lease loss or dead-lettering. Acceptance: local checks, exact-head CI and
+fresh independent review. Recovery: additive code revert retains history/schema.
+
 | Track              | Current status                                     | Required next evidence                                                                                         |
 | ------------------ | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | R0 research        | PARTIAL: desk research and pilot protocol recorded | Actual team interviews, comparator trials, pilot outcomes and buyer evidence                                   |

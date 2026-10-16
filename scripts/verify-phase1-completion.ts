@@ -597,6 +597,62 @@ try {
     "COMPLETED",
   );
 
+  // A stale selection must use the actual reclaimed attempt in the real executor fence.
+  const fencedJob = await enqueueDemoScan(
+    `fenced-reclaim-${suffix}`,
+    org,
+    "fence-correlation",
+    "synthetic-actor",
+  );
+  await db.scanJob.update({ where: { id: fencedJob.id }, data: { maxAttempts: 2 } });
+  let selectedFence!: () => void;
+  let releaseFence!: () => void;
+  const fenceSelected = new Promise<void>((resolve) => {
+    selectedFence = resolve;
+  });
+  const fenceReleased = new Promise<void>((resolve) => {
+    releaseFence = resolve;
+  });
+  let pauseFence = true;
+  queueDb.scanJob.findFirst = (async (...args: Parameters<typeof originalFind>) => {
+    const row = await originalFind(...args);
+    if (pauseFence && row?.id === fencedJob.id) {
+      pauseFence = false;
+      selectedFence();
+      await fenceReleased;
+    }
+    return row;
+  }) as typeof queueDb.scanJob.findFirst;
+  const { defaultScanJobExecutor } = await import("../apps/api/src/services/scanJobExecutor.js");
+  const staleFenceClaim = processNextScanJob("fenced-stale-worker", defaultScanJobExecutor);
+  try {
+    await waitForBarrier(fenceSelected);
+    await processNextScanJob("fenced-failing-worker", {
+      execute: () => Promise.reject(new Error("SYNTHETIC_FIRST_FAILURE")),
+    });
+    const failed = await db.scanJob.findUniqueOrThrow({ where: { id: fencedJob.id } });
+    assert.equal(failed.status, "FAILED");
+    assert.equal(failed.attempts, 1);
+    await db.scanJob.update({ where: { id: fencedJob.id }, data: { nextAttemptAt: null } });
+  } finally {
+    queueDb.scanJob.findFirst = originalFind;
+    releaseFence();
+    await staleFenceClaim;
+  }
+  const reclaimed = await db.scanJob.findUniqueOrThrow({ where: { id: fencedJob.id } });
+  assert.equal(
+    reclaimed.status,
+    "COMPLETED",
+    "The real executor must receive the actual second claim's fence.",
+  );
+  assert.equal(reclaimed.attempts, 2);
+  assert.equal(reclaimed.claimSequence, 2);
+  assert.equal(reclaimed.deadLetteredAt, null);
+  assert.equal(
+    (await db.scan.findUniqueOrThrow({ where: { id: fencedJob.scanId } })).status,
+    "COMPLETED",
+  );
+
   const repeatedJob = await enqueueDemoScan(
     `repeated-shutdown-${suffix}`,
     org,

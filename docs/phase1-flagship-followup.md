@@ -228,3 +228,18 @@ It rejects oversized files and links before filesystem calls, using pinned tar's
 supported filter API rather than private library internals. The final corrected
 head and both exact-head CI outcomes are recorded in PR #16's publication record.
 Independent acceptance and all dependent phase gates remain pending.
+
+## P1-R3: current claimed attempt in executor fence
+
+The requested fresh Codex review was posted on PR #16. A current-head automated
+review identified stale attempt propagation (4291537679), confirmed against actual
+PostgreSQL and the real configured scanner/executor: a paused queued selection
+reclaimed after another worker failed, but supplied the old selected attempt as its
+lease fence. The final allowed retry could be incorrectly rejected/dead-lettered.
+
+Claim now returns the attempt established under its row lock and supplies that to
+execution. A deterministic final-retry regression fails with the original expression
+and passes with the correction; scan/job complete at attempt 2 with no dead-letter.
+No migration or provider boundary change. Final publication identity, exact-head
+CI and fresh automated review request are recorded in PR #16. No independent
+acceptance is self-awarded and no dependent phase is advanced.

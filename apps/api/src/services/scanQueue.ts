@@ -410,7 +410,7 @@ export async function processNextScanJob(
       where: { id: candidate.id },
       include: { scan: { select: { organizationId: true } } },
     });
-    if (current == null) return { count: 0 };
+    if (current == null) return null;
     const result = await tx.scanJob.updateMany({
       where: {
         id: candidate.id,
@@ -434,7 +434,8 @@ export async function processNextScanJob(
         failureMessage: null,
       },
     });
-    if (result.count === 1 && (current.failureCode != null || current.failureMessage != null)) {
+    if (result.count !== 1) return null;
+    if (current.failureCode != null || current.failureMessage != null) {
       await tx.auditEvent.create({
         data: {
           action: "SCAN_ATTEMPT_ARCHIVED",
@@ -459,10 +460,10 @@ export async function processNextScanJob(
         },
       });
     }
-    return result;
+    return { attempt: current.attempts + 1 };
   });
 
-  if (claimed.count !== 1) return true;
+  if (claimed == null) return true;
 
   const abortController = new AbortController();
   const shutdownHandler = () => abortController.abort();
@@ -505,7 +506,7 @@ export async function processNextScanJob(
       scanId: candidate.scanId,
       payload: candidate.payload,
       signal: abortController.signal,
-      lease: { owner: workerId, attempt: candidate.attempts + 1 },
+      lease: { owner: workerId, attempt: claimed.attempt },
     });
     if (leaseLost) throw new Error("WORKER_LEASE_LOST");
     // A completed executor result wins a concurrent shutdown.
