@@ -35,6 +35,7 @@
     "db:seed": "prisma db seed",
     "dev:worker": "pnpm --filter @agentshield/api dev:worker",
     "db:validate": "prisma validate",
+    "test:phase1-completion": "node --import tsx scripts/verify-phase1-completion.ts",
     "test:phase1-round2": "node --import tsx scripts/verify-phase1-round2.ts",
     "db:baseline": "node --import tsx scripts/baseline-database.ts",
     "test:database-upgrade": "node --import tsx scripts/verify-database-upgrade.ts",

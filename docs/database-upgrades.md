@@ -16,3 +16,42 @@ The baseline command never runs automatically from Render, a worker, or API star
 CI uses real PostgreSQL to create a pre-history control-plane database with persisted scan data, execute the same baseline command and incremental deploy, verify all history entries and unchanged scan contents, and reject deliberately introduced drift. Fresh migration deployment remains an independent existing CI gate. These fixtures qualify the workflow without claiming a real deployed database was upgraded.
 
 Reference: [Prisma v6 baseline workflow](https://www.prisma.io/docs/orm/v6/prisma-migrate/getting-started).
+
+## Phase 1 lifecycle forward migration
+
+`20261015120000_phase1_session_lifecycle` adds nullable session idempotency/context
+columns, a tenant/actor/key unique index and three audit enum values. Existing SQL
+and checksums remain unchanged; old sessions retain NULL fields. Coverage is held
+in existing JSON scan metadata and canonical receipt payloads without rewriting
+historical rows. The populated upgrade regression now checks preserved tenant,
+session, audit and receipt identity/digests as well as scan data.
+
+`AGENTSHIELD_DISPOSABLE_DATABASE=true pnpm test:phase1-completion` additionally
+requires the existing localhost database guard. Run it only in an explicitly
+provisioned disposable database named `agentshield`. It injects test-tenant audit
+failures and replaces labelled synthetic demo seeds. It proves create/close and
+retry-transition rollback, claim/closure races, collision persistence/advisory
+identity, unsigned coverage receipts and seed preservation/rollback/serialization.
+A customer-owned fixture in the demo tenant survives, including its audit and
+receipt. Cleanup targets generated test-owned IDs; importing `prisma/seed.ts`
+does not run its CLI. These test hooks are not production recovery commands.
+
+## Monotonic scan claim numbering
+
+`20261015190000_scan_claim_sequence` additively adds non-null `ScanJob.claimSequence`
+with default zero. Every new-worker claim increments it in the claim/audit transaction;
+shutdown may restore the retry-budget `attempts` counter but never this sequence.
+Archived failures and cancellation history distinguish `CLAIM_SEQUENCE` from
+`LEGACY_RETRY_COUNTER` and retain the separate retry-budget value.
+
+Zero on historical rows means no post-upgrade claim has been numbered. It does not
+assert that the job never ran. Old lifetime execution counts cannot be reconstructed;
+legacy audits are never rewritten. The populated-upgrade regression preserves a
+failed job's identity, status, retry count and failure context while verifying zero
+initial sequence, alongside existing customer scan/audit/receipt/session preservation.
+
+Drain/stop old workers before upgrading and start only migrated, regenerated-client
+workers. Mixed old/new workers cannot promise this numbering because old workers do
+not increment the column. For code rollback, stop workers, retain the additive column
+and history, and acknowledge that old code restores its earlier retry-numbering
+limitations. No schema rollback/drop or production operation is performed here.

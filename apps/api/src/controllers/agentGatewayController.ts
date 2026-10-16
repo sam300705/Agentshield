@@ -8,9 +8,12 @@ import {
   sanitizeText,
 } from "@agentshield/schemas";
 import type { Request, Response } from "express";
-import { AuditAction } from "@prisma/client";
+import { AuditAction, Prisma } from "@prisma/client";
 import { prisma } from "../db/prisma.js";
-import { createAgentActionDigest, ensureAgentApproval } from "../services/agentApprovalService.js";
+import {
+  createAgentActionDigest,
+  ensureAgentApprovalInTransaction,
+} from "../services/agentApprovalService.js";
 import { ingestAgentEvent } from "../services/agentEventService.js";
 import { getActor, getCorrelationId } from "../security/auth.js";
 
@@ -30,16 +33,51 @@ export async function authorizeAgentActionController(
     });
     return;
   }
-  const session = await prisma.agentSession.findFirst({
-    where: {
-      id: input.sessionId,
-      organizationId: actor.organizationId,
-      actor: actor.id,
-      status: "ACTIVE",
-    },
-    select: { id: true },
+  const result = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${input.sessionId}))`);
+    const session = await tx.agentSession.findFirst({
+      where: {
+        id: input.sessionId,
+        organizationId: actor.organizationId,
+        actor: actor.id,
+        status: "ACTIVE",
+      },
+      select: { id: true },
+    });
+    if (session == null) return null;
+    const decision = agentDecisionSchema.parse({
+      ...evaluateAgentAuthorization(input),
+      actionDigest: createAgentActionDigest(input),
+    });
+    const approval =
+      decision.decision === "REQUIRE_APPROVAL"
+        ? await ensureAgentApprovalInTransaction(tx, input, getCorrelationId(response))
+        : null;
+    if (approval?.kind === "SESSION_NOT_FOUND" || approval?.kind === "IDEMPOTENCY_CONFLICT")
+      return { decision, approval };
+    // Event submission by the cooperative SDK is optional. Every server decision
+    // must therefore have its own authoritative audit record.
+    await tx.auditEvent.create({
+      data: {
+        actor: actor.id,
+        organizationId: actor.organizationId,
+        action: AuditAction.POLICY_DECIDED,
+        entityType: "AgentSession",
+        entityId: input.sessionId,
+        correlationId: getCorrelationId(response),
+        metadata: {
+          actionType: input.action,
+          actionDigest: decision.actionDigest,
+          decision: decision.decision,
+          ruleId: decision.ruleId,
+          ruleVersion: decision.ruleVersion,
+          reason: sanitizeText(decision.reason),
+        },
+      },
+    });
+    return { decision, approval };
   });
-  if (session == null) {
+  if (result == null) {
     response.status(404).json({
       error: {
         code: "SESSION_NOT_FOUND",
@@ -49,36 +87,12 @@ export async function authorizeAgentActionController(
     });
     return;
   }
-  const decision = agentDecisionSchema.parse({
-    ...evaluateAgentAuthorization(input),
-    actionDigest: createAgentActionDigest(input),
-  });
-  // Event submission by the cooperative SDK is optional. Every server decision
-  // must therefore have its own authoritative audit record.
-  await prisma.auditEvent.create({
-    data: {
-      actor: actor.id,
-      organizationId: actor.organizationId,
-      action: AuditAction.POLICY_DECIDED,
-      entityType: "AgentSession",
-      entityId: input.sessionId,
-      correlationId: getCorrelationId(response),
-      metadata: {
-        actionType: input.action,
-        actionDigest: decision.actionDigest,
-        decision: decision.decision,
-        ruleId: decision.ruleId,
-        ruleVersion: decision.ruleVersion,
-        reason: sanitizeText(decision.reason),
-      },
-    },
-  });
-  if (decision.decision !== "REQUIRE_APPROVAL") {
+  const { decision, approval } = result;
+  if (approval == null) {
     response.json({ data: decision });
     return;
   }
 
-  const approval = await ensureAgentApproval(input, getCorrelationId(response));
   if (approval.kind === "SESSION_NOT_FOUND") {
     response.status(404).json({
       error: {

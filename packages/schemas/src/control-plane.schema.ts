@@ -1,3 +1,4 @@
+import { scanCoverageSchema } from "./scan-coverage.schema.js";
 import { z } from "zod";
 
 import { findingSeveritySchema } from "./finding.schema.js";
@@ -121,6 +122,7 @@ export const securityReceiptSchema = z
     startedAt: z.coerce.date(),
     completedAt: z.coerce.date(),
     gateResult: policyDecisionTypeSchema,
+    coverage: scanCoverageSchema.optional(),
     receiptHash: z.string().regex(/^[a-f0-9]{64}$/),
   })
   .strict();

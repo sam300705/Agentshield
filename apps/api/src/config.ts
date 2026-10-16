@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { isIP } from "node:net";
+import { receiptSigningSettings } from "./security/receiptSigningConfig.js";
 
 const blankToUndefined = (value: unknown) =>
   typeof value === "string" && value.trim() === "" ? undefined : value;
@@ -87,6 +88,7 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     throw new Error(`Invalid environment configuration: ${formatIssues(parsed.error)}`);
   }
 
+  receiptSigningSettings(env);
   const value = parsed.data;
   const issues: string[] = [];
   const isProduction = value.NODE_ENV === "production";

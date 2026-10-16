@@ -280,6 +280,16 @@ export async function requestJobCancellation(
         metadata: {
           jobId: job.id,
           previousStatus: job.status,
+          previousFailureCode: job.failureCode == null ? null : sanitizeText(job.failureCode),
+          previousFailureMessage:
+            job.failureMessage == null
+              ? null
+              : sanitizeText(job.failureMessage).slice(0, MAX_FAILURE_MESSAGE_LENGTH),
+          previousAttempt: job.claimSequence > 0 ? job.claimSequence : job.attempts,
+          previousAttemptNumberSource:
+            job.claimSequence > 0 ? "CLAIM_SEQUENCE" : "LEGACY_RETRY_COUNTER",
+          previousRetryBudgetAttempt: job.attempts,
+          jobCorrelationId: job.correlationId,
           terminal,
           requestedBy: job.requester,
           requestedAt: now.toISOString(),
@@ -394,26 +404,66 @@ export async function processNextScanJob(
   });
   if (candidate == null) return false;
 
-  const claimed = await prisma.scanJob.updateMany({
-    where: {
-      id: candidate.id,
-      status: candidate.status,
-      lockedAt: null,
-      cancelRequestedAt: null,
-      deadLetteredAt: null,
-      attempts: { lt: prisma.scanJob.fields.maxAttempts },
-    },
-    data: {
-      status: ScanStatus.RUNNING,
-      lockedAt: new Date(),
-      lockedBy: workerId,
-      leaseExpiresAt: new Date(Date.now() + SCAN_LEASE_MS),
-      lastHeartbeatAt: new Date(),
-      attempts: { increment: 1 },
-      progress: 5,
-    },
+  const claimed = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "ScanJob" WHERE "id" = ${candidate.id} FOR UPDATE`;
+    const current = await tx.scanJob.findUnique({
+      where: { id: candidate.id },
+      include: { scan: { select: { organizationId: true } } },
+    });
+    if (current == null) return null;
+    const result = await tx.scanJob.updateMany({
+      where: {
+        id: candidate.id,
+        status: { in: [ScanStatus.QUEUED, ScanStatus.FAILED] },
+        attempts: { equals: current.attempts, lt: prisma.scanJob.fields.maxAttempts },
+        lockedAt: null,
+        cancelRequestedAt: null,
+        deadLetteredAt: null,
+        OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: new Date() } }],
+      },
+      data: {
+        status: ScanStatus.RUNNING,
+        lockedAt: new Date(),
+        lockedBy: workerId,
+        leaseExpiresAt: new Date(Date.now() + SCAN_LEASE_MS),
+        lastHeartbeatAt: new Date(),
+        attempts: { increment: 1 },
+        claimSequence: { increment: 1 },
+        progress: 5,
+        failureCode: null,
+        failureMessage: null,
+      },
+    });
+    if (result.count !== 1) return null;
+    if (current.failureCode != null || current.failureMessage != null) {
+      await tx.auditEvent.create({
+        data: {
+          action: "SCAN_ATTEMPT_ARCHIVED",
+          actor: current.requester,
+          organizationId: current.scan.organizationId,
+          scanId: candidate.scanId,
+          entityType: "ScanJob",
+          entityId: candidate.id,
+          correlationId: current.correlationId,
+          metadata: {
+            attempt: current.claimSequence > 0 ? current.claimSequence : current.attempts,
+            attemptNumberSource:
+              current.claimSequence > 0 ? "CLAIM_SEQUENCE" : "LEGACY_RETRY_COUNTER",
+            retryBudgetAttempt: current.attempts,
+            failureCode: current.failureCode == null ? null : sanitizeText(current.failureCode),
+            failureMessage:
+              current.failureMessage == null
+                ? null
+                : sanitizeText(current.failureMessage).slice(0, MAX_FAILURE_MESSAGE_LENGTH),
+            previousStatus: current.status,
+          },
+        },
+      });
+    }
+    return { attempt: current.attempts + 1 };
   });
-  if (claimed.count !== 1) return true;
+
+  if (claimed == null) return true;
 
   const abortController = new AbortController();
   const shutdownHandler = () => abortController.abort();
@@ -456,7 +506,7 @@ export async function processNextScanJob(
       scanId: candidate.scanId,
       payload: candidate.payload,
       signal: abortController.signal,
-      lease: { owner: workerId, attempt: candidate.attempts + 1 },
+      lease: { owner: workerId, attempt: claimed.attempt },
     });
     if (leaseLost) throw new Error("WORKER_LEASE_LOST");
     // A completed executor result wins a concurrent shutdown.
@@ -476,6 +526,8 @@ export async function processNextScanJob(
         leaseExpiresAt: null,
         lastHeartbeatAt: new Date(),
         nextAttemptAt: null,
+        failureCode: null,
+        failureMessage: null,
       },
     });
     if (completed.count !== 1) throw new Error("WORKER_LEASE_LOST");

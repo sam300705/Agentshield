@@ -14,3 +14,5 @@ export * from "./scan.schema.js";
 export * from "./scan-job.schema.js";
 export * from "./secret-reference.schema.js";
 export * from "./github-webhook.schema.js";
+export * from "./session-lifecycle.schema.js";
+export * from "./scan-coverage.schema.js";

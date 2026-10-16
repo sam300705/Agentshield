@@ -1,3 +1,4 @@
+import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 import { getRuntimeConfig } from "./config.js";
@@ -141,4 +142,51 @@ it("rejects HTTP CORS origins in production", () => {
   expect(() =>
     getRuntimeConfig({ ...validProductionEnv, CORS_ORIGIN: "http://dashboard.example.com" }),
   ).toThrow("CORS_ORIGIN must use HTTPS in production");
+});
+
+it("fails startup for incomplete, invalid, or wrong-algorithm signing configuration", () => {
+  const key = generateKeyPairSync("ed25519")
+    .privateKey.export({ type: "pkcs8", format: "pem" })
+    .toString();
+  expect(() => getRuntimeConfig({ ...validProductionEnv, RECEIPT_SIGNING_KEY_ID: "key" })).toThrow(
+    "both",
+  );
+  expect(() =>
+    getRuntimeConfig({
+      ...validProductionEnv,
+      RECEIPT_SIGNING_KEY_ID: "key",
+      RECEIPT_SIGNING_PRIVATE_KEY: "not-a-private-key",
+    }),
+  ).toThrow("Ed25519");
+  expect(() =>
+    getRuntimeConfig({
+      ...validProductionEnv,
+      RECEIPT_SIGNING_KEY_ID: "bad key",
+      RECEIPT_SIGNING_PRIVATE_KEY: key,
+    }),
+  ).toThrow("key ID");
+  const ec = generateKeyPairSync("ec", { namedCurve: "prime256v1" })
+    .privateKey.export({ type: "pkcs8", format: "pem" })
+    .toString();
+  expect(() =>
+    getRuntimeConfig({
+      ...validProductionEnv,
+      RECEIPT_SIGNING_KEY_ID: "key",
+      RECEIPT_SIGNING_PRIVATE_KEY: ec,
+    }),
+  ).toThrow("Ed25519");
+  expect(() =>
+    getRuntimeConfig({
+      ...validProductionEnv,
+      RECEIPT_SIGNING_KEY_ID: "key",
+      RECEIPT_SIGNING_PRIVATE_KEY: key,
+    }),
+  ).not.toThrow();
+  expect(() =>
+    getRuntimeConfig({
+      ...validProductionEnv,
+      RECEIPT_SIGNING_KEY_ID: " ",
+      RECEIPT_SIGNING_PRIVATE_KEY: " ",
+    }),
+  ).not.toThrow();
 });

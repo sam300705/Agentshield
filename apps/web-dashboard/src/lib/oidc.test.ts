@@ -480,3 +480,28 @@ it("preserves configured provider logout query parameters", () => {
   expect(url.searchParams.get("connection")).toBe("corp");
   expect(url.searchParams.get("post_logout_redirect_uri")).toBe(config.redirectUri);
 });
+
+it.each([{ scopes: [] }, { scopes: ["profile", "email"] }, { scopes: ["not-openid"] }])(
+  "rejects scopes without the exact openid token: %j",
+  ({ scopes }) => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    expect(
+      () => new OidcSession({ ...config, scopes }, { exchangeCode: vi.fn(), refresh: vi.fn() }),
+    ).toThrow("openid");
+    expect(() => createFetchTokenClient({ ...config, scopes })).toThrow("openid");
+    expect(
+      readOidcConfig({
+        VITE_APP_MODE: "live",
+        VITE_OIDC_ISSUER: config.issuer,
+        VITE_OIDC_CLIENT_ID: config.clientId,
+        VITE_OIDC_REDIRECT_URI: config.redirectUri,
+        VITE_OIDC_AUTHORIZATION_ENDPOINT: config.authorizationEndpoint,
+        VITE_OIDC_TOKEN_ENDPOINT: config.tokenEndpoint,
+        VITE_OIDC_JWKS_URI: config.jwksUri,
+        VITE_OIDC_SCOPES: scopes.join(" "),
+      }),
+    ).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  },
+);

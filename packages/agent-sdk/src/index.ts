@@ -1,5 +1,9 @@
 import {
   canonicalAgentActionIdentity,
+  createAgentSessionSchema,
+  agentSessionResponseSchema,
+  sessionIdentifierSchema,
+  type CreateAgentSession,
   agentApprovalSchema,
   agentAuthorizationRequestSchema,
   agentDecisionSchema,
@@ -75,6 +79,32 @@ export class AgentShieldClient {
     });
     if (!response.ok) throw new Error(`AgentShield request failed with status ${response.status}.`);
     return (await response.json()) as T;
+  }
+
+  async createSession(input: CreateAgentSession) {
+    const response = await this.request<{ data: unknown }>(
+      "/api/v1/agent/sessions",
+      "POST",
+      createAgentSessionSchema.parse(input),
+    );
+    return { data: agentSessionResponseSchema.parse(response.data) };
+  }
+  async getSession(sessionId: string) {
+    const id = sessionIdentifierSchema.parse(sessionId);
+    const response = await this.request<{ data: unknown }>(
+      `/api/v1/agent/sessions/${encodeURIComponent(id)}`,
+      "GET",
+    );
+    return { data: agentSessionResponseSchema.parse(response.data) };
+  }
+  async closeSession(sessionId: string) {
+    const id = sessionIdentifierSchema.parse(sessionId);
+    const response = await this.request<{ data: unknown }>(
+      `/api/v1/agent/sessions/${encodeURIComponent(id)}/close`,
+      "POST",
+      {},
+    );
+    return { data: agentSessionResponseSchema.parse(response.data) };
   }
 
   async authorize(input: AgentAuthorizationRequest): Promise<AgentDecisionResponse> {

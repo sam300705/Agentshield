@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, mkdtemp, writeFile, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { POLICY_RULE_VERSION } from "@agentshield/policy-engine";
 import { PrismaClient } from "@prisma/client";
-import { persistAdvisories } from "../apps/api/src/services/scanService.js";
+import { runConfiguredScan, persistAdvisories } from "../apps/api/src/services/scanService.js";
 import { assertSafeSeedTarget } from "../apps/api/src/services/seedSafety.js";
 import {
   enqueueRepositoryScan,
@@ -286,6 +289,45 @@ async function main() {
     console.warn(
       "Round 4 PostgreSQL demo attribution passed: persisted queue requester and scan audits identify the caller.",
     );
+    const workspace = await mkdtemp(path.join(os.tmpdir(), "agentshield-sbom-persistence-"));
+    try {
+      await writeFile(
+        path.join(workspace, "package.json"),
+        JSON.stringify({
+          dependencies: {
+            alpha: "git+https://synthetic-user:synthetic-password@example.test/repo.git",
+          },
+        }),
+      );
+      const scanId = await runConfiguredScan({
+        source: "MANUAL",
+        targetPath: workspace,
+        targetPathLabel: "synthetic-workspace",
+        repositoryName: "synthetic/repo",
+        branch: "main",
+        organizationId,
+        correlationId: "sbom-redaction",
+        triggeredBy: "synthetic-caller",
+        labels: [],
+        policyBundleVersion: POLICY_RULE_VERSION,
+        options: {
+          maxFiles: 100,
+          maxBytes: 1000000,
+          timeoutMs: 10000,
+          ignorePaths: [],
+          includeOsv: false,
+        },
+      });
+      const rows = await prisma.dependency.findMany({
+        where: { scanId, scan: { organizationId } },
+      });
+      assert.equal(rows.length, 1);
+      assert.ok(!JSON.stringify(rows).includes("synthetic-user"));
+      assert.ok(!JSON.stringify(rows).includes("synthetic-password"));
+      console.warn("Phase 1 persisted SBOM credential redaction passed.");
+    } finally {
+      await rm(workspace, { recursive: true, force: true });
+    }
     console.warn(
       "Phase 1 Round 2 PostgreSQL checks passed: populated upgrade, immutable scan observations, and terminal nonrunning cancellation.",
     );

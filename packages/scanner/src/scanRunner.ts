@@ -1,4 +1,4 @@
-import { type Dependency, type Finding } from "@agentshield/schemas";
+import { type Dependency, type Finding, type ScanCoverage } from "@agentshield/schemas";
 import path from "node:path";
 
 import { scanAgentWorkflowLog } from "./agentWorkflowScanner.js";
@@ -13,6 +13,7 @@ export interface ScanRunnerResult {
   targetPath: string;
   findings: Finding[];
   dependencies: Dependency[];
+  coverage?: ScanCoverage;
   scannedFiles?: string[];
   skippedFiles?: string[];
 }
@@ -81,10 +82,22 @@ export async function runScan(
 ): Promise<ScanRunnerResult> {
   const targetRoot = path.resolve(targetPath);
   const skippedFiles: string[] = [];
+  let enumeratedFiles = 0;
+  let excludedEntries = 0;
+  let incompleteChecks = 0;
+  const inspectedFiles: string[] = [];
   const filePaths = await walkRepository(targetRoot, {
     ...options,
     // Only explicit caller/operator exclusions are trusted, never checkout-controlled settings.
     ignorePatterns: options.ignorePatterns ?? [],
+    onEnumeratedFile: () => {
+      enumeratedFiles += 1;
+      options.onEnumeratedFile?.();
+    },
+    onExcluded: (entryPath) => {
+      excludedEntries += 1;
+      options.onExcluded?.(entryPath);
+    },
     onIgnored: (entryPath) => {
       const relative = path.relative(targetRoot, entryPath).split(path.sep).join("/");
       skippedFiles.push(relative);
@@ -103,6 +116,7 @@ export async function runScan(
     };
 
     if (isLikelyTextFile(filePath)) {
+      inspectedFiles.push(path.relative(targetRoot, filePath).split(path.sep).join("/"));
       findings.push(...(await scanFileForSecrets(scannerInput)));
     }
 
@@ -111,7 +125,14 @@ export async function runScan(
     }
 
     if (isYamlFile(filePath)) {
-      findings.push(...(await scanKubernetesManifest(scannerInput)));
+      findings.push(
+        ...(await scanKubernetesManifest({
+          ...scannerInput,
+          onIncomplete: () => {
+            incompleteChecks += 1;
+          },
+        })),
+      );
     }
 
     if (isPackageJson(filePath)) {
@@ -128,7 +149,20 @@ export async function runScan(
     targetPath: targetRoot,
     findings: sortFindings(findings),
     dependencies,
-    scannedFiles: filePaths.map((f) => path.relative(targetRoot, f).split(path.sep).join("/")),
+    scannedFiles: inspectedFiles,
+    coverage: {
+      status:
+        incompleteChecks > 0 || excludedEntries > 0 || inspectedFiles.length < filePaths.length
+          ? "PARTIAL"
+          : "COMPLETE",
+      scope:
+        "Supported static checks within the observed scope; not proof of safety or complete event capture.",
+      enumeratedFiles,
+      inspectedFiles: inspectedFiles.length,
+      unsupportedFiles: filePaths.length - inspectedFiles.length,
+      excludedEntries,
+      incompleteChecks,
+    },
     skippedFiles: skippedFiles.sort((left, right) => left.localeCompare(right)),
   };
 }

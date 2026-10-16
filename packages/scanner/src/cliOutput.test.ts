@@ -126,3 +126,102 @@ it("scans a credential beyond the default per-file limit when within explicit CL
     await rm(root, { recursive: true, force: true });
   }
 }, 30000);
+
+it("redacts credential-bearing dependency specs in real CLI JSON output", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "agentshield-dependency-output-"));
+  try {
+    await writeFile(
+      path.join(root, "package.json"),
+      JSON.stringify({
+        dependencies: {
+          alpha: "git+https://synthetic-user:synthetic-password@example.test/repo.git",
+        },
+      }),
+    );
+    const output = await scan(root, "json");
+    expect(output).not.toContain("synthetic-user");
+    expect(output).not.toContain("synthetic-password");
+    expect(output).toContain("example.test/repo.git");
+    expect((JSON.parse(output) as { dependencies: unknown[] }).dependencies).toHaveLength(1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 15000);
+
+it.each(["json", "jsonl", "human", "sarif"])(
+  "exports honest bounded coverage in %s",
+  async (format) => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "agentshield-coverage-output-"));
+    try {
+      await writeFile(path.join(root, "deployment.yaml"), "apiVersion: v1\nkind: Pod\nspec: [\n");
+      const output = await scan(root, format);
+      if (format === "human") {
+        expect(output).toContain("Coverage: PARTIAL");
+        expect(output).toContain("not proof of safety");
+        return;
+      }
+      const parsed =
+        format === "jsonl"
+          ? (JSON.parse(output.trim().split("\n").at(-1)!) as Record<string, unknown>)
+          : (JSON.parse(output) as Record<string, unknown>);
+      const coverage =
+        format === "sarif"
+          ? (parsed.runs as { properties: { coverage: unknown } }[])[0]!.properties.coverage
+          : parsed.coverage;
+      expect(coverage).toMatchObject({
+        status: "PARTIAL",
+        enumeratedFiles: 1,
+        inspectedFiles: 1,
+        unsupportedFiles: 0,
+        incompleteChecks: 1,
+        excludedEntries: 0,
+      });
+      if (format !== "sarif") expect(parsed.receipt).toMatchObject({ coverage });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
+it.each(["json", "jsonl", "sarif"])(
+  "does not export forged-marker or nested-query credentials in %s",
+  async (format) => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "agentshield-redaction-boundary-"));
+    const secret = "synthetic-export-canary";
+    try {
+      await writeFile(
+        path.join(root, "package.json"),
+        JSON.stringify({
+          dependencies: {
+            marker: `API_KEY=${secret}[REDACTED:FORGED]`,
+            nested: `https://outer.test?next=https://inner.test?%74oken=${secret}`,
+          },
+        }),
+      );
+      const output = await scan(root, format);
+      expect(output).not.toContain(secret);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
+it("blocks a valid privileged Pod beside templated YAML in actual CLI output", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "agentshield-cli-mixed-yaml-"));
+  try {
+    await writeFile(
+      path.join(root, "deployment.yaml"),
+      "apiVersion: v1\nkind: ConfigMap\ndata:\n  value: '{{ .Values.value }}'\n---\napiVersion: v1\nkind: Pod\nspec:\n  privileged: true\n",
+    );
+    const result = JSON.parse(await scan(root, "json")) as {
+      gate: string;
+      coverage: { status: string };
+      findings: { severity: string }[];
+    };
+    expect(result.gate).toBe("BLOCK");
+    expect(result.coverage.status).toBe("PARTIAL");
+    expect(result.findings.some((f) => f.severity === "CRITICAL")).toBe(true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

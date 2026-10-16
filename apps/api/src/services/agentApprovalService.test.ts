@@ -4,6 +4,7 @@ import type { AgentApproval, AgentAuthorizationRequest } from "@agentshield/sche
 
 type AsyncMock<T> = Mock<() => Promise<T>>;
 type ApprovalMocks = {
+  $executeRaw: Mock;
   agentApproval: {
     findUnique: AsyncMock<AgentApproval | null>;
     findUniqueOrThrow: AsyncMock<AgentApproval>;
@@ -18,6 +19,7 @@ type ApprovalMocks = {
 
 const prismaMock = vi.hoisted(() => {
   const mock: ApprovalMocks = {
+    $executeRaw: vi.fn(),
     agentApproval: {
       findUnique: vi.fn(),
       findUniqueOrThrow: vi.fn(),

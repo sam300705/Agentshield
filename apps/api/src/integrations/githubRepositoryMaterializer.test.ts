@@ -1,5 +1,6 @@
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import os from "node:os";
+import fs from "node:fs";
 import path from "node:path";
 import { Readable } from "node:stream";
 
@@ -143,7 +144,7 @@ describe("GitHubRepositoryMaterializer", () => {
           expect.any(AbortSignal),
         );
       } finally {
-        await rm(workspace, { recursive: true, force: true });
+        await rm(workspace, { recursive: true, force: true, maxRetries: 3 });
       }
     },
   );
@@ -171,7 +172,7 @@ describe("GitHubRepositoryMaterializer", () => {
         ),
       ).rejects.toThrow("GITHUB_REPOSITORY_MAPPING_INVALID");
     } finally {
-      await rm(workspace, { recursive: true, force: true });
+      await rm(workspace, { recursive: true, force: true, maxRetries: 3 });
     }
   });
 
@@ -193,7 +194,7 @@ describe("GitHubRepositoryMaterializer", () => {
         fixture.materializer.materialize(githubPayload(), workspace, new AbortController().signal),
       ).rejects.toThrow(/GITHUB_ARCHIVE_/);
     } finally {
-      await rm(workspace, { recursive: true, force: true });
+      await rm(workspace, { recursive: true, force: true, maxRetries: 3 });
     }
   });
 
@@ -212,7 +213,7 @@ describe("GitHubRepositoryMaterializer", () => {
         fixture.materializer.materialize(githubPayload(), workspace, new AbortController().signal),
       ).rejects.toThrow();
     } finally {
-      await rm(workspace, { recursive: true, force: true });
+      await rm(workspace, { recursive: true, force: true, maxRetries: 3 });
     }
   });
 
@@ -228,7 +229,7 @@ describe("GitHubRepositoryMaterializer", () => {
       ).rejects.toThrow("Scan cancelled");
       expect(fixture.downloadRepositoryArchive).not.toHaveBeenCalled();
     } finally {
-      await rm(workspace, { recursive: true, force: true });
+      await rm(workspace, { recursive: true, force: true, maxRetries: 3 });
     }
 
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "agentshield-materializer-root-"));
@@ -242,7 +243,7 @@ describe("GitHubRepositoryMaterializer", () => {
       ).rejects.toThrow();
       await expect(readdir(tempRoot)).resolves.toEqual([]);
     } finally {
-      await rm(tempRoot, { recursive: true, force: true });
+      await rm(tempRoot, { recursive: true, force: true, maxRetries: 3 });
     }
   });
 
@@ -257,7 +258,7 @@ describe("GitHubRepositoryMaterializer", () => {
       await workspace.cleanup();
       await expect(readdir(tempRoot)).resolves.toEqual([]);
     } finally {
-      await rm(tempRoot, { recursive: true, force: true });
+      await rm(tempRoot, { recursive: true, force: true, maxRetries: 3 });
     }
   });
 });
@@ -279,5 +280,60 @@ it("rejects directory-only archives beyond the bounded entry budget", async () =
     // Tar may finish already-scheduled asynchronous mkdir operations after the
     // limiter tears down. Match the bounded retry used by production cleanup.
     await rm(workspace, { recursive: true, force: true, maxRetries: 8, retryDelay: 50 });
+  }
+});
+
+it.each([
+  { name: "oversized file", type: "file" as const, error: "GITHUB_ARCHIVE_FILE_SIZE_LIMIT" },
+  { name: "symlink", type: "symlink" as const, error: "GITHUB_ARCHIVE_LINK_OR_DEVICE_REJECTED" },
+  { name: "hardlink", type: "hardlink" as const, error: "GITHUB_ARCHIVE_LINK_OR_DEVICE_REJECTED" },
+])("rejects $name before any filesystem operation is scheduled", async ({ type, error }) => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "agentshield-rejected-entry-"));
+  const fixture = makeFixture({
+    archive: createTar([
+      {
+        name: "repo/rejected.txt",
+        body: "abcdef",
+        type,
+        ...(type === "file" ? {} : { linkname: "outside-target" }),
+      },
+    ]),
+    limits: { maxFileBytes: 3 },
+  });
+  const probes = [
+    vi.spyOn(fs, "stat"),
+    vi.spyOn(fs, "lstat"),
+    vi.spyOn(fs, "mkdir"),
+    vi.spyOn(fs, "open"),
+  ];
+  try {
+    await expect(
+      fixture.materializer.materialize(githubPayload(), workspace, new AbortController().signal),
+    ).rejects.toThrow(error);
+    for (const probe of probes) expect(probe).not.toHaveBeenCalled();
+    expect(await readdir(workspace)).toEqual([]);
+  } finally {
+    for (const probe of probes) probe.mockRestore();
+    await rm(workspace, { recursive: true, force: true, maxRetries: 3 });
+  }
+});
+
+it("cleans accepted partial extraction after a later entry exceeds its budget", async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "agentshield-partial-extract-"));
+  try {
+    const fixture = makeFixture({
+      archive: createTar([
+        { name: "repo/accepted.txt", body: "a" },
+        { name: "repo/rejected.txt", body: "abcdef" },
+      ]),
+      limits: { maxFileBytes: 3 },
+    });
+    const provider = new TemporaryRepositoryWorkspaceProvider(fixture.materializer, tempRoot);
+    await expect(provider.prepare(githubPayload(), new AbortController().signal)).rejects.toThrow(
+      "GITHUB_ARCHIVE_FILE_SIZE_LIMIT",
+    );
+    expect(await readdir(tempRoot)).toEqual([]);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true, maxRetries: 3 });
   }
 });
