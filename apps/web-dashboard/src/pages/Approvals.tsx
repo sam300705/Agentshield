@@ -1,26 +1,78 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { DecisionBadge, SeverityBadge } from "../components/StatusBadge";
 import { EmptyState, ErrorState, LoadingState } from "../components/State";
-import { api, type ApprovalWithFinding } from "../lib/api";
+import { ApiError, api, type ApprovalWithFinding, type AgentApprovalReviewItem } from "../lib/api";
 
 export function Approvals() {
+  const requestGeneration = useRef(0);
   const [approvals, setApprovals] = useState<ApprovalWithFinding[]>([]);
+  const [agents, setAgents] = useState<AgentApprovalReviewItem[]>([]);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [agentQueueAvailable, setAgentQueueAvailable] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
 
-  async function loadApprovals() {
-    const response = await api.listApprovals();
+  const loadApprovals = useCallback(async () => {
+    const generation = ++requestGeneration.current;
+    const response = await api.listApprovals(25, page);
+    if (generation !== requestGeneration.current) return;
     setApprovals(response.data);
-  }
+    setAgents(response.agentApprovals?.data ?? []);
+    setAgentQueueAvailable(response.agentApprovals != null);
+    setTotalPages(
+      Math.max(
+        1,
+        Math.ceil(Math.max(response.total ?? 0, response.agentApprovals?.total ?? 0) / 25),
+      ),
+    );
+  }, [page]);
 
   useEffect(() => {
+    let active = true;
+    setIsLoading(true);
+    setError(null);
     void loadApprovals()
-      .catch(() => setError("Unable to load approvals. Confirm the API is running."))
-      .finally(() => setIsLoading(false));
-  }, []);
+      .catch((error: unknown) => {
+        if (active)
+          setError(
+            error instanceof ApiError && error.status === 403
+              ? "Access denied: your role cannot review approvals. You can return to the organization overview."
+              : "Unable to load approvals.",
+          );
+      })
+      .finally(() => {
+        if (active) setIsLoading(false);
+      });
+    return () => {
+      active = false;
+      requestGeneration.current += 1;
+    };
+  }, [loadApprovals]);
+
+  async function handleAgentAction(
+    approval: AgentApprovalReviewItem,
+    action: "approve" | "reject",
+    reason: string,
+  ) {
+    setPendingActionId(approval.id);
+    setError(null);
+    try {
+      await api.reviewAgentApproval(approval.id, action, reason, approval.actionDigest);
+      setAgents((current) => current.filter((item) => item.id !== approval.id));
+    } catch (error: unknown) {
+      setError(
+        error instanceof ApiError && error.status === 403
+          ? "Review denied: an independent authorized reviewer is required."
+          : "Unable to review this action; it may no longer be pending. Refresh the queue.",
+      );
+    } finally {
+      setPendingActionId(null);
+    }
+  }
 
   async function handleAction(approvalId: string, action: "approve" | "reject") {
     setPendingActionId(approvalId);
@@ -53,8 +105,27 @@ export function Approvals() {
           Human review queue for policy decisions requiring approval.
         </p>
       </div>
-      {error != null ? <ErrorState message={error} /> : null}
-      {approvals.length === 0 ? <EmptyState message="No pending approvals." /> : null}
+      <Link to="/">Return to organization overview</Link>
+      {error != null ? (
+        <div role="alert">
+          <ErrorState message={error} />
+        </div>
+      ) : null}
+      {approvals.length === 0 && agents.length === 0 && error == null ? (
+        <EmptyState message="No pending approvals." />
+      ) : null}
+      <section aria-label="Agent action approvals">
+        <h3>Pending agent actions</h3>
+        {!agentQueueAvailable && error == null ? <p>Agent approval queue unavailable.</p> : null}
+        {agents.map((approval) => (
+          <AgentApprovalCard
+            key={approval.id}
+            approval={approval}
+            busy={pendingActionId != null}
+            onReview={handleAgentAction}
+          />
+        ))}
+      </section>
       <div className="grid gap-4">
         {approvals.map((approval) => (
           <article className="rounded border border-slate-200 bg-white p-5" key={approval.id}>
@@ -101,6 +172,100 @@ export function Approvals() {
           </article>
         ))}
       </div>
+      <nav aria-label="Approval queue pages">
+        <button
+          type="button"
+          disabled={page <= 1 || pendingActionId != null}
+          onClick={() => setPage((current) => current - 1)}
+        >
+          Previous page
+        </button>
+        <span>
+          Page {page} of {totalPages}
+        </span>
+        <button
+          type="button"
+          disabled={page >= totalPages || pendingActionId != null}
+          onClick={() => setPage((current) => current + 1)}
+        >
+          Next page
+        </button>
+        <button
+          type="button"
+          onClick={() => void loadApprovals().catch(() => setError("Unable to refresh approvals."))}
+        >
+          Refresh queue
+        </button>
+      </nav>
     </div>
+  );
+}
+
+function AgentApprovalCard({
+  approval,
+  busy,
+  onReview,
+}: {
+  approval: AgentApprovalReviewItem;
+  busy: boolean;
+  onReview: (
+    approval: AgentApprovalReviewItem,
+    action: "approve" | "reject",
+    reason: string,
+  ) => Promise<void>;
+}) {
+  const [confirmation, setConfirmation] = useState("");
+  const [reason, setReason] = useState("");
+  const confirmed = confirmation === approval.actionDigest && reason.trim().length > 0;
+  return (
+    <article className="rounded border border-slate-200 p-5">
+      <h4>{approval.actionType}</h4>
+      <p>
+        Session: {approval.sessionId} · Requester: {approval.requestedBy}
+      </p>
+      <p>Resource: {approval.resource ?? "Unavailable"}</p>
+      <p>
+        Exact action digest: <code className="break-all">{approval.actionDigest}</code>
+      </p>
+      {approval.evidenceAvailable ? (
+        <pre className="overflow-x-auto" aria-label="Sanitized action evidence">
+          {JSON.stringify(approval.evidence, null, 2)}
+        </pre>
+      ) : (
+        <p>Evidence unavailable. Request a fresh action before approval.</p>
+      )}
+      <label htmlFor={`digest-${approval.id}`}>
+        Enter the exact action digest to confirm review
+      </label>
+      <input
+        id={`digest-${approval.id}`}
+        value={confirmation}
+        onChange={(event) => setConfirmation(event.target.value)}
+        autoComplete="off"
+        spellCheck={false}
+      />
+      <label htmlFor={`reason-${approval.id}`}>Review reason</label>
+      <input
+        id={`reason-${approval.id}`}
+        value={reason}
+        maxLength={1000}
+        onChange={(event) => setReason(event.target.value)}
+      />
+      <button
+        type="button"
+        disabled={busy || !confirmed || !approval.evidenceAvailable}
+        onClick={() => void onReview(approval, "approve", reason.trim())}
+      >
+        Approve agent action
+      </button>
+      <button
+        type="button"
+        disabled={busy || !confirmed}
+        onClick={() => void onReview(approval, "reject", reason.trim())}
+      >
+        Reject agent action
+      </button>
+      <p>Independent reviewer access is enforced by the API.</p>
+    </article>
   );
 }

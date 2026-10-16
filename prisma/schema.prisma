@@ -59,6 +59,10 @@ enum DependencyScope {
 }
 
 enum AuditAction {
+  SCAN_ATTEMPT_ARCHIVED
+  SESSION_CREATED
+  SESSION_CLOSED
+  SCAN_CANCELLATION_REQUESTED
   SCAN_CREATED
   SCAN_STARTED
   SCAN_FAILED
@@ -140,30 +144,30 @@ enum EdgeConfidence {
 }
 
 model Scan {
-  id             String             @id @default(cuid())
-  repositoryName String
-  repositoryUrl  String?
-  branch         String
-  commitSha      String?
-  status         ScanStatus         @default(QUEUED)
-  metadata       Json               @default("{}")
-  startedAt      DateTime           @default(now())
-  completedAt    DateTime?
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
-  findings       Finding[]
-  dependencies   Dependency[]
-  auditEvents    AuditEvent[]
-  organizationId String?
-  organization   Organization?      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  repositoryId   String?
-  repository     Repository?        @relation(fields: [repositoryId], references: [id], onDelete: SetNull)
-  sessionId      String?
-  session        AgentSession?      @relation(fields: [sessionId], references: [id], onDelete: SetNull)
-  job            ScanJob?
-  simulations    PolicySimulation[]
-  receipt        SecurityReceipt?
-  advisories     Advisory[]
+  id               String                  @id @default(cuid())
+  repositoryName   String
+  repositoryUrl    String?
+  branch           String
+  commitSha        String?
+  status           ScanStatus              @default(QUEUED)
+  metadata         Json                    @default("{}")
+  startedAt        DateTime                @default(now())
+  completedAt      DateTime?
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  findings         Finding[]
+  dependencies     Dependency[]
+  auditEvents      AuditEvent[]
+  organizationId   String?
+  organization     Organization?           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  repositoryId     String?
+  repository       Repository?             @relation(fields: [repositoryId], references: [id], onDelete: SetNull)
+  sessionId        String?
+  session          AgentSession?           @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  job              ScanJob?
+  simulations      PolicySimulation[]
+  receipt          SecurityReceipt?
+  advisories       Advisory[]
   githubDeliveries GitHubWebhookDelivery[]
 
   @@unique([id, organizationId])
@@ -348,12 +352,14 @@ model Repository {
   scans                Scan[]
   baselines            AgentBaseline[]
 
-  @@unique([id, organizationId])
   @@unique([organizationId, provider, externalId])
+  @@unique([id, organizationId])
   @@index([organizationId, fullName])
 }
 
 model AgentSession {
+  idempotencyKey String?
+  contextDigest  String?
   id             String             @id @default(cuid())
   organizationId String
   organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -373,8 +379,9 @@ model AgentSession {
   simulations    PolicySimulation[]
   scans          Scan[]
 
-  @@unique([id, organizationId])
+  @@unique([organizationId, actor, idempotencyKey])
   @@unique([organizationId, correlationId])
+  @@unique([id, organizationId])
   @@index([organizationId, startedAt])
   @@index([repositoryId, startedAt])
   @@index([status])
@@ -423,6 +430,7 @@ model AgentEvent {
   correlationId  String
   previousHash   String?
   eventHash      String
+  rawPayloadHash String? // SHA-256 of the original canonical event payload; raw evidence is never stored
   createdAt      DateTime       @default(now())
 
   @@unique([sessionId, sequence])
@@ -440,6 +448,7 @@ model ScanJob {
   status              ScanStatus @default(QUEUED)
   progress            Int        @default(0)
   attempts            Int        @default(0)
+  claimSequence       Int        @default(0)
   maxAttempts         Int        @default(3)
   nextAttemptAt       DateTime?
   lockedAt            DateTime?
@@ -461,12 +470,12 @@ model ScanJob {
   createdAt           DateTime   @default(now())
   updatedAt           DateTime   @updatedAt
 
-  @@index([status, leaseExpiresAt])
   @@index([status, nextAttemptAt])
   @@index([lockedAt])
   @@index([provider, repositoryRef])
   @@index([correlationId])
   @@index([deadLetteredAt])
+  @@index([status, leaseExpiresAt])
 }
 
 model PolicyBundle {
@@ -627,9 +636,9 @@ model GitHubInstallation {
   repositories   Repository[]
   deliveries     GitHubWebhookDelivery[]
 
+  @@unique([organizationId, accountLogin])
   @@unique([id, organizationId])
   @@unique([installationId, organizationId])
-  @@unique([organizationId, accountLogin])
   @@index([organizationId, status])
 }
 
@@ -682,7 +691,7 @@ model Advisory {
   lastSeen        DateTime     @default(now())
   resolutionState String       @default("OPEN")
 
-  @@unique([organizationId, advisoryId, packageName, version])
+  @@unique([organizationId, scanId, ecosystem, advisoryId, packageName, version], map: "Advisory_scan_observation_key")
   @@index([organizationId, packageName, version])
   @@index([scanId])
   @@index([dependencyId])

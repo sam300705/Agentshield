@@ -1,4 +1,9 @@
 import {
+  createAgentSessionController,
+  getAgentSessionController,
+  closeAgentSessionController,
+} from "../controllers/sessionLifecycleController.js";
+import {
   type NextFunction,
   type Request,
   type Response,
@@ -33,6 +38,7 @@ import {
   createRepositoryScanController,
   getScanController,
   getScanFindingsController,
+  getScanFindingController,
   getScanProgressController,
   getScanSbomController,
   listRepositoriesController,
@@ -64,6 +70,21 @@ router.get("/health/live", (_request, response) =>
   response.json({ service: "agentshield-api", status: "alive" }),
 );
 router.get("/health/ready", asyncHandler(readinessController));
+router.post(
+  "/api/v1/agent/sessions",
+  requirePermission("scan:run"),
+  asyncHandler(createAgentSessionController),
+);
+router.get(
+  "/api/v1/agent/sessions/:sessionId",
+  requirePermission("scan:read"),
+  asyncHandler(getAgentSessionController),
+);
+router.post(
+  "/api/v1/agent/sessions/:sessionId/close",
+  requirePermission("scan:run"),
+  asyncHandler(closeAgentSessionController),
+);
 router.post("/api/v1/integrations/github/webhooks", asyncHandler(githubWebhookController));
 router.get("/metrics", requirePermission("organization:manage"), asyncHandler(metricsController));
 router.post(
@@ -142,6 +163,11 @@ router.get(
   "/api/v1/scans/:scanId/findings",
   requirePermission("scan:read"),
   asyncHandler(getScanFindingsController),
+);
+router.get(
+  "/api/v1/scans/:scanId/findings/:findingId",
+  requirePermission("scan:read"),
+  asyncHandler(getScanFindingController),
 );
 router.get(
   "/api/v1/scans/:scanId/sbom",

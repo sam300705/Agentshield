@@ -50,6 +50,8 @@ jobs:
           docker compose config --quiet
           pnpm db:up
           pnpm db:down
+      - name: Verify production container generation and build
+        run: docker build --tag agentshield:phase1 .
       - run: pnpm db:generate
       - run: pnpm exec prisma validate
       - run: pnpm db:deploy
@@ -79,7 +81,18 @@ jobs:
           curl --fail --silent --header "x-agentshield-demo-user: maya" http://127.0.0.1:3001/api/v1/demo/control-plane >/dev/null
           WORKER_MODE=once pnpm --filter @agentshield/api worker
       - run: pnpm test:integration
+      - run: pnpm test:database-upgrade
+      - run: pnpm test:lease-takeover
+      - run: pnpm test:phase1-round2
+      - run: pnpm test:phase1-completion
+        env:
+          AGENTSHIELD_DISPOSABLE_DATABASE: "true"
+      - run: pnpm test:phase2-upgrade
+        env:
+          AGENTSHIELD_DISPOSABLE_DATABASE: "true"
       - run: pnpm test:backend-security
+        env:
+          AGENTSHIELD_DISPOSABLE_DATABASE: "true"
       - run: pnpm test:gateway
       - run: pnpm test:github-lifecycle
       - name: Install Playwright browser

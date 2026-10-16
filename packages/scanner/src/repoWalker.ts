@@ -1,4 +1,4 @@
-import { lstat, readdir, realpath } from "node:fs/promises";
+import { lstat, opendir, realpath } from "node:fs/promises";
 import path from "node:path";
 
 const DEFAULT_EXCLUDED_DIRECTORIES = new Set([
@@ -21,6 +21,9 @@ export interface WalkRepositoryOptions {
   maxFileSizeBytes?: number;
   maxTotalBytes?: number;
   signal?: AbortSignal;
+  onEnumeratedFile?: () => void;
+  onExcluded?: (entryPath: string) => void;
+  onIgnored?: (entryPath: string) => void;
 }
 
 export async function walkRepository(
@@ -34,6 +37,7 @@ export async function walkRepository(
   const maxTotalBytes = options.maxTotalBytes ?? 100 * 1024 * 1024;
   const files: string[] = [];
   let totalBytes = 0;
+  let visitedFiles = 0;
 
   function checkCancelled(): void {
     if (options.signal?.aborted === true) throw new Error("Scan cancelled");
@@ -42,46 +46,47 @@ export async function walkRepository(
   function isIgnored(entryPath: string): boolean {
     const relative = path.relative(rootPath, entryPath).split(path.sep).join("/");
     return (
-      options.ignorePatterns?.some(
-        (pattern) => relative === pattern || relative.startsWith(`${pattern.replace(/\/$/, "")}/`),
-      ) ?? false
+      options.ignorePatterns?.some((rawPattern) => {
+        const pattern = rawPattern.replace(/\/+$/, "");
+        return pattern.length > 0 && (relative === pattern || relative.startsWith(`${pattern}/`));
+      }) ?? false
     );
   }
 
   async function visitDirectory(directoryPath: string): Promise<void> {
     checkCancelled();
-    const entries = await readdir(directoryPath, {
-      withFileTypes: true,
-    });
-
-    await Promise.all(
-      entries.map(async (entry) => {
-        const entryPath = path.join(directoryPath, entry.name);
-
-        if (isIgnored(entryPath)) return;
-
-        if (entry.isDirectory()) {
-          if (!excludedDirectories.has(entry.name)) {
-            await visitDirectory(entryPath);
-          }
-
-          return;
-        }
-
-        if (entry.isFile()) {
-          const resolved = await realpath(entryPath);
-          if (resolved !== rootPath && !resolved.startsWith(`${rootPath}${path.sep}`))
-            throw new Error(`Path escaped scan root: ${entry.name}`);
-          const stats = await lstat(resolved);
-          if (stats.size > maxFileSizeBytes) return;
-          totalBytes += stats.size;
-          if (totalBytes > maxTotalBytes)
-            throw new Error(`Scan exceeds total byte limit of ${maxTotalBytes}`);
-          files.push(entryPath);
-          if (files.length > maxFiles) throw new Error(`Scan exceeds file limit of ${maxFiles}`);
-        }
-      }),
-    );
+    const directory = await opendir(directoryPath);
+    // Streaming sequential traversal bounds both buffered entries and filesystem work.
+    for await (const entry of directory) {
+      checkCancelled();
+      const entryPath = path.join(directoryPath, entry.name);
+      if (entry.isFile()) options.onEnumeratedFile?.();
+      if (isIgnored(entryPath)) {
+        options.onExcluded?.(entryPath);
+        options.onIgnored?.(entryPath);
+        continue;
+      }
+      if (entry.isDirectory()) {
+        if (!excludedDirectories.has(entry.name)) await visitDirectory(entryPath);
+        else options.onExcluded?.(entryPath);
+        continue;
+      }
+      if (!entry.isFile()) options.onExcluded?.(entryPath);
+      if (entry.isFile()) {
+        if (visitedFiles >= maxFiles) throw new Error(`Scan exceeds file limit of ${maxFiles}`);
+        visitedFiles += 1;
+        const resolved = await realpath(entryPath);
+        if (resolved !== rootPath && !resolved.startsWith(`${rootPath}${path.sep}`))
+          throw new Error(`Path escaped scan root: ${entry.name}`);
+        const stats = await lstat(resolved);
+        if (stats.size > maxFileSizeBytes)
+          throw new Error(`Scan exceeds per-file byte limit of ${maxFileSizeBytes}: ${entry.name}`);
+        totalBytes += stats.size;
+        if (totalBytes > maxTotalBytes)
+          throw new Error(`Scan exceeds total byte limit of ${maxTotalBytes}`);
+        files.push(entryPath);
+      }
+    }
   }
 
   await visitDirectory(rootPath);

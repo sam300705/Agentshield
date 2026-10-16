@@ -1,3 +1,4 @@
+import { scanCoverageSchema } from "./scan-coverage.schema.js";
 import { z } from "zod";
 
 import { jsonObjectSchema } from "./json.schema.js";
@@ -8,6 +9,7 @@ export const scanSourceSchema = z.enum(["LOCAL_EXAMPLE", "GITHUB_PULL_REQUEST", 
 
 export const scanMetadataSchema = z
   .object({
+    coverage: scanCoverageSchema.optional(),
     source: scanSourceSchema,
     targetPath: z.string().min(1).optional(),
     triggeredBy: z.string().min(1),

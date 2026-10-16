@@ -1,6 +1,8 @@
 import { scanJobPayloadSchema, scanOptionsSchema, type ScanJobPayload } from "@agentshield/schemas";
 
-import { runConfiguredScan, runDemoScan } from "./scanService.js";
+import { POLICY_RULE_VERSION } from "@agentshield/policy-engine";
+
+import { runConfiguredScan, runDemoScan, type ScanLeaseFence } from "./scanService.js";
 
 export interface RepositoryWorkspace {
   path: string;
@@ -15,7 +17,7 @@ export interface ScanJobExecutionInput {
   scanId: string;
   payload: unknown;
   signal: AbortSignal;
-  leaseOwner?: string;
+  lease?: ScanLeaseFence;
 }
 
 export interface ScanJobExecutor {
@@ -27,6 +29,8 @@ export class ConfiguredScanJobExecutor implements ScanJobExecutor {
 
   async execute(input: ScanJobExecutionInput): Promise<string> {
     const payload = scanJobPayloadSchema.parse(input.payload);
+    if (payload.policyBundleVersion !== POLICY_RULE_VERSION)
+      throw new Error("Unsupported policy bundle version.");
     if (payload.provider === "LOCAL" && payload.repositoryId === "local-demo") {
       if (process.env.NODE_ENV === "production") throw new Error("DEMO_DISABLED");
       if (payload.organizationId.length === 0) throw new Error("SCAN_ORGANIZATION_REQUIRED");
@@ -35,8 +39,8 @@ export class ConfiguredScanJobExecutor implements ScanJobExecutor {
         payload.organizationId,
         payload.correlationId,
         input.signal,
-        input.leaseOwner,
         payload.requester,
+        input.lease,
       );
     }
 
@@ -64,7 +68,7 @@ export class ConfiguredScanJobExecutor implements ScanJobExecutor {
           policyBundleVersion: payload.policyBundleVersion,
           options,
           signal: input.signal,
-          ...(input.leaseOwner == null ? {} : { leaseOwner: input.leaseOwner }),
+          ...(input.lease == null ? {} : { lease: input.lease }),
         },
         input.scanId,
       );

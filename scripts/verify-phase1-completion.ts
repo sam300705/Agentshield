@@ -1,0 +1,853 @@
+import "dotenv/config";
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { prisma as queueDb } from "../apps/api/src/db/prisma.js";
+import { PrismaClient } from "@prisma/client";
+import {
+  agentSessionResponseSchema,
+  dependencySchema,
+  scanOptionsSchema,
+  securityReceiptSchema,
+} from "@agentshield/schemas";
+import { verifyReceiptHash, POLICY_RULE_VERSION } from "@agentshield/policy-engine";
+import { assertSafeSeedTarget } from "../apps/api/src/services/seedSafety.js";
+import {
+  createAgentSessionController,
+  getAgentSessionController,
+  closeAgentSessionController,
+} from "../apps/api/src/controllers/sessionLifecycleController.js";
+import { authorizeAgentActionController } from "../apps/api/src/controllers/agentGatewayController.js";
+import { ingestAgentEvent } from "../apps/api/src/services/agentEventService.js";
+import { ensureAgentApproval } from "../apps/api/src/services/agentApprovalService.js";
+import {
+  runConfiguredScan,
+  persistAdvisories,
+  consolidateDependencies,
+} from "../apps/api/src/services/scanService.js";
+import {
+  enqueueDemoScan,
+  processNextScanJob,
+  requestJobCancellation,
+} from "../apps/api/src/services/scanQueue.js";
+
+assertSafeSeedTarget(process.env.NODE_ENV, process.env.DATABASE_URL ?? "");
+// An additional explicit opt-in is required for fault injection and seed replacement.
+assert.equal(
+  process.env.AGENTSHIELD_DISPOSABLE_DATABASE,
+  "true",
+  "Set AGENTSHIELD_DISPOSABLE_DATABASE=true only for a disposable database.",
+);
+const db = new PrismaClient();
+const suffix = randomUUID().replaceAll("-", "");
+const org = `completion-${suffix}`;
+const directory = await mkdtemp(path.join(os.tmpdir(), "agentshield-completion-"));
+const trigger = `completion_${suffix}`;
+type Controller = typeof createAgentSessionController;
+type Request = Parameters<Controller>[0];
+type Response = Parameters<Controller>[1];
+async function invoke(
+  controller: Controller,
+  body: unknown = {},
+  params: Record<string, string> = {},
+  actor = "synthetic-actor",
+  organizationId = org,
+) {
+  let status = 200;
+  let output: unknown;
+  const response = {
+    locals: { actor: { id: actor, organizationId, role: "DEVELOPER", demo: false } },
+    getHeader: () => "completion-correlation",
+    status: (value: number) => {
+      status = value;
+      return response;
+    },
+    json: (value: unknown) => {
+      output = value;
+      return response;
+    },
+  };
+  await controller({ body, params, query: {} } as Request, response as unknown as Response);
+  return { status, output };
+}
+function sessionData(output: unknown) {
+  return agentSessionResponseSchema.parse((output as { data: unknown }).data);
+}
+async function waitForBarrier(barrier: Promise<void>): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      barrier,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("Regression scheduling barrier timed out")),
+          10_000,
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+async function fault(action: string) {
+  // Only a generated identifier and this test's organization are interpolated.
+  assert.match(action, /^[A-Z_]+$/);
+  await db.$executeRawUnsafe(
+    `CREATE OR REPLACE FUNCTION "${trigger}"() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW."organizationId" = '${org}' AND NEW."action"::text = '${action}' THEN RAISE EXCEPTION 'synthetic audit failure'; END IF; RETURN NEW; END $$`,
+  );
+}
+try {
+  await db.organization.create({
+    data: { id: org, slug: org, name: "Synthetic completion regression" },
+  });
+  const repository = await db.repository.create({
+    data: {
+      organizationId: org,
+      provider: "LOCAL",
+      externalId: suffix,
+      fullName: "synthetic/completion",
+    },
+  });
+  const input = {
+    repositoryId: repository.id,
+    source: "synthetic-sdk",
+    taskSummary: "Synthetic lifecycle verification",
+    idempotencyKey: "create-key",
+  };
+  const creations = await Promise.all([
+    invoke(createAgentSessionController, input),
+    invoke(createAgentSessionController, input),
+  ]);
+  assert.deepEqual(creations.map((r) => r.status).sort(), [200, 201]);
+  const session = sessionData(creations[0].output);
+  assert.equal(sessionData(creations[1].output).id, session.id);
+  assert.equal(
+    await db.auditEvent.count({ where: { organizationId: org, action: "SESSION_CREATED" } }),
+    1,
+  );
+  assert.equal(
+    (await invoke(createAgentSessionController, { ...input, taskSummary: "Changed context" }))
+      .status,
+    409,
+  );
+  assert.equal(
+    (
+      await invoke(createAgentSessionController, {
+        ...input,
+        repositoryId: "foreign",
+        idempotencyKey: "other",
+      })
+    ).status,
+    404,
+  );
+  await assert.rejects(invoke(createAgentSessionController, { ...input, actor: "spoofed" }));
+  assert.equal(
+    (await invoke(getAgentSessionController, {}, { sessionId: session.id }, "different-actor"))
+      .status,
+    404,
+  );
+  assert.equal(
+    (
+      await invoke(
+        getAgentSessionController,
+        {},
+        { sessionId: session.id },
+        "synthetic-actor",
+        "foreign-tenant",
+      )
+    ).status,
+    404,
+  );
+  assert.equal(
+    (await invoke(getAgentSessionController, {}, { sessionId: "nonexistent" })).status,
+    404,
+  );
+
+  await fault("SESSION_CLOSED");
+  await db.$executeRawUnsafe(
+    `CREATE TRIGGER "${trigger}" BEFORE INSERT ON "AuditEvent" FOR EACH ROW EXECUTE FUNCTION "${trigger}"()`,
+  );
+  await assert.rejects(invoke(closeAgentSessionController, {}, { sessionId: session.id }));
+  assert.equal(
+    (await db.agentSession.findUniqueOrThrow({ where: { id: session.id } })).status,
+    "ACTIVE",
+  );
+  await fault("SESSION_CREATED");
+  await assert.rejects(
+    invoke(createAgentSessionController, { ...input, idempotencyKey: "rollback-create" }),
+  );
+  assert.equal(
+    await db.agentSession.count({
+      where: { organizationId: org, idempotencyKey: "rollback-create" },
+    }),
+    0,
+  );
+  await fault("DISABLED");
+  const event = {
+    organizationId: org,
+    sessionId: session.id,
+    actor: "synthetic-actor",
+    source: "synthetic-sdk",
+    sequence: 0,
+    idempotencyKey: "event-key",
+    timestamp: new Date(),
+    type: "FILE_READ" as const,
+    riskLevel: "LOW" as const,
+    summary: "Read public documentation",
+    resource: "README.md",
+    evidence: {},
+    correlationId: "completion-event",
+  };
+  const [closed, ingested] = await Promise.all([
+    invoke(closeAgentSessionController, {}, { sessionId: session.id }),
+    ingestAgentEvent(event),
+  ]);
+  assert.equal(closed.status, 200);
+  assert(["CREATED", "SESSION_NOT_FOUND"].includes(ingested.kind));
+  assert.equal(
+    (await ingestAgentEvent({ ...event, idempotencyKey: "after-close" })).kind,
+    "SESSION_NOT_FOUND",
+  );
+  assert.equal(
+    (
+      await invoke(authorizeAgentActionController, {
+        organizationId: org,
+        sessionId: session.id,
+        actor: "synthetic-actor",
+        action: "READ_FILE",
+        resource: "README.md",
+        correlationId: "after-close",
+        idempotencyKey: "after-close",
+      })
+    ).status,
+    404,
+  );
+  assert.equal(
+    (
+      await ensureAgentApproval(
+        {
+          organizationId: org,
+          sessionId: session.id,
+          actor: "synthetic-actor",
+          action: "ACCESS_SECRET",
+          resource: ".env",
+          correlationId: "after-close",
+          idempotencyKey: "after-close",
+        },
+        "after-close",
+      )
+    ).kind,
+    "SESSION_NOT_FOUND",
+  );
+  const closedAgain = sessionData(
+    (await invoke(closeAgentSessionController, {}, { sessionId: session.id })).output,
+  );
+  assert.equal(closedAgain.status, "COMPLETED");
+  assert.equal(
+    await db.auditEvent.count({ where: { organizationId: org, action: "SESSION_CLOSED" } }),
+    1,
+  );
+  assert.equal(
+    sessionData((await invoke(createAgentSessionController, input)).output).status,
+    "COMPLETED",
+  );
+
+  const raceSession = sessionData(
+    (
+      await invoke(createAgentSessionController, {
+        ...input,
+        idempotencyKey: "approval-close-race",
+      })
+    ).output,
+  );
+  const protectedAction = {
+    organizationId: org,
+    sessionId: raceSession.id,
+    actor: "synthetic-actor",
+    action: "ACCESS_SECRET" as const,
+    resource: ".env",
+    correlationId: "closure-race",
+    idempotencyKey: "closure-race",
+  };
+  const [raceClose, raceApproval, raceAuthorization] = await Promise.all([
+    invoke(closeAgentSessionController, {}, { sessionId: raceSession.id }),
+    ensureAgentApproval(protectedAction, "closure-race"),
+    invoke(authorizeAgentActionController, {
+      ...protectedAction,
+      action: "READ_FILE",
+      resource: "README.md",
+    }),
+  ]);
+  assert.equal(raceClose.status, 200);
+  assert(["CREATED", "SESSION_NOT_FOUND"].includes(raceApproval.kind));
+  assert([200, 404].includes(raceAuthorization.status));
+  const approvalsBefore = await db.agentApproval.count({ where: { sessionId: raceSession.id } });
+  assert.equal(
+    (
+      await ensureAgentApproval(
+        { ...protectedAction, idempotencyKey: "post-close-new" },
+        "closure-race",
+      )
+    ).kind,
+    "SESSION_NOT_FOUND",
+  );
+  assert.equal(
+    await db.agentApproval.count({ where: { sessionId: raceSession.id } }),
+    approvalsBefore,
+  );
+
+  // Freeze scheduling after the gateway's first real transaction commits.
+  // Closing in the old decision/approval gap must not split this operation.
+  const atomicSession = sessionData(
+    (await invoke(createAgentSessionController, { ...input, idempotencyKey: "atomic-approval" }))
+      .output,
+  );
+  const atomicInput = {
+    ...protectedAction,
+    sessionId: atomicSession.id,
+    idempotencyKey: "atomic-action",
+  };
+  const originalTransaction = queueDb.$transaction.bind(queueDb);
+  let committed!: () => void;
+  let releaseGateway!: () => void;
+  const committedBarrier = new Promise<void>((resolve) => {
+    committed = resolve;
+  });
+  const gatewayBarrier = new Promise<void>((resolve) => {
+    releaseGateway = resolve;
+  });
+  let pauseTransaction = true;
+  queueDb.$transaction = (async (...args: Parameters<typeof originalTransaction>) => {
+    const result = await originalTransaction(...args);
+    if (pauseTransaction) {
+      pauseTransaction = false;
+      committed();
+      await gatewayBarrier;
+    }
+    return result;
+  }) as typeof queueDb.$transaction;
+  const authorizing = invoke(authorizeAgentActionController, atomicInput);
+  try {
+    await waitForBarrier(committedBarrier);
+    assert.equal(
+      (await invoke(closeAgentSessionController, {}, { sessionId: atomicSession.id })).status,
+      200,
+    );
+  } finally {
+    queueDb.$transaction = originalTransaction;
+    releaseGateway();
+  }
+  const authorized = await authorizing;
+  assert.equal(authorized.status, 200);
+  const atomicApproval = await db.agentApproval.findFirstOrThrow({
+    where: { sessionId: atomicSession.id },
+  });
+  assert.equal(
+    (authorized.output as { data: { approvalId: string } }).data.approvalId,
+    atomicApproval.id,
+  );
+  assert.equal(
+    await db.auditEvent.count({ where: { entityId: atomicSession.id, action: "POLICY_DECIDED" } }),
+    1,
+  );
+  assert.equal(
+    await db.auditEvent.count({
+      where: { entityId: atomicApproval.id, action: "APPROVAL_REQUESTED" },
+    }),
+    1,
+  );
+
+  const rollbackSession = sessionData(
+    (await invoke(createAgentSessionController, { ...input, idempotencyKey: "atomic-rollback" }))
+      .output,
+  );
+  for (const action of ["APPROVAL_REQUESTED", "POLICY_DECIDED"]) {
+    await fault(action);
+    await assert.rejects(
+      invoke(authorizeAgentActionController, {
+        ...atomicInput,
+        sessionId: rollbackSession.id,
+        idempotencyKey: action,
+      }),
+    );
+    assert.equal(await db.agentApproval.count({ where: { sessionId: rollbackSession.id } }), 0);
+    assert.equal(
+      await db.auditEvent.count({
+        where: { entityId: rollbackSession.id, action: "POLICY_DECIDED" },
+      }),
+      0,
+    );
+    assert.equal(
+      await db.auditEvent.count({
+        where: {
+          organizationId: org,
+          action: "APPROVAL_REQUESTED",
+          metadata: { path: ["sessionId"], equals: rollbackSession.id },
+        },
+      }),
+      0,
+    );
+  }
+  await fault("DISABLED");
+
+  // Distinct credential-bearing versions collapse only after redaction.
+  const versionA = "git+https://fixture-a:fixture-password-a@example.test/repo.git";
+  const versionB = "git+https://fixture-b:fixture-password-b@example.test/repo.git";
+  await writeFile(
+    path.join(directory, "package.json"),
+    JSON.stringify({
+      name: "synthetic",
+      version: "1.0.0",
+      dependencies: { alpha: versionA },
+      devDependencies: { alpha: versionB },
+    }),
+  );
+  await writeFile(path.join(directory, "deployment.yaml"), "apiVersion: v1\nkind: Pod\nspec: [\n");
+  const scanId = await runConfiguredScan({
+    source: "MANUAL",
+    targetPath: directory,
+    targetPathLabel: "synthetic-completion",
+    repositoryName: "synthetic/completion",
+    branch: "main",
+    organizationId: org,
+    triggeredBy: "synthetic-actor",
+    correlationId: "completion-scan",
+    labels: ["synthetic"],
+    policyBundleVersion: POLICY_RULE_VERSION,
+    options: scanOptionsSchema.parse({}),
+  });
+  const dependencies = await db.dependency.findMany({ where: { scanId } });
+  assert.equal(dependencies.length, 1);
+  assert.equal(dependencies[0]!.scope, "PRODUCTION");
+  assert.equal(
+    (dependencies[0]!.metadata as { dependencyField: string }).dependencyField,
+    "dependencies",
+  );
+  assert.deepEqual((dependencies[0]!.metadata as { dependencyFields: string[] }).dependencyFields, [
+    "dependencies",
+    "devDependencies",
+  ]);
+  const scan = await db.scan.findUniqueOrThrow({ where: { id: scanId } });
+  assert.equal(
+    (scan.metadata as { aggregateCounts: { dependencies: number } }).aggregateCounts.dependencies,
+    1,
+  );
+  const serialized = JSON.stringify(dependencies);
+  assert(!serialized.includes("fixture-password"));
+  assert(!serialized.includes("fixture-a"));
+  const storedReceipt = await db.securityReceipt.findUniqueOrThrow({ where: { scanId } });
+  assert.equal(storedReceipt.signature, null);
+  const receipt = securityReceiptSchema.parse(storedReceipt.signedPayload);
+  assert.equal(receipt.coverage?.status, "PARTIAL");
+  assert.equal(receipt.coverage?.incompleteChecks, 1);
+  assert.deepEqual(receipt.coverage, (scan.metadata as { coverage: unknown }).coverage);
+  assert(verifyReceiptHash(receipt));
+  assert(
+    !verifyReceiptHash({ ...receipt, coverage: { ...receipt.coverage, excludedEntries: 99 } }),
+  );
+  const original = dependencySchema.parse({ ...dependencies[0]!, version: versionA });
+  const consolidated = consolidateDependencies([original]);
+  await db.$transaction((tx) =>
+    persistAdvisories(tx, org, scanId, consolidated, [
+      {
+        packageName: "alpha",
+        version: versionA,
+        packageManager: "NPM",
+        advisories: [
+          {
+            advisoryId: "SYNTHETIC-1",
+            aliases: [],
+            severity: "HIGH",
+            fixedVersions: ["2.0.0"],
+            match: "CONFIRMED",
+            matchReason: "Synthetic exact match",
+            summary: "Synthetic advisory",
+            references: [],
+          },
+        ],
+      },
+    ]),
+  );
+  assert.equal(
+    (await db.advisory.findFirstOrThrow({ where: { scanId } })).dependencyId,
+    dependencies[0]!.id,
+  );
+
+  // Actual scanner -> PostgreSQL persistence must not retain either review canary.
+  const privateCanary = "synthetic-private-canary";
+  const nestedCanary = "synthetic-nested-canary";
+  await writeFile(
+    path.join(directory, "package.json"),
+    JSON.stringify({
+      dependencies: {
+        forged: `API_KEY=${privateCanary}[REDACTED:FORGED]`,
+        nested: `https://outer.test?next=https://inner.test?%74oken=${nestedCanary}`,
+      },
+    }),
+  );
+  const sanitizedScan = await runConfiguredScan({
+    source: "MANUAL",
+    targetPath: directory,
+    targetPathLabel: "redaction-regression",
+    repositoryName: "synthetic/redaction",
+    branch: "main",
+    organizationId: org,
+    triggeredBy: "synthetic-actor",
+    correlationId: "redaction-regression",
+    labels: [],
+    policyBundleVersion: POLICY_RULE_VERSION,
+    options: scanOptionsSchema.parse({}),
+  });
+  const persisted = JSON.stringify(
+    await db.dependency.findMany({ where: { scanId: sanitizedScan } }),
+  );
+  assert(!persisted.includes(privateCanary));
+  assert(!persisted.includes(nestedCanary));
+
+  const job = await enqueueDemoScan(`retry-${suffix}`, org, "retry-correlation", "synthetic-actor");
+  await db.scanJob.update({
+    where: { id: job.id },
+    data: {
+      status: "FAILED",
+      attempts: 1,
+      failureCode: "SYNTHETIC_FAILURE",
+      failureMessage: "https://fixture:fixture-password@example.test/error",
+    },
+  });
+  const executor = { execute: () => Promise.resolve(scanId) };
+  await fault("SCAN_ATTEMPT_ARCHIVED");
+  await assert.rejects(processNextScanJob("rollback-worker", executor));
+  assert.equal((await db.scanJob.findUniqueOrThrow({ where: { id: job.id } })).attempts, 1);
+  assert.equal((await db.scanJob.findUniqueOrThrow({ where: { id: job.id } })).claimSequence, 0);
+  await fault("DISABLED");
+  await Promise.all([
+    processNextScanJob("claimer-a", executor),
+    processNextScanJob("claimer-b", executor),
+  ]);
+  const archived = await db.auditEvent.findMany({
+    where: { organizationId: org, entityId: job.id, action: "SCAN_ATTEMPT_ARCHIVED" },
+  });
+  assert.equal(archived.length, 1);
+  assert.equal(archived[0]!.actor, "synthetic-actor");
+  assert.equal(archived[0]!.scanId, job.scanId);
+  assert.equal(archived[0]!.correlationId, "retry-correlation");
+  assert(!JSON.stringify(archived).includes("fixture-password"));
+  assert.equal((await db.scanJob.findUniqueOrThrow({ where: { id: job.id } })).failureCode, null);
+
+  // Force an ABA: a real selection is paused while a second worker claims,
+  // shuts down and restores the attempt counter. Only scheduling is intercepted.
+  const abaJob = await enqueueDemoScan(`aba-${suffix}`, org, "aba-correlation", "synthetic-actor");
+  const originalFind = queueDb.scanJob.findFirst.bind(queueDb.scanJob);
+  let selected!: () => void;
+  let release!: () => void;
+  const selectedBarrier = new Promise<void>((resolve) => {
+    selected = resolve;
+  });
+  const releaseBarrier = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let pause = true;
+  queueDb.scanJob.findFirst = (async (...args: Parameters<typeof originalFind>) => {
+    const row = await originalFind(...args);
+    if (pause && row?.id === abaJob.id) {
+      pause = false;
+      selected();
+      await releaseBarrier;
+    }
+    return row;
+  }) as typeof queueDb.scanJob.findFirst;
+  const staleClaim = processNextScanJob("stale-aba-worker", executor);
+  try {
+    await waitForBarrier(selectedBarrier);
+    const shutdown = new AbortController();
+    await processNextScanJob(
+      "shutdown-aba-worker",
+      {
+        execute: () => {
+          shutdown.abort();
+          return Promise.reject(new Error("SYNTHETIC_ABA_FAILURE"));
+        },
+      },
+      shutdown.signal,
+    );
+    const reset = await db.scanJob.findUniqueOrThrow({ where: { id: abaJob.id } });
+    assert.equal(reset.attempts, 0);
+    assert.equal(reset.failureCode, "WORKER_SHUTDOWN");
+    // Make it due without changing its status, counter or failure evidence.
+    await db.scanJob.update({ where: { id: abaJob.id }, data: { nextAttemptAt: null } });
+  } finally {
+    queueDb.scanJob.findFirst = originalFind;
+    release();
+    await staleClaim;
+  }
+  const abaHistory = await db.auditEvent.findMany({
+    where: { entityId: abaJob.id, action: "SCAN_ATTEMPT_ARCHIVED" },
+  });
+  assert.equal(abaHistory.length, 1);
+  assert.equal((abaHistory[0]!.metadata as { attempt: number }).attempt, 1);
+  assert.equal(
+    (abaHistory[0]!.metadata as { attemptNumberSource: string }).attemptNumberSource,
+    "CLAIM_SEQUENCE",
+  );
+  assert(JSON.stringify(abaHistory).includes("SYNTHETIC_ABA_FAILURE"));
+  assert.equal(
+    (await db.scanJob.findUniqueOrThrow({ where: { id: abaJob.id } })).status,
+    "COMPLETED",
+  );
+
+  // A stale selection must use the actual reclaimed attempt in the real executor fence.
+  const fencedJob = await enqueueDemoScan(
+    `fenced-reclaim-${suffix}`,
+    org,
+    "fence-correlation",
+    "synthetic-actor",
+  );
+  await db.scanJob.update({ where: { id: fencedJob.id }, data: { maxAttempts: 2 } });
+  let selectedFence!: () => void;
+  let releaseFence!: () => void;
+  const fenceSelected = new Promise<void>((resolve) => {
+    selectedFence = resolve;
+  });
+  const fenceReleased = new Promise<void>((resolve) => {
+    releaseFence = resolve;
+  });
+  let pauseFence = true;
+  queueDb.scanJob.findFirst = (async (...args: Parameters<typeof originalFind>) => {
+    const row = await originalFind(...args);
+    if (pauseFence && row?.id === fencedJob.id) {
+      pauseFence = false;
+      selectedFence();
+      await fenceReleased;
+    }
+    return row;
+  }) as typeof queueDb.scanJob.findFirst;
+  const { defaultScanJobExecutor } = await import("../apps/api/src/services/scanJobExecutor.js");
+  const staleFenceClaim = processNextScanJob("fenced-stale-worker", defaultScanJobExecutor);
+  try {
+    await waitForBarrier(fenceSelected);
+    await processNextScanJob("fenced-failing-worker", {
+      execute: () => Promise.reject(new Error("SYNTHETIC_FIRST_FAILURE")),
+    });
+    const failed = await db.scanJob.findUniqueOrThrow({ where: { id: fencedJob.id } });
+    assert.equal(failed.status, "FAILED");
+    assert.equal(failed.attempts, 1);
+    await db.scanJob.update({ where: { id: fencedJob.id }, data: { nextAttemptAt: null } });
+  } finally {
+    queueDb.scanJob.findFirst = originalFind;
+    releaseFence();
+    await staleFenceClaim;
+  }
+  const reclaimed = await db.scanJob.findUniqueOrThrow({ where: { id: fencedJob.id } });
+  assert.equal(
+    reclaimed.status,
+    "COMPLETED",
+    "The real executor must receive the actual second claim's fence.",
+  );
+  assert.equal(reclaimed.attempts, 2);
+  assert.equal(reclaimed.claimSequence, 2);
+  assert.equal(reclaimed.deadLetteredAt, null);
+  assert.equal(
+    (await db.scan.findUniqueOrThrow({ where: { id: fencedJob.scanId } })).status,
+    "COMPLETED",
+  );
+
+  const repeatedJob = await enqueueDemoScan(
+    `repeated-shutdown-${suffix}`,
+    org,
+    "repeat-correlation",
+    "synthetic-actor",
+  );
+  for (let claim = 1; claim <= 2; claim += 1) {
+    const shutdown = new AbortController();
+    await processNextScanJob(
+      `repeat-${claim}`,
+      {
+        execute: () => {
+          shutdown.abort();
+          return Promise.reject(new Error(`shutdown-${claim}`));
+        },
+      },
+      shutdown.signal,
+    );
+    const current = await db.scanJob.findUniqueOrThrow({ where: { id: repeatedJob.id } });
+    assert.equal(current.attempts, 0);
+    assert.equal(current.claimSequence, claim);
+  }
+  await processNextScanJob("repeat-complete", executor);
+  const repeatedHistory = await db.auditEvent.findMany({
+    where: { entityId: repeatedJob.id, action: "SCAN_ATTEMPT_ARCHIVED" },
+  });
+  assert.deepEqual(
+    repeatedHistory.map((a) => (a.metadata as { attempt: number }).attempt).sort(),
+    [1, 2],
+  );
+  assert.equal(
+    (await db.scanJob.findUniqueOrThrow({ where: { id: repeatedJob.id } })).claimSequence,
+    3,
+  );
+
+  const cancelledJob = await enqueueDemoScan(
+    `cancel-${suffix}`,
+    org,
+    "cancel-correlation",
+    "synthetic-actor",
+  );
+  await db.scanJob.update({
+    where: { id: cancelledJob.id },
+    data: {
+      status: "FAILED",
+      attempts: 1,
+      failureCode: "SYNTHETIC_PRIOR_FAILURE",
+      failureMessage: "https://fixture:fixture-password@example.test/error",
+    },
+  });
+  assert(
+    await requestJobCancellation(cancelledJob.id, org, {
+      actor: "synthetic-actor",
+      correlationId: "cancel-request",
+    }),
+  );
+  const cancellationAudit = await db.auditEvent.findFirstOrThrow({
+    where: { scanId: cancelledJob.scanId, action: "SCAN_CANCELLATION_REQUESTED" },
+  });
+  assert.equal(
+    (cancellationAudit.metadata as { previousFailureCode: string }).previousFailureCode,
+    "SYNTHETIC_PRIOR_FAILURE",
+  );
+  assert(!JSON.stringify(cancellationAudit).includes("fixture-password"));
+
+  // Importing helpers must not execute the CLI or create a client with side effects.
+  const beforeImport = await db.scan.count();
+  const { seedDemoData } = await import("../prisma/seed.js");
+  assert.equal(await db.scan.count(), beforeImport);
+  const forbiddenTarget = new URL(process.env.DATABASE_URL!);
+  forbiddenTarget.pathname = "/unapproved_database";
+  await assert.rejects(seedDemoData(forbiddenTarget.href), /Refusing to seed/);
+  forbiddenTarget.pathname = "/agentshield";
+  forbiddenTarget.searchParams.set("schema", "customer");
+  await assert.rejects(seedDemoData(forbiddenTarget.href), /Refusing to seed/);
+  await db.organization.upsert({
+    where: { id: "demo-organization" },
+    update: {},
+    create: { id: "demo-organization", slug: "demo-organization", name: "Synthetic demo tenant" },
+  });
+  const customer = await db.scan.create({
+    data: {
+      organizationId: "demo-organization",
+      repositoryName: `synthetic-customer-${suffix}`,
+      branch: "main",
+      metadata: { owner: "synthetic-customer" },
+    },
+  });
+  const customerAudit = await db.auditEvent.create({
+    data: {
+      organizationId: "demo-organization",
+      actor: "synthetic-customer",
+      action: "SCAN_CREATED",
+      entityType: "Scan",
+      entityId: customer.id,
+      scanId: customer.id,
+      metadata: { synthetic: true },
+    },
+  });
+  const customerReceipt = await db.securityReceipt.create({
+    data: {
+      scanId: customer.id,
+      scannerVersion: "synthetic",
+      policyBundleVersion: "synthetic",
+      findingCounts: {},
+      decisionCounts: {},
+      approvalState: "NONE",
+      evidenceDigest: "a".repeat(64),
+      gateResult: "ALLOW",
+      receiptHash: suffix.padEnd(64, "0"),
+    },
+  });
+  const customerBefore = await db.scan.findUniqueOrThrow({ where: { id: customer.id } });
+  await seedDemoData(process.env.DATABASE_URL);
+  const seededBefore = await db.scan.findMany({
+    where: {
+      organizationId: "demo-organization",
+      metadata: { path: ["labels"], array_contains: ["phase-2-seed"] },
+    },
+  });
+  const seededIds = seededBefore.map((s) => s.id);
+  const childrenBefore = {
+    findings: await db.finding.findMany({
+      where: { scanId: { in: seededIds } },
+      orderBy: { id: "asc" },
+    }),
+    dependencies: await db.dependency.findMany({
+      where: { scanId: { in: seededIds } },
+      orderBy: { id: "asc" },
+    }),
+    audits: await db.auditEvent.findMany({
+      where: { scanId: { in: seededIds } },
+      orderBy: { id: "asc" },
+    }),
+  };
+  await assert.rejects(
+    seedDemoData(process.env.DATABASE_URL, () => Promise.reject(new Error("synthetic rollback"))),
+  );
+  assert.deepEqual(
+    await db.scan.findMany({ where: { id: { in: seededBefore.map((s) => s.id) } } }),
+    seededBefore,
+  );
+  assert.deepEqual(
+    {
+      findings: await db.finding.findMany({
+        where: { scanId: { in: seededIds } },
+        orderBy: { id: "asc" },
+      }),
+      dependencies: await db.dependency.findMany({
+        where: { scanId: { in: seededIds } },
+        orderBy: { id: "asc" },
+      }),
+      audits: await db.auditEvent.findMany({
+        where: { scanId: { in: seededIds } },
+        orderBy: { id: "asc" },
+      }),
+    },
+    childrenBefore,
+  );
+  await Promise.all([
+    seedDemoData(process.env.DATABASE_URL),
+    seedDemoData(process.env.DATABASE_URL),
+  ]);
+  assert.equal(
+    await db.scan.count({
+      where: {
+        organizationId: "demo-organization",
+        metadata: { path: ["labels"], array_contains: ["phase-2-seed"] },
+      },
+    }),
+    1,
+  );
+  assert.deepEqual(await db.scan.findUniqueOrThrow({ where: { id: customer.id } }), customerBefore);
+  assert.deepEqual(
+    await db.auditEvent.findUnique({ where: { id: customerAudit.id } }),
+    customerAudit,
+  );
+  assert.deepEqual(
+    await db.securityReceipt.findUnique({ where: { id: customerReceipt.id } }),
+    customerReceipt,
+  );
+  await db.securityReceipt.delete({ where: { id: customerReceipt.id } });
+  await db.auditEvent.delete({ where: { id: customerAudit.id } });
+  await db.scan.delete({ where: { id: customer.id } });
+  console.warn(
+    "Phase 1 real PostgreSQL completion regressions passed: lifecycle ownership/replay/concurrency/audit rollback/closure ordering, collision consolidation/advisory identity/counts, coverage receipts, retry history/claim race/rollback, seed import/preservation/rollback/serialization.",
+  );
+} finally {
+  await db.$executeRawUnsafe(`DROP TRIGGER IF EXISTS "${trigger}" ON "AuditEvent"`);
+  await db.$executeRawUnsafe(`DROP FUNCTION IF EXISTS "${trigger}"()`);
+  await db.advisory.deleteMany({ where: { organizationId: org } });
+  await db.securityReceipt.deleteMany({ where: { scan: { organizationId: org } } });
+  await db.auditEvent.deleteMany({ where: { organizationId: org } });
+  await db.scan.deleteMany({ where: { organizationId: org } });
+  await db.organization.deleteMany({ where: { id: org } });
+  await db.$disconnect();
+  await rm(directory, { recursive: true, force: true });
+}

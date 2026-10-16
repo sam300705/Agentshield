@@ -1,3 +1,4 @@
+import { sign as cryptoSign, createPrivateKey } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 import { createSecurityReceipt } from "./controlPlane.js";
@@ -5,6 +6,7 @@ import {
   generateEd25519KeyPair,
   signSecurityReceipt,
   verifySignedSecurityReceipt,
+  canonicalReceiptPayload,
 } from "./signedReceipt.js";
 
 const receipt = createSecurityReceipt({
@@ -25,6 +27,28 @@ const receipt = createSecurityReceipt({
 });
 
 describe("signed security receipts", () => {
+  it("rejects a false internal hash even when a trusted key signs the payload", () => {
+    const key = generateEd25519KeyPair("key-1");
+    const bad = { ...receipt, receiptHash: "0".repeat(64) };
+    expect(() =>
+      signSecurityReceipt(bad, { keyId: key.keyId, privateKey: key.privateKeyPem }),
+    ).toThrow("Receipt hash");
+    const signed = signSecurityReceipt(receipt, {
+      keyId: key.keyId,
+      privateKey: key.privateKeyPem,
+    });
+    const signature = cryptoSign(
+      null,
+      Buffer.from(canonicalReceiptPayload(bad)),
+      createPrivateKey(key.privateKeyPem),
+    ).toString("base64url");
+    expect(
+      verifySignedSecurityReceipt(
+        { ...signed, payload: bad, signature },
+        { [key.keyId]: key.publicKeyPem },
+      ),
+    ).toBe(false);
+  });
   it("signs and verifies a canonical receipt", () => {
     const key = generateEd25519KeyPair("key-1");
     const signed = signSecurityReceipt(receipt, {
@@ -67,4 +91,71 @@ describe("signed security receipts", () => {
     expect(verifySignedSecurityReceipt(oldReceipt, keyRing)).toBe(true);
     expect(verifySignedSecurityReceipt(newReceipt, keyRing)).toBe(true);
   });
+});
+
+it.each(["", "production key", "x".repeat(129), "key/unsafe"])(
+  "rejects signing key ID %s before creating an unverifiable envelope",
+  (keyId) => {
+    const key = generateEd25519KeyPair("valid");
+    expect(() => signSecurityReceipt(receipt, { keyId, privateKey: key.privateKeyPem })).toThrow(
+      "key ID",
+    );
+  },
+);
+it("verifies the longest accepted safe signing identifier", () => {
+  const keyId = "x".repeat(128);
+  const key = generateEd25519KeyPair(keyId);
+  expect(
+    verifySignedSecurityReceipt(
+      signSecurityReceipt(receipt, { keyId, privateKey: key.privateKeyPem }),
+      { [keyId]: key.publicKeyPem },
+    ),
+  ).toBe(true);
+});
+
+it.each([undefined, 123, null])("rejects invalid key ID %s", (keyId) => {
+  const key = generateEd25519KeyPair("real-key");
+  const signed = signSecurityReceipt(receipt, { keyId: key.keyId, privateKey: key.privateKeyPem });
+  const altered = { ...signed, keyId } as unknown as typeof signed;
+  expect(verifySignedSecurityReceipt(altered, { "real-key": key.publicKeyPem })).toBe(false);
+});
+
+it("rejects unsigned extension data added to a valid signed receipt", () => {
+  const key = generateEd25519KeyPair("key-extensions");
+  const signed = signSecurityReceipt(receipt, { keyId: key.keyId, privateKey: key.privateKeyPem });
+  const poisoned = {
+    ...signed,
+    payload: { ...signed.payload, override: { gateResult: "ALLOW" } },
+  };
+  expect(verifySignedSecurityReceipt(poisoned, { [key.keyId]: key.publicKeyPem })).toBe(false);
+});
+
+it("binds optional coverage in new receipts while preserving legacy hashes and signature semantics", () => {
+  const coverage = {
+    status: "PARTIAL" as const,
+    scope:
+      "Supported static checks within the observed scope; not proof of safety or complete event capture." as const,
+    enumeratedFiles: 2,
+    inspectedFiles: 1,
+    unsupportedFiles: 1,
+    excludedEntries: 1,
+  };
+  const current = createSecurityReceipt({ ...receipt, evidence: { synthetic: true }, coverage });
+  expect(current.receiptHash).not.toBe(receipt.receiptHash);
+  expect(receipt).not.toHaveProperty("coverage");
+  const key = generateEd25519KeyPair("coverage-key");
+  const signed = signSecurityReceipt(current, { keyId: key.keyId, privateKey: key.privateKeyPem });
+  expect(verifySignedSecurityReceipt(signed, { [key.keyId]: key.publicKeyPem })).toBe(true);
+  expect(
+    verifySignedSecurityReceipt(
+      { ...signed, payload: { ...current, coverage: { ...coverage, inspectedFiles: 2 } } },
+      { [key.keyId]: key.publicKeyPem },
+    ),
+  ).toBe(false);
+  expect(
+    verifySignedSecurityReceipt(
+      signSecurityReceipt(receipt, { keyId: key.keyId, privateKey: key.privateKeyPem }),
+      { [key.keyId]: key.publicKeyPem },
+    ),
+  ).toBe(true);
 });

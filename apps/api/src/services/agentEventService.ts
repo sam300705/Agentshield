@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { createHash, randomUUID } from "node:crypto";
 
-import { canonicalJson, createIntegrityChain, redactEvidence } from "@agentshield/policy-engine";
+import { canonicalJson, createIntegrityChain } from "@agentshield/policy-engine";
 import { agentEventInputSchema, sanitizeText, type AgentEventInput } from "@agentshield/schemas";
 
 import { prisma } from "../db/prisma.js";
@@ -37,6 +37,7 @@ type PersistedAgentEvent = {
   correlationId: string;
   eventHash: string;
   previousHash: string | null;
+  rawPayloadHash: string | null;
 };
 
 export type AgentEventIngestResult =
@@ -82,7 +83,8 @@ function payloadValue(input: {
     riskLevel: input.riskLevel,
     summary: input.summary,
     resource: input.resource ?? null,
-    evidence: redactEvidence(input.evidence),
+    // The digest binds the original sensitive preimage; never persist this value.
+    evidence: input.evidence,
     correlationId: input.correlationId,
   };
 }
@@ -90,12 +92,6 @@ function payloadValue(input: {
 function payloadHash(input: ParsedAgentEvent): string {
   return createHash("sha256")
     .update(canonicalJson(payloadValue(input)))
-    .digest("hex");
-}
-
-function persistedPayloadHash(event: PersistedAgentEvent): string {
-  return createHash("sha256")
-    .update(canonicalJson(payloadValue(event)))
     .digest("hex");
 }
 
@@ -107,7 +103,9 @@ function isConcurrencyConflict(error: unknown): boolean {
 }
 
 function samePayload(event: PersistedAgentEvent, expectedHash: string): boolean {
-  return persistedPayloadHash(event) === expectedHash;
+  // Historical rows lack a raw digest. Never pretend their redacted evidence
+  // establishes equality with an unredacted retry: require a new event key.
+  return event.rawPayloadHash != null && event.rawPayloadHash === expectedHash;
 }
 
 async function findExisting(input: ParsedAgentEvent): Promise<PersistedAgentEvent | null> {
@@ -115,7 +113,7 @@ async function findExisting(input: ParsedAgentEvent): Promise<PersistedAgentEven
     where: {
       sessionId: input.sessionId,
       idempotencyKey: input.idempotencyKey,
-      session: { organizationId: input.organizationId },
+      session: { organizationId: input.organizationId, actor: input.actor },
     },
   });
 }
@@ -138,15 +136,19 @@ export async function ingestAgentEvent(
   rawInput: AgentEventInput,
   retryOnConcurrency = true,
 ): Promise<AgentEventIngestResult> {
-  const parsed = agentEventInputSchema.parse(rawInput) as ParsedAgentEvent;
-  const input = {
-    ...parsed,
-    summary: sanitizeText(parsed.summary),
-    source: sanitizeText(parsed.source),
-    ...(parsed.resource == null ? {} : { resource: sanitizeText(parsed.resource) }),
-  };
+  const input = agentEventInputSchema.parse(rawInput) as ParsedAgentEvent;
   const expectedHash = payloadHash(input);
 
+  const owner = await prisma.agentSession.findFirst({
+    where: {
+      id: input.sessionId,
+      organizationId: input.organizationId,
+      actor: input.actor,
+      status: "ACTIVE",
+    },
+    select: { id: true },
+  });
+  if (owner == null) return { kind: "SESSION_NOT_FOUND" };
   const existing = await findExisting(input);
   if (existing != null) {
     return samePayload(existing, expectedHash)
@@ -161,7 +163,12 @@ export async function ingestAgentEvent(
           Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${input.sessionId}))`,
         );
         const session = await tx.agentSession.findFirst({
-          where: { id: input.sessionId, organizationId: input.organizationId },
+          where: {
+            id: input.sessionId,
+            organizationId: input.organizationId,
+            actor: input.actor,
+            status: "ACTIVE",
+          },
           select: { id: true },
         });
         if (session == null) return { kind: "SESSION_NOT_FOUND" as const };
@@ -170,7 +177,7 @@ export async function ingestAgentEvent(
           where: {
             sessionId: input.sessionId,
             idempotencyKey: input.idempotencyKey,
-            session: { organizationId: input.organizationId },
+            session: { organizationId: input.organizationId, actor: input.actor },
           },
         });
         if (inTransactionExisting != null) {
@@ -200,8 +207,8 @@ export async function ingestAgentEvent(
               source: input.source,
               type: input.type,
               riskLevel: input.riskLevel,
-              summary: input.summary,
-              ...(input.resource == null ? {} : { resource: input.resource }),
+              summary: sanitizeText(input.summary),
+              ...(input.resource == null ? {} : { resource: sanitizeText(input.resource) }),
               evidence: input.evidence,
               correlationId: input.correlationId,
             },
@@ -227,6 +234,7 @@ export async function ingestAgentEvent(
             correlationId: event.correlationId,
             previousHash: event.integrity.previousHash,
             eventHash: event.integrity.eventHash,
+            rawPayloadHash: expectedHash,
           },
         });
         await tx.auditEvent.create({
@@ -242,6 +250,7 @@ export async function ingestAgentEvent(
               sessionId: input.sessionId,
               sequence: input.sequence,
               eventHash: event.integrity.eventHash,
+              rawPayloadHash: expectedHash,
               payloadHash: expectedHash,
             },
           },
