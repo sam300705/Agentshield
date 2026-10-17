@@ -21,3 +21,23 @@ Before changing any pending decision, record exact version, license/attribution,
 maintenance/security posture, transitive dependencies, deployment and performance
 cost, lock-in, upgrade/rollback path and total operating cost. No blanket security
 approval is conferred by inclusion in this table.
+
+## Phase 3 provider reuse checkpoint, 2026-10-17
+
+EXTEND the existing fetch/JWT adapter for this bounded delivery correction; no new
+dependency or copied code. Investigated `@octokit/app` release v16.1.4 (2026-08-02),
+its tag-pinned package/README/LICENSE using the official GitHub API. MIT; Node >=20;
+direct dependencies include auth-app ^8.3.0, core ^7.0.7, webhooks ^14.0.0, paginate-rest
+^15.0.0 and OAuth helpers. It is a mature App/auth/pagination integration candidate,
+but adopting it does not supply database fencing or remote create idempotency.
+Avoid replacing the tested transport during this correction. No installed license,
+full transitive audit, runtime benchmark, maintenance guarantee or operating-cost
+claim is inferred from release metadata. A later replacement needs compatibility,
+retry/cancellation, ID precision, provenance and rollback qualification first.
+
+Exact lookups: `repos/octokit/app.js/releases/latest`;
+`repos/octokit/app.js/contents/{package.json,README.md,LICENSE}?ref=v16.1.4`.
+Source: https://github.com/octokit/app.js/releases/tag/v16.1.4 .
+GitHub token docs explicitly describe repository_ids and permission restriction;
+local unit and real HTTP simulator checks verify our request shape, not GitHub's
+live enforcement. No external integration or product-demand claim follows.

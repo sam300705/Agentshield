@@ -97,7 +97,7 @@ describe("GitHubRepositoryMaterializer", () => {
           "export const safe = true;",
         );
         expect(fixture.resolve).toHaveBeenCalledWith("org-test", "repo-test");
-        expect(fixture.getInstallationToken).toHaveBeenCalledWith(42);
+        expect(fixture.getInstallationToken).toHaveBeenCalledWith(42, "123");
         expect(fixture.downloadRepositoryArchive).toHaveBeenCalledWith(
           "octo",
           "example",

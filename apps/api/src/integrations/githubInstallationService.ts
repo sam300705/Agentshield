@@ -17,11 +17,20 @@ export function normalizeGitHubRepository(repository: GitHubRepository): {
   fullName: string;
   defaultBranch: string;
 } {
+  const checked = z
+    .object({
+      id: z.number().int().positive().safe(),
+      fullName: z
+        .string()
+        .regex(/^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,99}\/[A-Za-z0-9_-][A-Za-z0-9_.-]{0,99}$/),
+      defaultBranch: z.string().min(1).max(256).nullish(),
+    })
+    .parse(repository);
   return {
     provider: "GITHUB",
-    externalId: String(repository.id),
-    fullName: repository.fullName,
-    defaultBranch: repository.defaultBranch ?? "main",
+    externalId: String(checked.id),
+    fullName: checked.fullName,
+    defaultBranch: checked.defaultBranch ?? "main",
   };
 }
 

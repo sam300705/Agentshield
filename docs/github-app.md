@@ -127,24 +127,47 @@ state are persisted. Workers publish queued before claiming, in-progress from du
 and completed after durable results. Publication is independent of the scan executor's result:
 old attempts have no client through which to publish their own findings.
 
-A per-scan PostgreSQL transaction advisory lock serializes publishers. A job share lock keeps
-the durable state stable during publication, following the queue’s job-before-scan lock order.
-The complete provider operation has a 40-second deadline inside a 60-second transaction;
-an old executor must prove its lease before requesting publication. On create uncertainty/crash,
-the publisher reconciles the exact `external_id` on that SHA (bounded 10 pages), rather than choosing
-by name alone, before creating. Retries update the persisted Check. GitHub does not expose an atomic
-create-idempotency key: there remains a provider visibility/crash window after an unacknowledged create;
-external-ID reconciliation minimizes it but cannot guarantee exactly-once remote creation under all
-provider failures. This is an explicit provider limitation, not a second scan/job.
+A short transaction claims a generation and 60-second lease, commits a durable possible-create
+marker and takes a snapshot of owned installation/repository and scan state. All token, lookup,
+create and update HTTP then runs outside transactions with a shared 40-second deadline. A short
+finalization atomically checks token/generation and unexpired PostgreSQL clock, records the
+observed result and audit, or makes no authoritative change after lease loss. Audit failure
+rolls back finalization; the durable dispatch marker survives for reconciliation.
 
-| Durable result                             | GitHub conclusion |
-| ------------------------------------------ | ----------------- |
-| All ALLOW / no findings                    | success           |
-| WARN                                       | neutral           |
-| REQUIRE_APPROVAL                           | action_required   |
-| BLOCK                                      | failure           |
-| Cancelled                                  | cancelled         |
-| Exhausted execution/infrastructure failure | failure           |
+A missing provider object after an ambiguous create is UNKNOWN, not permission to create again.
+Exact external-ID/SHA lookup is bounded to ten pages. Visible objects are updated; an invisible
+possible create is retried only as reconciliation and stops after ten attempts. Manual retry
+retains the possible-create marker and cannot turn missing visibility into proof of absence.
+Existing pre-upgrade null-ID records are conservatively UNKNOWN. Known legacy IDs are retained,
+and their output is requalified for coverage after upgrade. No exactly-once remote claim is made.
+
+Database fencing does not fence GitHub itself: a request already accepted remotely can finish
+after a timeout, lease loss, cancellation or local revocation. GitHub supplies no Check update
+compare-and-swap for this generation. Reconciliation records observed acknowledgments; live
+ordering/visibility and recovery qualification remain separate from synthetic tests. Local
+revocation that commits before a claim blocks that claim; it cannot recall an in-flight request.
+
+Requests use installation tokens restricted by immutable `repository_ids`. Scan tokens request
+Contents read/Metadata read; publisher tokens request Checks write/Metadata read. A renamed or
+reused path does not expand that provider token's repository authority. Live provider enforcement
+of this configuration remains unqualified. Provider numeric IDs outside JavaScript's safe integer
+range are refused by this adapter; Phase 2's decimal-string intent storage does not imply live
+support for those IDs. No rounded provider identity is accepted as an equivalent ID.
+
+Due publications are selected by tenant lanes with a 20-item bound. Unchanged projections poll
+after five seconds; real scan state changes wake the poll, while failed HTTP retains its backoff.
+The combined scan worker runs one global publication per pass and propagates shutdown cancellation;
+this bounds work per pass but does not establish production latency/throughput/fairness guarantees.
+
+| Durable result                                 | GitHub conclusion |
+| ---------------------------------------------- | ----------------- |
+| Valid complete evidence, all ALLOW/no findings | success           |
+| Incomplete/invalid/missing evidence            | action_required   |
+| WARN                                           | neutral           |
+| REQUIRE_APPROVAL                               | action_required   |
+| BLOCK                                          | failure           |
+| Cancelled                                      | cancelled         |
+| Exhausted execution/infrastructure failure     | failure           |
 
 Output is bounded summary counts, highest severity, policy version and scan ID. No evidence snippets,
 raw secret values or provider bodies are included. No public dashboard report URL is invented.

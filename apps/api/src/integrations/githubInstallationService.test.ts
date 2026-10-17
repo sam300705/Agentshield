@@ -93,3 +93,18 @@ it("allows same-organization installation metadata refresh", async () => {
     data: { accountLogin: "owner", status: "ACTIVE" },
   });
 });
+
+it.each([Number.MAX_SAFE_INTEGER + 1, 0, -1])(
+  "rejects unsupported repository identity %s before converting it to a string",
+  (id) => {
+    expect(() =>
+      normalizeGitHubRepository({
+        id,
+        fullName: "synthetic/repo",
+        private: true,
+        defaultBranch: "main",
+        permissions: { admin: false, push: false, pull: true },
+      }),
+    ).toThrow();
+  },
+);

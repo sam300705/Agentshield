@@ -90,3 +90,22 @@ it("refuses 1,000 repositories when total_count indicates incomplete synchroniza
   );
   expect(fetchImpl).toHaveBeenCalledTimes(10);
 });
+
+it.each([0, 1000])(
+  "refuses an incomplete short page contradicting total_count=%s",
+  async (total_count) => {
+    const fetchImpl = vi.fn(() =>
+      Promise.resolve(
+        Response.json({
+          total_count,
+          repositories: [{ id: 123, full_name: "synthetic/repo", private: true }],
+        }),
+      ),
+    );
+    const client = new FetchGitHubAppClient({} as GitHubAppConfig, { fetchImpl });
+    await expect(client.listInstallationRepositories(1, "synthetic")).rejects.toThrow(
+      "GITHUB_REPOSITORY_SNAPSHOT_INCOMPLETE",
+    );
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  },
+);

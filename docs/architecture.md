@@ -118,6 +118,10 @@ the accepted full commit SHA and installation ID. The production worker resolves
 checks the remote numeric identity and extracts only that SHA into an isolated bounded workspace.
 Existing scanner/policy/evidence persistence and attempt fencing remain authoritative.
 `GitHubCheckPublication` independently schedules queued/in-progress/completed output and safe
-publication retries under a per-scan advisory lock. Provider faults preserve completed scan data.
+publication retries using short claims, durable leases/generations, HTTP outside transactions and
+fenced atomic finalization/audit. UNKNOWN creates reconcile without blind duplication; invalid or
+partial evidence cannot publish success. Repository-scoped provider tokens narrow credential
+authority. Provider faults preserve completed scan data. See
+[the current integration handoff](phase3-integration-handoff.md) for measured scope and limits.
 See [the GitHub architecture and owner setup](./github-app.md) for limits, permissions, external-ID
 reconciliation, provider caveats and the blocked real-provider gate.

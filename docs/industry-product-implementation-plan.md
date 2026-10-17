@@ -5,8 +5,10 @@ Checkpoint: 2026-10-15. The inspected Phase 1 follow-up head was
 `phase1/consolidate-stabilize` at `f996445bde6cde57011461c45a1fd8eb007518ab`.
 Both exact-head quality workflows passed, but review found six defects.
 The owner accepted automated review of `95de63e` as the Phase 1 independent gate.
-Phase 2 integration is authorized on a new branch; see
-[the current handoff](phase2-integration-handoff.md). Historical work-package
+The owner then accepted the Phase 2 automated gate of `1779374` by instructing
+continuation after its concrete acceptance question. Phase 3 integration/delivery
+work is authorized; see [the current handoff](phase3-integration-handoff.md).
+Historical work-package
 statuses below describe their recorded checkpoints, not current acceptance.
 The current candidate identity and CI belong in the PR publication record.
 
@@ -97,7 +99,7 @@ fresh independent review. Recovery: additive code revert retains history/schema.
 | R0 research        | PARTIAL: desk research and pilot protocol recorded | Actual team interviews, comparator trials, pilot outcomes and buyer evidence                                |
 | Phase 1 / #9 + #16 | PASS: owner accepted automated review of 95de63e   | No production or human acceptance claimed                                                                   |
 | Phase 2 / #10      | PASS: owner accepted automated gate of 1779374     | Exact-head CI and no-findings automated review accepted on continuation; no human/provider acceptance claim |
-| Phase 3 / #11      | IN PROGRESS: accepted-authority integration        | Accepted Phase 2; delivery qualification, then explicit ADR/scope for one bounded write                     |
+| Phase 3 / #11      | PARTIAL: integrated delivery candidate             | Exact-head CI/review, qualified operator diagnostic and controlled live GitHub; bounded write remains gated |
 | Phase 4 / #12      | BLOCKED                                            | Accepted Phase 3; tested artifact, isolated restore, configuration and operational evidence                 |
 | Phase 5            | BLOCKED                                            | Accepted backend capabilities and Figma source; end-to-end usability evidence                               |
 

@@ -79,3 +79,32 @@ for rollback. Production binary rollback and mixed-version operation are NOT RUN
 remain Phase 4 qualification. This work performs no production migration or rollout.
 Out-of-order missing migrations are tested; enum ordering is not an authorization
 input or an application ordering contract.
+
+## Phase 3 GitHub delivery and publication expansion
+
+Retain existing `20261007000000_github_lifecycle` and
+`20261007010000_github_check_ids` migrations byte-for-byte. The additive
+`20261017200000_github_publication_fencing` adds lease/generation, possible-create
+and observed/unknown-state fields. Stop every old publisher before migration; old
+publishers cannot honor this fence. Retain known provider IDs. Legacy null-ID rows
+are conservatively UNKNOWN, since an old transaction could have crashed after a
+remote create. Reconciliation may stop without creating a replacement. Old COMPLETE
+projections are made PENDING and their snapshot marker cleared to requalify coverage;
+scan/receipt/customer history is not deleted or rewritten.
+
+`test:phase2-upgrade` now rehearses four precise predecessor histories: accepted
+Phase 1 (excluding both Phase 3 migration IDs), original Phase 2, accepted Phase 2
+and existing Phase 3. It preserves consumed authorizations, HELD operations/outbox,
+and customer rows, and verifies retained known Check IDs plus conservative unknown
+legacy creates. The historical migrations are not inferred by timestamp alone.
+
+Rollback retains schema/history and a fence-aware publisher binary; do not restart
+the old long-transaction publisher against potentially in-flight/unknown records.
+Stop dispatch and reconcile remote effects before restore/restart. Production rollout,
+mixed-binary rollback and restore remain NOT RUN and belong to Phase 4 qualification.
+
+`20261017210000_github_publication_attempt_audit` separately adds
+GITHUB_CHECK_CLAIMED for durable pre-HTTP attempt history. It leaves the previously
+applied fencing migration unchanged. Upgrade API/worker/audit readers for both
+labels/contracts before starting new publishers; keep expanded readers on rollback.
+Claim audit failure aborts claim/dispatch-marker creation before any HTTP.

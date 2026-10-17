@@ -22,7 +22,7 @@ export interface GitHubRepositoryBindingResolver {
 }
 
 export interface GitHubInstallationTokenProvider {
-  getInstallationToken(installationId: number): Promise<string>;
+  getInstallationToken(installationId: number, repositoryId?: string): Promise<string>;
 }
 
 export interface GitHubArchiveLimits {
@@ -126,7 +126,10 @@ export class GitHubRepositoryMaterializer implements RepositoryMaterializer {
       throw new Error("GITHUB_REPOSITORY_MAPPING_INVALID");
     }
 
-    const token = await this.options.tokenProvider.getInstallationToken(binding.installationId);
+    const token = await this.options.tokenProvider.getInstallationToken(
+      binding.installationId,
+      binding.externalId,
+    );
     if (token.length === 0) throw new Error("GITHUB_INSTALLATION_TOKEN_UNAVAILABLE");
     const { owner, repository } = splitRepositoryName(binding.fullName);
     const remote = await this.options.archiveClient.getRepository(owner, repository, token);

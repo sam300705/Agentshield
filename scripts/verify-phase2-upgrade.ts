@@ -19,14 +19,25 @@ const admin = new PrismaClient({ datasourceUrl: databaseUrl });
 const all = await migrationNames();
 const integrity = "20261006000000_backend_integrity";
 const common = all.filter((name) => name < integrity);
+const phase3 = ["20261007000000_github_lifecycle", "20261007010000_github_check_ids"];
 const histories = [
   {
     name: "accepted_phase1",
     migrations: all.filter(
-      (name) => name !== integrity && name <= "20261015190000_scan_claim_sequence",
+      (name) =>
+        name !== integrity &&
+        !phase3.includes(name) &&
+        name <= "20261015190000_scan_claim_sequence",
     ),
   },
   { name: "existing_phase2", migrations: [...common, integrity] },
+  {
+    name: "accepted_phase2",
+    migrations: all.filter(
+      (name) => !phase3.includes(name) && name <= "20261016200000_action_authority_admission",
+    ),
+  },
+  { name: "existing_phase3", migrations: [...common, integrity, ...phase3] },
 ];
 try {
   for (const history of histories) {
@@ -79,6 +90,15 @@ try {
         });
         await db.$executeRaw`INSERT INTO "ScanJob" ("id","scanId","idempotencyKey","status","policyBundleVersion","repositoryRef","requester","correlationId","payload","updatedAt") VALUES ('preserve-legacy-demo','preserve-legacy-scan','legacy-demo','QUEUED','demo','local-demo','synthetic-actor','legacy-demo',${payload}::jsonb,CURRENT_TIMESTAMP)`;
       }
+      if (history.name === "existing_phase3") {
+        await db.$executeRaw`INSERT INTO "Scan" ("id","organizationId","repositoryId","repositoryName","branch","status","updatedAt") VALUES ('preserve-pending-check','preserve-org','preserve-repo','synthetic/preserve','main','QUEUED',CURRENT_TIMESTAMP)`;
+        await db.$executeRaw`INSERT INTO "GitHubCheckPublication" ("scanId","checkRunId","status","publishedState","updatedAt") VALUES ('preserve-scan','12000000001','COMPLETE','completed:FAILED',CURRENT_TIMESTAMP), ('preserve-pending-check',NULL,'PENDING',NULL,CURRENT_TIMESTAMP)`;
+      }
+      if (history.name === "accepted_phase2") {
+        await db.$executeRaw`INSERT INTO "ActionAuthorization" ("id","organizationId","actor","sessionId","repositoryId","evidenceScanId","idempotencyKey","requestDigest","contextDigest","context","policyRevision","decision","status","expiresAt","reviewedBy","reviewedAt") VALUES ('preserve-authorization','preserve-org','synthetic-actor','preserve-session','preserve-repo','preserve-scan','preserve-key','request','context','{}'::jsonb,'old-policy','REQUIRE_APPROVAL','CONSUMED',CURRENT_TIMESTAMP,'independent-reviewer',CURRENT_TIMESTAMP)`;
+        await db.$executeRaw`INSERT INTO "ActionOperation" ("id","organizationId","actor","authorizationId","operationKey","contextDigest") VALUES ('preserve-operation','preserve-org','synthetic-actor','preserve-authorization','preserve-operation','context')`;
+        await db.$executeRaw`INSERT INTO "ActionOutbox" ("id","operationId") VALUES ('preserve-outbox','preserve-operation')`;
+      }
       const tables = [
         "Organization",
         "Repository",
@@ -86,6 +106,9 @@ try {
         "Scan",
         "ScanJob",
         "AuditEvent",
+        ...(history.name === "accepted_phase2"
+          ? ["ActionAuthorization", "ActionOperation", "ActionOutbox"]
+          : []),
       ];
       const before = await Promise.all(
         tables.map((table) =>
@@ -115,6 +138,24 @@ try {
               `${history.name}: ${tables[i]}.${key} changed`,
             );
         }
+      }
+      if (history.name === "existing_phase3") {
+        const publications = await db.gitHubCheckPublication.findMany({
+          orderBy: { scanId: "asc" },
+        });
+        assert.equal(publications.length, 2);
+        const known = publications.find((row) => row.scanId === "preserve-scan")!;
+        const unknown = publications.find((row) => row.scanId === "preserve-pending-check")!;
+        assert.equal(known.checkRunId, "12000000001");
+        assert.equal(
+          known.status,
+          "PENDING",
+          "Legacy completed output must be requalified for coverage",
+        );
+        assert.equal(unknown.checkRunId, null);
+        assert.equal(unknown.createMayHaveOccurred, true);
+        assert.equal(unknown.lastOutcome, "UNKNOWN");
+        assert(publications.every((row) => row.generation === 0 && row.leaseOwner == null));
       }
       await db.$executeRaw`INSERT INTO "Organization" ("id","slug","name","updatedAt") VALUES ('foreign-org','foreign-org','Foreign',CURRENT_TIMESTAMP)`;
       await assert.rejects(

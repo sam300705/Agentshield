@@ -1,7 +1,8 @@
 # AgentShield production architecture through Phase 4
 
 Audit checkpoint: 2026-10-14, Phase 1 base f996445bde6cde57011461c45a1fd8eb007518ab.
-This is an implementation and acceptance design, not a public-release claim.
+This is a historical implementation/acceptance design, not a public-release claim.
+Current implementation evidence is in [the Phase 3 handoff](phase3-integration-handoff.md).
 Preserve #9 → #10 → #11 → #12; no merges, retargets or history rewrites are authorized.
 
 ## Product contract
@@ -65,12 +66,15 @@ are not one integrated release candidate.
 
 ## Phase 3: isolated GitHub delivery
 
-The Phase 3 publisher currently performs remote calls inside a transaction and the
+At this historical audit checkpoint the Phase 3 publisher performed remote calls
+inside a transaction and the
 worker awaits publication around scan claiming. Provider latency can block authoritative
 work and consume connections. Refactor to short claim → remote request → fenced finalize.
 Persist publication leases/generations, release DB locks before HTTP, and reject stale
 finalizers. Serialize by scan, use stable due ordering, bounded concurrency/backoff,
 and reschedule unchanged state so old candidates cannot starve terminal publications.
+The current P3-D1 candidate implements this refactor and conservative UNKNOWN
+reconciliation; exact-head CI/review and live qualification remain separate gates.
 
 Use separate create/update payloads. Treat uncertain successful response parsing as
 recoverable and reconcile exact external IDs before another create. Preserve provider

@@ -36,7 +36,10 @@ export interface GitHubRepository {
 }
 
 export interface GitHubAppClient {
-  createInstallationToken(installationId: number): Promise<{ token: string; expiresAt: Date }>;
+  createInstallationToken(
+    installationId: number,
+    scope?: { repositoryId: string; purpose: "SCAN" | "CHECK_PUBLICATION" },
+  ): Promise<{ token: string; expiresAt: Date }>;
   listInstallationRepositories(installationId: number, token: string): Promise<GitHubRepository[]>;
 }
 
