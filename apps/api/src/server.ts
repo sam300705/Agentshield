@@ -11,6 +11,7 @@ import helmet from "helmet";
 import { ZodError } from "zod";
 
 import { sanitizeText } from "@agentshield/schemas";
+import { verifyAuthorityJson } from "./security/authorityJson.js";
 import { ServiceError } from "./security/serviceError.js";
 
 import { getRuntimeConfig } from "./config.js";
@@ -25,10 +26,20 @@ export function createServer(): Express {
   const app = express();
 
   app.disable("x-powered-by");
+  app.set("trust proxy", config.TRUSTED_PROXY_CIDRS);
   app.use(helmet());
   app.use(
     cors({
       origin: config.corsOrigin,
+    }),
+  );
+  // Reject exhausted IP budgets before signature verification or remote JWKS work.
+  app.use(
+    createRateLimiter({
+      enabled: config.rateLimitEnabled,
+      max: config.RATE_LIMIT_MAX,
+      windowMs: config.RATE_LIMIT_WINDOW_MS,
+      keyForRequest: (request) => `preauth:${request.ip || "unknown"}`,
     }),
   );
   app.use(requestContext);
@@ -42,6 +53,15 @@ export function createServer(): Express {
   app.use(
     "/api/v1/integrations/github/webhooks",
     express.raw({ type: "application/json", limit: "1mb" }),
+  );
+  // Mount with Express's pathname matching, including absolute-form HTTP targets.
+  // A raw request.url prefix check can disagree with the router's interpretation.
+  app.use(
+    "/api/v1/action-authority",
+    express.json({
+      limit: "1mb",
+      verify: (_request, _response, buffer) => verifyAuthorityJson(buffer),
+    }),
   );
   app.use(express.json({ limit: "1mb" }));
 
@@ -60,31 +80,26 @@ export function createServer(): Express {
   app.use(((error: unknown, _request: Request, response: Response, next) => {
     void next;
 
+    if (
+      error != null &&
+      typeof error === "object" &&
+      "type" in error &&
+      error.type === "entity.verify.failed"
+    ) {
+      response.status(400).json({
+        error: {
+          code: "AMBIGUOUS_JSON",
+          message: "Authority requests require unambiguous UTF-8 JSON literal encodings.",
+          correlationId: getCorrelationId(response),
+        },
+      });
+      return;
+    }
     if (error instanceof ServiceError) {
       response.status(error.status).json({
         error: {
           code: error.code,
           message: error.message,
-          correlationId: getCorrelationId(response),
-        },
-      });
-      return;
-    }
-    if (typeof error === "object" && error != null && "status" in error && error.status === 413) {
-      response.status(400).json({
-        error: {
-          code: "REQUEST_TOO_LARGE",
-          message: "Request body exceeds the allowed size.",
-          correlationId: getCorrelationId(response),
-        },
-      });
-      return;
-    }
-    if (error instanceof SyntaxError && "status" in error && error.status === 400) {
-      response.status(400).json({
-        error: {
-          code: "INVALID_JSON",
-          message: "Request JSON is invalid.",
           correlationId: getCorrelationId(response),
         },
       });
@@ -104,6 +119,37 @@ export function createServer(): Express {
               ),
             message: "Invalid value.",
           })),
+          correlationId: getCorrelationId(response),
+        },
+      });
+      return;
+    }
+
+    const parserType =
+      error != null && typeof error === "object" && "type" in error ? error.type : undefined;
+    if (
+      [
+        "entity.parse.failed",
+        "entity.too.large",
+        "request.aborted",
+        "request.size.invalid",
+        "encoding.unsupported",
+        "charset.unsupported",
+      ].includes(String(parserType))
+    ) {
+      const tooLarge = parserType === "entity.too.large";
+      const unsupported =
+        parserType === "encoding.unsupported" || parserType === "charset.unsupported";
+      response.status(tooLarge ? 413 : unsupported ? 415 : 400).json({
+        error: {
+          code: tooLarge
+            ? "PAYLOAD_TOO_LARGE"
+            : unsupported
+              ? "UNSUPPORTED_ENCODING"
+              : "VALIDATION_ERROR",
+          message: tooLarge
+            ? "Request payload exceeds the permitted size."
+            : "Request body is invalid or unsupported.",
           correlationId: getCorrelationId(response),
         },
       });

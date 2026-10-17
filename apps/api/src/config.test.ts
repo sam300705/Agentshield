@@ -1,3 +1,4 @@
+import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 import { getRuntimeConfig } from "./config.js";
@@ -81,4 +82,111 @@ describe("runtime configuration", () => {
     expect(config.OIDC_ISSUER).toBeUndefined();
     expect(config.rateLimitEnabled).toBe(false);
   });
+});
+
+it.each(["GITHUB_SCAN_LIFECYCLE_ENABLED", "GITHUB_MATERIALIZATION_ENABLED"])(
+  "fails closed on unsupported repository runtime %s",
+  (flag) => {
+    expect(() => getRuntimeConfig({ ...validProductionEnv, [flag]: "true" })).toThrow(
+      "Repository scanning is unavailable",
+    );
+  },
+);
+
+it.each(["true", "1", "loopback", "0.0.0.0/99", "0.0.0.0/0", "::/0", "192.0.2.1/24/1"])(
+  "refuses ambiguous proxy trust %s",
+  (value) => {
+    expect(() => getRuntimeConfig({ ...validProductionEnv, TRUSTED_PROXY_CIDRS: value })).toThrow();
+  },
+);
+
+it.each([
+  "http://issuer.test/keys",
+  "http://localhost/keys",
+  "https://user:password@issuer.test/keys",
+])("rejects insecure production JWKS %s", (url) => {
+  expect(() => getRuntimeConfig({ ...validProductionEnv, OIDC_JWKS_URL: url })).toThrow(
+    "requires HTTPS",
+  );
+});
+it("allows only explicit loopback HTTP JWKS in development", () => {
+  expect(() =>
+    getRuntimeConfig({
+      ...validProductionEnv,
+      NODE_ENV: "development",
+      OIDC_JWKS_URL: "http://127.0.0.1/keys",
+    }),
+  ).not.toThrow();
+  expect(() =>
+    getRuntimeConfig({
+      ...validProductionEnv,
+      NODE_ENV: "development",
+      OIDC_JWKS_URL: "http://remote.test/keys",
+    }),
+  ).toThrow();
+});
+
+it.each([
+  "https://dashboard.example.com/app",
+  "https://dashboard.example.com/?mode=live",
+  "https://dashboard.example.com/#fragment",
+  "https://dashboard.example.com/",
+  "https://user:password@dashboard.example.com",
+])("rejects a non-origin CORS configuration: %s", (origin) => {
+  expect(() => getRuntimeConfig({ ...validProductionEnv, CORS_ORIGIN: origin })).toThrow(
+    "CORS_ORIGIN must be a bare HTTP(S) origin",
+  );
+});
+
+it("rejects HTTP CORS origins in production", () => {
+  expect(() =>
+    getRuntimeConfig({ ...validProductionEnv, CORS_ORIGIN: "http://dashboard.example.com" }),
+  ).toThrow("CORS_ORIGIN must use HTTPS in production");
+});
+
+it("fails startup for incomplete, invalid, or wrong-algorithm signing configuration", () => {
+  const key = generateKeyPairSync("ed25519")
+    .privateKey.export({ type: "pkcs8", format: "pem" })
+    .toString();
+  expect(() => getRuntimeConfig({ ...validProductionEnv, RECEIPT_SIGNING_KEY_ID: "key" })).toThrow(
+    "both",
+  );
+  expect(() =>
+    getRuntimeConfig({
+      ...validProductionEnv,
+      RECEIPT_SIGNING_KEY_ID: "key",
+      RECEIPT_SIGNING_PRIVATE_KEY: "not-a-private-key",
+    }),
+  ).toThrow("Ed25519");
+  expect(() =>
+    getRuntimeConfig({
+      ...validProductionEnv,
+      RECEIPT_SIGNING_KEY_ID: "bad key",
+      RECEIPT_SIGNING_PRIVATE_KEY: key,
+    }),
+  ).toThrow("key ID");
+  const ec = generateKeyPairSync("ec", { namedCurve: "prime256v1" })
+    .privateKey.export({ type: "pkcs8", format: "pem" })
+    .toString();
+  expect(() =>
+    getRuntimeConfig({
+      ...validProductionEnv,
+      RECEIPT_SIGNING_KEY_ID: "key",
+      RECEIPT_SIGNING_PRIVATE_KEY: ec,
+    }),
+  ).toThrow("Ed25519");
+  expect(() =>
+    getRuntimeConfig({
+      ...validProductionEnv,
+      RECEIPT_SIGNING_KEY_ID: "key",
+      RECEIPT_SIGNING_PRIVATE_KEY: key,
+    }),
+  ).not.toThrow();
+  expect(() =>
+    getRuntimeConfig({
+      ...validProductionEnv,
+      RECEIPT_SIGNING_KEY_ID: " ",
+      RECEIPT_SIGNING_PRIVATE_KEY: " ",
+    }),
+  ).not.toThrow();
 });
