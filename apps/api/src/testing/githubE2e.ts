@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
+import { PrismaClient } from "@prisma/client";
+import { securityReceiptSchema } from "@agentshield/schemas";
 import { createHmac, generateKeyPairSync, randomUUID } from "node:crypto";
 import type { Server } from "node:http";
 import express from "express";
 import { jwtVerify } from "jose";
+import { POLICY_RULE_VERSION, createSecurityReceipt } from "@agentshield/policy-engine";
 import { prisma } from "../db/prisma.js";
 import { createServer } from "../server.js";
 import { FetchGitHubAppClient } from "../integrations/githubApiClient.js";
@@ -14,7 +17,11 @@ import {
   renewScanJobLease,
 } from "../services/scanQueue.js";
 import { registerGitHubInstallation } from "../integrations/githubInstallationService.js";
+import { assertSafeSeedTarget } from "../services/seedSafety.js";
 import { createTar } from "./githubArchiveFixture.js";
+
+assertSafeSeedTarget(process.env.NODE_ENV, process.env.DATABASE_URL ?? "");
+assert.equal(process.env.AGENTSHIELD_DISPOSABLE_DATABASE, "true");
 
 const suffix = randomUUID(),
   org = `github-e2e-${suffix}`,
@@ -31,9 +38,29 @@ let api: Server | undefined, provider: Server | undefined;
 const archiveRequests: string[] = [],
   checkRequests: Record<string, unknown>[] = [];
 let uncertainCreate = false;
+let providerCalls = 0;
 let failPublication = false,
   createCount = 0;
 const checkRuns: Array<{ id: number; external_id: string }> = [];
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+let pauseReply:
+  | {
+      externalId: string;
+      arrived: ReturnType<typeof deferred>;
+      release: ReturnType<typeof deferred>;
+    }
+  | undefined;
+const hiddenCheckIds = new Set<string>();
+const issuedScopes = new Map<
+  string,
+  { repositoryId: number; permissions: Record<string, string> }
+>();
 function url(server: Server) {
   const address = server.address();
   assert(address && typeof address === "object");
@@ -95,7 +122,7 @@ async function main() {
     GITHUB_APP_ID: "123",
     GITHUB_PRIVATE_KEY: pem,
     GITHUB_WEBHOOK_SECRET: secret,
-    GITHUB_SCAN_POLICY_BUNDLE_VERSION: "github-e2e",
+    GITHUB_SCAN_POLICY_BUNDLE_VERSION: POLICY_RULE_VERSION,
   });
   await prisma.organization.createMany({
     data: [
@@ -115,24 +142,52 @@ async function main() {
       installationId,
       accountLogin: "foreign",
     }),
-    /ALREADY_BOUND/,
+    /GITHUB_INSTALLATION_ORGANIZATION_MISMATCH/,
   );
   const fake = express();
   fake.use(express.json());
   fake.use((req, res) => {
     void (async () => {
       try {
+        providerCalls++;
         assert.equal(req.header("user-agent"), "AgentShield");
         if (req.path.endsWith("/access_tokens")) {
           assert(req.path.includes(String(installationId)));
           await jwtVerify(req.header("authorization")!.slice(7), publicKey, { issuer: "123" });
+          const scope = req.body as {
+            repository_ids: number[];
+            permissions: Record<string, string>;
+          };
+          assert.equal(scope.repository_ids.length, 1);
+          assert([123, 124].includes(scope.repository_ids[0]!));
+          assert.deepEqual(
+            scope.permissions,
+            scope.permissions.checks === "write"
+              ? { checks: "write", metadata: "read" }
+              : { contents: "read", metadata: "read" },
+          );
+          const issued = `synthetic-scoped-${randomUUID()}`;
+          issuedScopes.set(issued, {
+            repositoryId: scope.repository_ids[0]!,
+            permissions: scope.permissions,
+          });
           res.json({
-            token: ["synthetic", "installation", "credential"].join("-"),
+            token: issued,
             expires_at: new Date(Date.now() + 3600_000).toISOString(),
           });
           return;
         }
-        assert.equal(req.header("authorization"), "Bearer synthetic-installation-credential");
+        const credential = req.header("authorization")?.slice(7) ?? "";
+        const issuedScope = issuedScopes.get(credential);
+        assert(
+          issuedScope != null ||
+            (req.path.includes("/branches/") && credential === "synthetic-installation-credential"),
+        );
+        if (req.path.includes("/check-runs")) {
+          assert.equal(issuedScope?.permissions.checks, "write");
+          assert.equal(issuedScope?.repositoryId, req.path.includes("blocked-repo") ? 124 : 123);
+        }
+        if (req.path.includes("/tarball/")) assert.equal(issuedScope?.permissions.contents, "read");
         if (req.path.includes("/branches/")) {
           res.json({ commit: { sha: shaB } });
           return;
@@ -154,7 +209,7 @@ async function main() {
           return;
         }
         if (req.path.includes("/commits/")) {
-          res.json({ check_runs: checkRuns });
+          res.json({ check_runs: checkRuns.filter((run) => !hiddenCheckIds.has(run.external_id)) });
           return;
         }
         if (req.path.includes("/check-runs")) {
@@ -163,13 +218,23 @@ async function main() {
             return;
           }
           const request = req.body as Record<string, unknown>;
-          assert.equal(request.head_sha, shaA);
+          if (req.method === "POST") assert.equal(request.head_sha, shaA);
+          else {
+            assert(!("head_sha" in request), "PATCH must not contain create-only head_sha");
+            const target = checkRuns.find((run) => run.id === Number(req.path.split("/").at(-1)));
+            assert.equal(target?.external_id, request.external_id);
+          }
           assert(!JSON.stringify(request).includes(rawFinding));
           checkRequests.push(request);
           if (req.method === "POST") {
             createCount++;
             const id = 12_000_000_000 + createCount;
             checkRuns.push({ id, external_id: request.external_id as string });
+            const pause = pauseReply;
+            if (pause != null && pause.externalId === request.external_id) {
+              pause.arrived.resolve();
+              await pause.release.promise;
+            }
             if (uncertainCreate) {
               uncertainCreate = false;
               res.status(503).json({ error: "synthetic-uncertain-create" });
@@ -231,7 +296,9 @@ async function main() {
     400,
   );
   assert.equal((await webhook("pull_request", "{invalid")).status, 400);
-  assert.equal((await webhook("pull_request", "x".repeat(25 * 1024 * 1024 + 1))).status, 400);
+  const oversized = await webhook("pull_request", "x".repeat(1024 * 1024 + 1));
+  assert.equal(oversized.status, 413);
+  assert.equal((oversized.body.error as { code: string }).code, "PAYLOAD_TOO_LARGE");
   assert.equal((await webhook("ping", {})).status, 202);
   assert.equal(
     (await webhook("pull_request", payload({ installation: { id: installationId + 1 } }))).status,
@@ -288,7 +355,7 @@ async function main() {
   const recoveredJob = await prisma.scanJob.findUniqueOrThrow({
     where: { scanId: recoveredDelivery.body.scanId as string },
   });
-  await requestJobCancellation(recoveredJob.id, org, "synthetic");
+  await requestJobCancellation(recoveredJob.id, org, { actor: "synthetic", correlationId: suffix });
   await publishGitHubChecks(prisma, github, recoveredJob.scanId);
   pass("acceptance audit failure rolls back delivery/scan/job; redelivery safely succeeds");
   const delivery = randomUUID();
@@ -323,6 +390,12 @@ async function main() {
   assert.equal(movedBranch.commit.sha, shaB);
   await publishGitHubChecks(prisma, github, scanId);
   assert.equal(checkRequests.at(-1)!.status, "queued");
+  await publishGitHubChecks(prisma, github, scanId);
+  assert(
+    (await prisma.gitHubCheckPublication.findUniqueOrThrow({ where: { scanId } })).nextAttemptAt >
+      new Date(),
+  );
+  // RUNNING/completion must wake this deferred no-op poll without bypassing failure backoff.
   await processNextScanJob("github-e2e-worker", executor);
   assert.equal(
     (await prisma.scan.findUniqueOrThrow({ where: { id: scanId } })).status,
@@ -375,7 +448,7 @@ async function main() {
   const renameJob = await prisma.scanJob.findUniqueOrThrow({
     where: { scanId: renamed.body.scanId as string },
   });
-  await requestJobCancellation(renameJob.id, org, "synthetic");
+  await requestJobCancellation(renameJob.id, org, { actor: "synthetic", correlationId: suffix });
   await publishGitHubChecks(prisma, github, renameJob.scanId);
   await webhook("installation_repositories", {
     installation: { id: installationId },
@@ -402,7 +475,7 @@ async function main() {
   const cancelled = await webhook("pull_request", payload());
   const cancelledScan = cancelled.body.scanId as string;
   const cancelJob = await prisma.scanJob.findUniqueOrThrow({ where: { scanId: cancelledScan } });
-  await requestJobCancellation(cancelJob.id, org, "synthetic");
+  await requestJobCancellation(cancelJob.id, org, { actor: "synthetic", correlationId: suffix });
   await publishGitHubChecks(prisma, github, cancelledScan);
   assert.equal(checkRequests.at(-1)!.conclusion, "cancelled");
   assert.equal(await renewScanJobLease(job.id, "old-attempt"), false);
@@ -412,7 +485,7 @@ async function main() {
       scanId,
       payload: job.payload,
       signal: new AbortController().signal,
-      leaseOwner: "old-attempt",
+      lease: { owner: "old-attempt", attempt: job.attempts },
     }),
     /WORKER_LEASE_LOST/,
   );
@@ -434,11 +507,240 @@ async function main() {
       .checkRunId != null,
   );
   const uncertainJob = await prisma.scanJob.findUniqueOrThrow({ where: { scanId: uncertainScan } });
-  await requestJobCancellation(uncertainJob.id, org, "synthetic");
+  await requestJobCancellation(uncertainJob.id, org, { actor: "synthetic", correlationId: suffix });
   await publishGitHubChecks(prisma, github, uncertainScan);
   pass(
     "blocking findings yield failure with redacted output; cancellation yields cancelled; expired/completed worker lease rejected",
   );
+  // Real provider HTTP pauses after creating its object; the database must remain usable.
+  const pausedDelivery = await webhook("pull_request", payload());
+  const pausedScan = pausedDelivery.body.scanId as string;
+  const observer = new PrismaClient();
+  const arrived = deferred(),
+    release = deferred();
+  pauseReply = { externalId: pausedScan, arrived, release };
+  const delayedPublisher = publishGitHubChecks(prisma, github, pausedScan);
+  try {
+    await Promise.race([
+      arrived.promise,
+      new Promise<never>((_, reject) => {
+        const timer = setTimeout(() => reject(new Error("Provider pause was not reached")), 5000);
+        timer.unref();
+      }),
+    ]);
+    await observer.$transaction(
+      async (tx) => {
+        const locks = await tx.$queryRaw<
+          Array<{ locked: boolean }>
+        >`SELECT pg_try_advisory_xact_lock(hashtextextended(${`github-check:${pausedScan}`}, 0)) AS locked`;
+        if (!locks[0]?.locked)
+          console.warn(
+            "FAIL: publication advisory transaction lock remains held during real provider HTTP",
+          );
+        assert.equal(locks[0]!.locked, true, "No publication transaction may span provider HTTP");
+        await tx.$queryRaw`SELECT "id" FROM "ScanJob" WHERE "scanId"=${pausedScan} FOR UPDATE NOWAIT`;
+      },
+      { timeout: 1500 },
+    );
+    const activeClaim = await observer.gitHubCheckPublication.findUniqueOrThrow({
+      where: { scanId: pausedScan },
+    });
+    assert(activeClaim.leaseOwner != null);
+    assert.equal(activeClaim.lastOutcome, "IN_FLIGHT");
+    const beforeConcurrent = createCount;
+    await publishGitHubChecks(prisma, github, pausedScan);
+    assert.equal(createCount, beforeConcurrent, "Live publication lease excludes another create");
+    const pausedJob = await observer.scanJob.findUniqueOrThrow({ where: { scanId: pausedScan } });
+    await requestJobCancellation(pausedJob.id, org, { actor: "synthetic", correlationId: suffix });
+    // Synthetic crash/lease expiry while the old HTTP response is still outstanding.
+    await observer.gitHubCheckPublication.update({
+      where: { scanId: pausedScan },
+      data: { leaseExpiresAt: new Date(0) },
+    });
+    await publishGitHubChecks(prisma, github, pausedScan);
+    assert.equal(createCount, beforeConcurrent);
+    const recovered = await observer.gitHubCheckPublication.findUniqueOrThrow({
+      where: { scanId: pausedScan },
+    });
+    assert.equal(recovered.generation, activeClaim.generation + 1);
+    assert.equal(recovered.status, "COMPLETE");
+    assert.equal(recovered.publishedState, "completed:CANCELLED");
+    release.resolve();
+    await delayedPublisher;
+    const afterStale = await observer.gitHubCheckPublication.findUniqueOrThrow({
+      where: { scanId: pausedScan },
+    });
+    assert.equal(afterStale.generation, recovered.generation);
+    assert.equal(afterStale.status, "COMPLETE");
+    assert.equal(afterStale.publishedState, "completed:CANCELLED");
+    assert.equal(
+      await observer.auditEvent.count({
+        where: { organizationId: org, entityId: pausedScan, action: "GITHUB_CHECK_PUBLISHED" },
+      }),
+      1,
+    );
+  } finally {
+    release.resolve();
+    await delayedPublisher;
+    pauseReply = undefined;
+    await observer.$disconnect();
+  }
+  pass(
+    "paused real provider holds no publication/job transaction lock; concurrent claim excluded; cancellation and generation takeover reject stale finalizer",
+  );
+
+  const rejectedClaimDelivery = await webhook("pull_request", payload());
+  const rejectedClaimScan = rejectedClaimDelivery.body.scanId as string;
+  await prisma.$executeRawUnsafe(
+    `CREATE OR REPLACE FUNCTION "${failureTrigger}"() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW."organizationId" = '${org}' AND NEW."entityId" = '${rejectedClaimScan}' AND NEW."action"::text = 'GITHUB_CHECK_CLAIMED' THEN RAISE EXCEPTION 'Synthetic claim audit failure'; END IF; RETURN NEW; END; $$`,
+  );
+  await prisma.$executeRawUnsafe(
+    `CREATE TRIGGER "${failureTrigger}" BEFORE INSERT ON "AuditEvent" FOR EACH ROW EXECUTE FUNCTION "${failureTrigger}"()`,
+  );
+  const beforeRejectedClaimCalls = providerCalls;
+  try {
+    await assert.rejects(publishGitHubChecks(prisma, github, rejectedClaimScan));
+    assert.equal(
+      providerCalls,
+      beforeRejectedClaimCalls,
+      "Claim audit failure must prevent all provider HTTP",
+    );
+    const failedClaim = await prisma.gitHubCheckPublication.findUniqueOrThrow({
+      where: { scanId: rejectedClaimScan },
+    });
+    assert.equal(failedClaim.generation, 0);
+    assert.equal(failedClaim.leaseOwner, null);
+    assert.equal(failedClaim.createMayHaveOccurred, false);
+    assert.equal(
+      await prisma.auditEvent.count({
+        where: { organizationId: org, entityId: rejectedClaimScan, action: "GITHUB_CHECK_CLAIMED" },
+      }),
+      0,
+    );
+  } finally {
+    await prisma.$executeRawUnsafe(`DROP TRIGGER "${failureTrigger}" ON "AuditEvent"`);
+    await prisma.$executeRawUnsafe(`DROP FUNCTION "${failureTrigger}"()`);
+  }
+  const rejectedClaimJob = await prisma.scanJob.findUniqueOrThrow({
+    where: { scanId: rejectedClaimScan },
+  });
+  await requestJobCancellation(rejectedClaimJob.id, org, {
+    actor: "synthetic",
+    correlationId: suffix,
+  });
+  await publishGitHubChecks(prisma, github, rejectedClaimScan);
+  pass(
+    "real claim-audit failure rolls back generation/lease/dispatch marker and prevents every provider HTTP call",
+  );
+
+  const rollbackDelivery = await webhook("pull_request", payload());
+  const rollbackScan = rollbackDelivery.body.scanId as string;
+  await prisma.$executeRawUnsafe(
+    `CREATE OR REPLACE FUNCTION "${failureTrigger}"() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW."organizationId" = '${org}' AND NEW."entityId" = '${rollbackScan}' AND NEW."action"::text = 'GITHUB_CHECK_PUBLISHED' THEN RAISE EXCEPTION 'Synthetic publication audit failure'; END IF; RETURN NEW; END; $$`,
+  );
+  await prisma.$executeRawUnsafe(
+    `CREATE TRIGGER "${failureTrigger}" BEFORE INSERT ON "AuditEvent" FOR EACH ROW EXECUTE FUNCTION "${failureTrigger}"()`,
+  );
+  const beforeRollbackCreate = createCount;
+  try {
+    await assert.rejects(publishGitHubChecks(prisma, github, rollbackScan));
+    const row = await prisma.gitHubCheckPublication.findUniqueOrThrow({
+      where: { scanId: rollbackScan },
+    });
+    assert.equal(row.checkRunId, null);
+    assert.equal(row.lastOutcome, "IN_FLIGHT");
+    assert.equal(row.createMayHaveOccurred, true);
+    assert.equal(createCount, beforeRollbackCreate + 1);
+  } finally {
+    await prisma.$executeRawUnsafe(`DROP TRIGGER "${failureTrigger}" ON "AuditEvent"`);
+    await prisma.$executeRawUnsafe(`DROP FUNCTION "${failureTrigger}"()`);
+  }
+  await prisma.gitHubCheckPublication.update({
+    where: { scanId: rollbackScan },
+    data: { leaseExpiresAt: new Date(0) },
+  });
+  await publishGitHubChecks(prisma, github, rollbackScan);
+  assert.equal(createCount, beforeRollbackCreate + 1);
+  assert(
+    (await prisma.gitHubCheckPublication.findUniqueOrThrow({ where: { scanId: rollbackScan } }))
+      .checkRunId != null,
+  );
+  const rollbackJob = await prisma.scanJob.findUniqueOrThrow({ where: { scanId: rollbackScan } });
+  await requestJobCancellation(rollbackJob.id, org, { actor: "synthetic", correlationId: suffix });
+  await publishGitHubChecks(prisma, github, rollbackScan);
+  pass(
+    "real audit failure after remote create rolls back finalization; expired dispatch reconciles existing object without duplicate create",
+  );
+
+  const invisible = await webhook("pull_request", payload());
+  const invisibleScan = invisible.body.scanId as string;
+  hiddenCheckIds.add(invisibleScan);
+  uncertainCreate = true;
+  const beforeInvisibleCreate = createCount;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    await prisma.gitHubCheckPublication.update({
+      where: { scanId: invisibleScan },
+      data: { nextAttemptAt: new Date(0) },
+    });
+    await publishGitHubChecks(prisma, github, invisibleScan);
+  }
+  const unknown = await prisma.gitHubCheckPublication.findUniqueOrThrow({
+    where: { scanId: invisibleScan },
+  });
+  assert.equal(unknown.attempts, 10);
+  assert.equal(unknown.status, "STOPPED");
+  assert.equal(unknown.lastOutcome, "UNKNOWN");
+  assert.equal(unknown.checkRunId, null);
+  assert.equal(
+    createCount,
+    beforeInvisibleCreate + 1,
+    "Missing provider visibility must not trigger a second create",
+  );
+  hiddenCheckIds.delete(invisibleScan);
+  const invisibleJob = await prisma.scanJob.findUniqueOrThrow({ where: { scanId: invisibleScan } });
+  await requestJobCancellation(invisibleJob.id, org, { actor: "synthetic", correlationId: suffix });
+  pass(
+    "ambiguous invisible create remains UNKNOWN; ten-attempt reconciliation budget stops without a blind duplicate",
+  );
+
+  const completeReceipt = await prisma.securityReceipt.findUniqueOrThrow({ where: { scanId } });
+  const parsedReceipt = securityReceiptSchema.parse(completeReceipt.signedPayload);
+  const { receiptHash: _oldHash, ...receiptInput } = parsedReceipt;
+  void _oldHash;
+  assert(receiptInput.coverage != null);
+  const partial = createSecurityReceipt({
+    ...receiptInput,
+    evidence: [],
+    coverage: { ...receiptInput.coverage, status: "PARTIAL" },
+  });
+  await prisma.securityReceipt.update({
+    where: { scanId },
+    data: {
+      signedPayload: JSON.parse(JSON.stringify(partial)) as object,
+      receiptHash: partial.receiptHash,
+    },
+  });
+  await prisma.gitHubCheckPublication.update({
+    where: { scanId },
+    data: { status: "PENDING", publishedState: null, nextAttemptAt: new Date(0) },
+  });
+  try {
+    await publishGitHubChecks(prisma, github, scanId);
+    assert.equal(checkRequests.at(-1)!.conclusion, "action_required");
+    assert.match(JSON.stringify(checkRequests.at(-1)!.output), /incomplete/);
+  } finally {
+    await prisma.securityReceipt.update({
+      where: { scanId },
+      data: {
+        signedPayload: completeReceipt.signedPayload as object,
+        receiptHash: completeReceipt.receiptHash,
+      },
+    });
+  }
+  pass(
+    "valid-hash partial evidence cannot produce a successful Check even with no blocking findings",
+  );
+
   await webhook("installation_repositories", {
     installation: { id: installationId },
     action: "removed",
@@ -496,6 +798,57 @@ async function main() {
   pass(
     "selected repository removal, suspend/unsuspend/delete preserve historical evidence and prevent future work; auditable provider lineage",
   );
+  const fairIds = Array.from({ length: 25 }, (_, index) => `fair-${suffix}-${index}`);
+  const foreignFair = `fair-foreign-${suffix}`;
+  await prisma.scan.createMany({
+    data: [
+      ...fairIds.map((id) => ({
+        id,
+        organizationId: org,
+        repositoryName: "synthetic/fairness",
+        branch: "main",
+      })),
+      {
+        id: foreignFair,
+        organizationId: other,
+        repositoryName: "synthetic/foreign-fairness",
+        branch: "main",
+      },
+    ],
+  });
+  await prisma.gitHubCheckPublication.createMany({
+    data: [
+      ...fairIds.map((id, index) => ({
+        scanId: id,
+        nextAttemptAt: new Date(index),
+        updatedAt: new Date(),
+      })),
+      { scanId: foreignFair, nextAttemptAt: new Date(100), updatedAt: new Date() },
+    ],
+  });
+  // Missing provider authority stops these synthetic rows before HTTP. Their selection
+  // still exercises the actual tenant-lane SQL and the twenty-item work bound.
+  await publishGitHubChecks(prisma, github);
+  assert.equal(
+    (await prisma.gitHubCheckPublication.findUniqueOrThrow({ where: { scanId: foreignFair } }))
+      .status,
+    "STOPPED",
+  );
+  assert.equal(
+    await prisma.gitHubCheckPublication.count({
+      where: { scanId: { in: fairIds }, status: "STOPPED" },
+    }),
+    19,
+  );
+  assert.equal(
+    await prisma.gitHubCheckPublication.count({
+      where: { scanId: { in: fairIds }, status: "PENDING" },
+    }),
+    6,
+  );
+  pass(
+    "actual tenant-lane selection includes another tenant ahead of a 25-item backlog and respects the twenty-item bound",
+  );
 }
 main()
   .catch((error: unknown) => {
@@ -512,14 +865,17 @@ main()
   .finally(async () => {
     await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS "${failureTrigger}" ON "AuditEvent"`);
     await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS "${failureTrigger}"()`);
+    pauseReply?.release.resolve();
     await close(api);
     await close(provider);
-    await prisma.gitHubWebhookDelivery.deleteMany({ where: { organizationId: org } });
-    await prisma.auditEvent.deleteMany({ where: { organizationId: org } });
+    await prisma.gitHubWebhookDelivery.deleteMany({
+      where: { organizationId: { in: [org, other] } },
+    });
+    await prisma.auditEvent.deleteMany({ where: { organizationId: { in: [org, other] } } });
     await prisma.securityReceipt.deleteMany({ where: { scan: { organizationId: org } } });
-    await prisma.scan.deleteMany({ where: { organizationId: org } });
-    await prisma.repository.deleteMany({ where: { organizationId: org } });
-    await prisma.gitHubInstallation.deleteMany({ where: { organizationId: org } });
+    await prisma.scan.deleteMany({ where: { organizationId: { in: [org, other] } } });
+    await prisma.repository.deleteMany({ where: { organizationId: { in: [org, other] } } });
+    await prisma.gitHubInstallation.deleteMany({ where: { organizationId: { in: [org, other] } } });
     await prisma.organization.deleteMany({ where: { id: { in: [org, other] } } });
     await prisma.$disconnect();
   });

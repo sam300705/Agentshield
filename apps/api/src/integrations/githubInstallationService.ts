@@ -17,11 +17,20 @@ export function normalizeGitHubRepository(repository: GitHubRepository): {
   fullName: string;
   defaultBranch: string;
 } {
+  const checked = z
+    .object({
+      id: z.number().int().positive().safe(),
+      fullName: z
+        .string()
+        .regex(/^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,99}\/[A-Za-z0-9_-][A-Za-z0-9_.-]{0,99}$/),
+      defaultBranch: z.string().min(1).max(256).nullish(),
+    })
+    .parse(repository);
   return {
     provider: "GITHUB",
-    externalId: String(repository.id),
-    fullName: repository.fullName,
-    defaultBranch: repository.defaultBranch ?? "main",
+    externalId: String(checked.id),
+    fullName: checked.fullName,
+    defaultBranch: checked.defaultBranch ?? "main",
   };
 }
 
@@ -29,19 +38,11 @@ export async function registerGitHubInstallation(
   client: PrismaClient,
   input: GitHubInstallationRegistration,
 ): Promise<{ id: string; organizationId: string; installationId: number }> {
-  const existing = await client.gitHubInstallation.findUnique({
-    where: { installationId: input.installationId },
-  });
-  if (existing != null && existing.organizationId !== input.organizationId)
-    throw new Error("GITHUB_INSTALLATION_ALREADY_BOUND");
+  // Do not allow a caller to transfer a GitHub installation by re-registering
+  // its globally unique installation ID under another tenant.
   const installation = await client.gitHubInstallation.upsert({
-    where: { installationId: input.installationId, organizationId: input.organizationId },
-    update: {
-      accountLogin: input.accountLogin,
-      ...(input.accountType == null ? {} : { accountType: input.accountType }),
-      ...(input.permissions == null ? {} : { permissions: input.permissions }),
-      status: "ACTIVE",
-    },
+    where: { installationId: input.installationId },
+    update: {},
     create: {
       organizationId: input.organizationId,
       installationId: input.installationId,
@@ -50,6 +51,18 @@ export async function registerGitHubInstallation(
       ...(input.permissions == null ? {} : { permissions: input.permissions }),
     },
     select: { id: true, organizationId: true, installationId: true },
+  });
+  if (installation.organizationId !== input.organizationId) {
+    throw new Error("GITHUB_INSTALLATION_ORGANIZATION_MISMATCH");
+  }
+  await client.gitHubInstallation.updateMany({
+    where: { id: installation.id, organizationId: input.organizationId },
+    data: {
+      accountLogin: input.accountLogin,
+      ...(input.accountType == null ? {} : { accountType: input.accountType }),
+      ...(input.permissions == null ? {} : { permissions: input.permissions }),
+      status: "ACTIVE",
+    },
   });
   return installation;
 }

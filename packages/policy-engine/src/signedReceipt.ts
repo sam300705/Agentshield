@@ -1,5 +1,6 @@
 import {
   createPrivateKey,
+  createHash,
   createPublicKey,
   generateKeyPairSync,
   sign,
@@ -57,11 +58,20 @@ export function canonicalReceiptPayload(receipt: SecurityReceipt): string {
   return canonicalJson(securityReceiptSchema.parse(receipt));
 }
 
+export function verifyReceiptHash(receipt: SecurityReceipt): boolean {
+  const parsed = securityReceiptSchema.parse(receipt);
+  const { receiptHash, ...payload } = parsed;
+  return receiptHash === createHash("sha256").update(canonicalJson(payload)).digest("hex");
+}
+
 export function signSecurityReceipt(
   receipt: SecurityReceipt,
   signingKey: ReceiptSigningKey,
 ): SignedSecurityReceipt {
+  if (!/^[A-Za-z0-9._:-]{1,128}$/.test(signingKey.keyId))
+    throw new Error("Receipt key ID must contain only safe identifier characters.");
   const payload = securityReceiptSchema.parse(receipt);
+  if (!verifyReceiptHash(payload)) throw new Error("Receipt hash does not match its payload.");
   const signature = sign(
     null,
     Buffer.from(canonicalReceiptPayload(payload), "utf8"),
@@ -93,6 +103,7 @@ export function verifySignedSecurityReceipt(
     signedReceipt.format !== SIGNED_RECEIPT_FORMAT ||
     signedReceipt.version !== 1 ||
     signedReceipt.algorithm !== SIGNED_RECEIPT_ALGORITHM ||
+    typeof signedReceipt.keyId !== "string" ||
     !/^[A-Za-z0-9._:-]{1,128}$/.test(signedReceipt.keyId)
   ) {
     return false;
@@ -106,6 +117,7 @@ export function verifySignedSecurityReceipt(
   if (publicKey == null) return false;
   try {
     const payload = securityReceiptSchema.parse(signedReceipt.payload);
+    if (!verifyReceiptHash(payload)) return false;
     return verify(
       null,
       Buffer.from(canonicalReceiptPayload(payload), "utf8"),

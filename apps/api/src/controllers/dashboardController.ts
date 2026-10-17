@@ -29,38 +29,63 @@ export async function getDashboardSummaryController(
 ): Promise<void> {
   const { organizationId } = getActor(response);
   const scanWhere = { organizationId };
-  const [totalScans, totalFindings, pendingApprovalsCount, latestScan] = await Promise.all([
+  const [
+    totalScans,
+    totalFindings,
+    pendingFindingApprovalsCount,
+    pendingAgentApprovalsCount,
+    latestScan,
+  ] = await Promise.all([
     prisma.scan.count({ where: scanWhere }),
     prisma.finding.count({ where: { scan: scanWhere } }),
     prisma.approval.count({
       where: { status: ApprovalStatus.PENDING, finding: { scan: scanWhere } },
     }),
+    prisma.agentApproval.count({ where: { organizationId, status: ApprovalStatus.PENDING } }),
     prisma.scan.findFirst({
       where: scanWhere,
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       include: {
         _count: { select: { findings: true, dependencies: true } },
       },
     }),
   ]);
 
+  const pendingApprovalsCount = pendingFindingApprovalsCount + pendingAgentApprovalsCount;
   if (latestScan == null) {
-    response.json({ totalScans, totalFindings, pendingApprovalsCount, latestScan: null });
+    response.json({
+      totalScans,
+      totalFindings,
+      pendingApprovalsCount,
+      platformRiskScore: "A",
+      latestScan: null,
+    });
     return;
   }
 
-  const [severityRows, decisionRows] = await Promise.all([
-    prisma.finding.groupBy({
-      by: ["severity"],
-      where: { scanId: latestScan.id, scan: scanWhere },
-      _count: { _all: true },
-    }),
-    prisma.policyDecision.groupBy({
-      by: ["decision"],
-      where: { finding: { scanId: latestScan.id, scan: scanWhere } },
-      _count: { _all: true },
-    }),
-  ]);
+  const [severityRows, decisionRows, organizationSeverityRows, organizationDecisionRows] =
+    await Promise.all([
+      prisma.finding.groupBy({
+        by: ["severity"],
+        where: { scanId: latestScan.id, scan: scanWhere },
+        _count: { _all: true },
+      }),
+      prisma.policyDecision.groupBy({
+        by: ["decision"],
+        where: { finding: { scanId: latestScan.id, scan: scanWhere } },
+        _count: { _all: true },
+      }),
+      prisma.finding.groupBy({
+        by: ["severity"],
+        where: { scan: scanWhere },
+        _count: { _all: true },
+      }),
+      prisma.policyDecision.groupBy({
+        by: ["decision"],
+        where: { finding: { scan: scanWhere } },
+        _count: { _all: true },
+      }),
+    ]);
   const severityCounts = createEmptySeverityCounts();
   const decisionCounts = createEmptyDecisionCounts();
 
@@ -98,7 +123,15 @@ export async function getDashboardSummaryController(
     }
   }
 
+  const platformRiskScore = calculatePlatformRiskScore({
+    critical: organizationSeverityRows.find((row) => row.severity === "CRITICAL")?._count._all ?? 0,
+    high: organizationSeverityRows.find((row) => row.severity === "HIGH")?._count._all ?? 0,
+    block: organizationDecisionRows.find((row) => row.decision === "BLOCK")?._count._all ?? 0,
+    requireApproval:
+      organizationDecisionRows.find((row) => row.decision === "REQUIRE_APPROVAL")?._count._all ?? 0,
+  });
   response.json({
+    platformRiskScore,
     totalScans,
     totalFindings,
     pendingApprovalsCount,
@@ -114,10 +147,8 @@ export async function getDashboardSummaryController(
       severityCounts,
       decisionCounts,
       platformRiskScore: calculatePlatformRiskScore({
-        critical: severityCounts.critical,
-        high: severityCounts.high,
-        block: decisionCounts.block,
-        requireApproval: decisionCounts.requireApproval,
+        ...severityCounts,
+        ...decisionCounts,
       }),
     },
   });

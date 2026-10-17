@@ -1,6 +1,7 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
 
 export interface OidcConfig {
+  allowLoopbackHttp?: boolean;
   issuer: string;
   clientId: string;
   redirectUri: string;
@@ -20,7 +21,7 @@ export interface OidcTokenSet {
   idTokenClaims?: {
     issuer: string;
     audience: string | string[];
-    nonce: string;
+    nonce?: string;
     subject: string;
     expiresAt: number;
   };
@@ -108,6 +109,7 @@ function validateClaims(
 
 export class OidcSession {
   private tokens: OidcTokenSet | null = null;
+  private generation = 0;
   private transaction: LoginTransaction | null = null;
   private refreshInFlight: Promise<string | null> | null = null;
 
@@ -116,9 +118,12 @@ export class OidcSession {
     private readonly client: OidcTokenClient,
     private readonly now: () => number = Date.now,
     private readonly storage: TransactionStorage | null = getTransactionStorage(),
-  ) {}
+  ) {
+    validateOidcUrls(config);
+  }
 
   async beginLogin(): Promise<string> {
+    this.clear();
     const transaction: LoginTransaction = {
       state: randomBase64Url(32),
       nonce: randomBase64Url(32),
@@ -138,7 +143,9 @@ export class OidcSession {
       code_challenge_method: "S256",
     });
     if (this.config.audience != null) params.set("audience", this.config.audience);
-    return `${this.config.authorizationEndpoint}?${params.toString()}`;
+    const url = new URL(this.config.authorizationEndpoint);
+    params.forEach((value, key) => url.searchParams.set(key, value));
+    return url.toString();
   }
 
   async handleCallback(callbackUrl: string): Promise<void> {
@@ -160,6 +167,7 @@ export class OidcSession {
     if (this.now() - transaction.createdAt > TRANSACTION_TTL_MS || state !== transaction.state) {
       throw new Error("OIDC state validation failed or the transaction expired.");
     }
+    const generation = this.generation;
     const tokens = await this.client.exchangeCode({
       code,
       codeVerifier: transaction.codeVerifier,
@@ -167,6 +175,7 @@ export class OidcSession {
       clientId: this.config.clientId,
       nonce: transaction.nonce,
     });
+    if (generation !== this.generation) return;
     validateClaims(this.config, transaction, tokens);
     this.tokens = tokens;
   }
@@ -179,9 +188,10 @@ export class OidcSession {
       return null;
     }
     if (this.refreshInFlight == null) {
-      this.refreshInFlight = this.refreshAccessToken().finally(() => {
-        this.refreshInFlight = null;
+      const pending = this.refreshAccessToken().finally(() => {
+        if (this.refreshInFlight === pending) this.refreshInFlight = null;
       });
+      this.refreshInFlight = pending;
     }
     return this.refreshInFlight;
   }
@@ -192,10 +202,13 @@ export class OidcSession {
     if (this.config.endSessionEndpoint == null) return null;
     const params = new URLSearchParams({ post_logout_redirect_uri: this.config.redirectUri });
     if (idToken != null) params.set("id_token_hint", idToken);
-    return `${this.config.endSessionEndpoint}?${params.toString()}`;
+    const url = new URL(this.config.endSessionEndpoint);
+    params.forEach((value, key) => url.searchParams.set(key, value));
+    return url.toString();
   }
 
   clear(): void {
+    this.generation += 1;
     this.tokens = null;
     this.transaction = null;
     this.storage?.removeItem(transactionStorageKey(this.config));
@@ -226,6 +239,7 @@ export class OidcSession {
   }
 
   private async refreshAccessToken(): Promise<string | null> {
+    const generation = this.generation;
     const refreshToken = this.tokens?.refreshToken;
     if (refreshToken == null) {
       this.clear();
@@ -233,20 +247,58 @@ export class OidcSession {
     }
     try {
       const tokens = await this.client.refresh({ refreshToken, clientId: this.config.clientId });
+      if (generation !== this.generation) return null;
       if (tokens.idTokenClaims != null) {
-        const transaction = this.transaction ?? {
-          state: "refresh",
-          nonce: tokens.idTokenClaims.nonce,
-          codeVerifier: "refresh",
-          createdAt: this.now(),
-        };
-        validateClaims(this.config, transaction, tokens);
+        const claims = tokens.idTokenClaims;
+        if (
+          claims.issuer !== this.config.issuer ||
+          !audienceMatches(claims.audience, this.config.clientId) ||
+          claims.subject.length === 0 ||
+          claims.expiresAt * 1000 <= this.now() ||
+          (this.tokens?.idTokenClaims != null &&
+            claims.subject !== this.tokens.idTokenClaims.subject)
+        ) {
+          throw new Error("OIDC refresh ID-token claims are invalid.");
+        }
       }
-      this.tokens = tokens;
+      this.tokens = { ...tokens, refreshToken: tokens.refreshToken ?? refreshToken };
       return tokens.accessToken;
     } catch {
-      this.clear();
+      if (generation === this.generation) this.clear();
       return null;
+    }
+  }
+}
+
+function validateOidcUrls(config: OidcConfig): void {
+  if (!config.scopes.includes("openid")) {
+    throw new Error("OIDC scopes must include openid.");
+  }
+  const urls = [
+    config.issuer,
+    config.redirectUri,
+    config.authorizationEndpoint,
+    config.tokenEndpoint,
+    config.jwksUri,
+    config.endSessionEndpoint,
+  ].filter((value): value is string => Boolean(value));
+  for (const value of urls) {
+    const url = new URL(value);
+    const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+    const developmentHttp =
+      import.meta.env.DEV &&
+      config.allowLoopbackHttp === true &&
+      loopback &&
+      url.protocol === "http:";
+    if (
+      url.username ||
+      url.password ||
+      url.hash ||
+      (url.protocol !== "https:" && !developmentHttp)
+    ) {
+      throw new Error(
+        "OIDC URLs require HTTPS; explicitly enabled development loopback HTTP is the only exception.",
+      );
     }
   }
 }
@@ -263,15 +315,23 @@ export function readOidcConfig(env: Record<string, string | undefined>): OidcCon
   };
   if (Object.values(required).some((value) => value == null || value.trim().length === 0))
     return null;
-  return {
+  const config = {
     ...required,
-    endSessionEndpoint: env.VITE_OIDC_END_SESSION_ENDPOINT,
+    allowLoopbackHttp: env.VITE_OIDC_ALLOW_LOOPBACK_HTTP === "true",
+    endSessionEndpoint: env.VITE_OIDC_END_SESSION_ENDPOINT?.trim() || undefined,
     scopes: (env.VITE_OIDC_SCOPES ?? "openid profile email").split(/\s+/).filter(Boolean),
     audience: env.VITE_OIDC_AUDIENCE,
   } as OidcConfig;
+  try {
+    validateOidcUrls(config);
+  } catch {
+    return null;
+  }
+  return config;
 }
 
 export function createFetchTokenClient(config: OidcConfig): OidcTokenClient {
+  validateOidcUrls(config);
   const jwks = createRemoteJWKSet(new URL(config.jwksUri));
 
   async function parseResponse(response: Response, nonce?: string): Promise<OidcTokenSet> {
@@ -301,7 +361,8 @@ export function createFetchTokenClient(config: OidcConfig): OidcTokenClient {
         typeof exp !== "number" ||
         typeof iss !== "string" ||
         typeof sub !== "string" ||
-        typeof verifiedNonce !== "string"
+        (nonce != null && (typeof verifiedNonce !== "string" || verifiedNonce !== nonce)) ||
+        (verifiedNonce != null && typeof verifiedNonce !== "string")
       ) {
         throw new Error("OIDC ID-token claims are incomplete.");
       }
@@ -309,7 +370,7 @@ export function createFetchTokenClient(config: OidcConfig): OidcTokenClient {
       tokenSet.idTokenClaims = {
         issuer: iss,
         audience: aud,
-        nonce: verifiedNonce,
+        ...(typeof verifiedNonce === "string" ? { nonce: verifiedNonce } : {}),
         subject: sub,
         expiresAt: exp,
       };
@@ -329,6 +390,7 @@ export function createFetchTokenClient(config: OidcConfig): OidcTokenClient {
           client_id: input.clientId,
         }),
         credentials: "omit",
+        redirect: "error",
       }).then((response) => parseResponse(response, input.nonce));
     },
     refresh(input) {
@@ -341,6 +403,7 @@ export function createFetchTokenClient(config: OidcConfig): OidcTokenClient {
           client_id: input.clientId,
         }),
         credentials: "omit",
+        redirect: "error",
       }).then(parseResponse);
     },
   };

@@ -14,6 +14,7 @@ describe("versioned API contracts", () => {
       limit: 100,
     });
     expect(() => paginationQuerySchema.parse({ limit: "101" })).toThrow();
+    expect(() => paginationQuerySchema.parse({ page: "9007199254740992" })).toThrow();
   });
 
   it("accepts a standardized error envelope and rejects missing correlation IDs", () => {

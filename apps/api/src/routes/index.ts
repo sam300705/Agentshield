@@ -1,3 +1,9 @@
+import * as actionAuthority from "../controllers/actionAuthorityController.js";
+import {
+  createAgentSessionController,
+  getAgentSessionController,
+  closeAgentSessionController,
+} from "../controllers/sessionLifecycleController.js";
 import {
   type NextFunction,
   type Request,
@@ -33,6 +39,7 @@ import {
   createRepositoryScanController,
   getScanController,
   getScanFindingsController,
+  getScanFindingController,
   getScanProgressController,
   getScanSbomController,
   listRepositoriesController,
@@ -64,6 +71,21 @@ router.get("/health/live", (_request, response) =>
   response.json({ service: "agentshield-api", status: "alive" }),
 );
 router.get("/health/ready", asyncHandler(readinessController));
+router.post(
+  "/api/v1/agent/sessions",
+  requirePermission("scan:run"),
+  asyncHandler(createAgentSessionController),
+);
+router.get(
+  "/api/v1/agent/sessions/:sessionId",
+  requirePermission("scan:read"),
+  asyncHandler(getAgentSessionController),
+);
+router.post(
+  "/api/v1/agent/sessions/:sessionId/close",
+  requirePermission("scan:run"),
+  asyncHandler(closeAgentSessionController),
+);
 router.post("/api/v1/integrations/github/webhooks", asyncHandler(githubWebhookController));
 router.get("/metrics", requirePermission("organization:manage"), asyncHandler(metricsController));
 router.post(
@@ -144,6 +166,11 @@ router.get(
   asyncHandler(getScanFindingsController),
 );
 router.get(
+  "/api/v1/scans/:scanId/findings/:findingId",
+  requirePermission("scan:read"),
+  asyncHandler(getScanFindingController),
+);
+router.get(
   "/api/v1/scans/:scanId/sbom",
   requirePermission("scan:read"),
   asyncHandler(getScanSbomController),
@@ -189,4 +216,52 @@ router.get(
   "/api/dashboard/summary",
   requirePermission("scan:read"),
   asyncHandler(getDashboardSummaryController),
+);
+
+// Authorization/admission only. The durable outbox has no dispatch consumer.
+router.use("/api/v1/action-authority", actionAuthority.validateQuery);
+router.get(
+  "/api/v1/action-authority/policy",
+  requirePermission("scan:read"),
+  asyncHandler(actionAuthority.getPolicy),
+);
+router.put(
+  "/api/v1/action-authority/policy",
+  requirePermission("policy:manage"),
+  asyncHandler(actionAuthority.updatePolicy),
+);
+router.post(
+  "/api/v1/action-authority/intents",
+  requirePermission("scan:run"),
+  asyncHandler(actionAuthority.submitIntent),
+);
+router.get(
+  "/api/v1/action-authority/intents/:authorizationId",
+  requirePermission("scan:read"),
+  asyncHandler(actionAuthority.getIntent),
+);
+router.post(
+  "/api/v1/action-authority/intents/:authorizationId/review",
+  requirePermission("approval:review"),
+  asyncHandler(actionAuthority.reviewIntent),
+);
+router.post(
+  "/api/v1/action-authority/intents/:authorizationId/revoke",
+  requirePermission("scan:read"),
+  asyncHandler(actionAuthority.revokeIntent),
+);
+router.post(
+  "/api/v1/action-authority/operations",
+  requirePermission("scan:run"),
+  asyncHandler(actionAuthority.admitOperation),
+);
+router.get(
+  "/api/v1/action-authority/operations/:operationId",
+  requirePermission("scan:read"),
+  asyncHandler(actionAuthority.getOperation),
+);
+router.post(
+  "/api/v1/action-authority/operations/:operationId/cancel",
+  requirePermission("scan:run"),
+  asyncHandler(actionAuthority.cancelOperation),
 );

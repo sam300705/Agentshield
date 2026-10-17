@@ -119,3 +119,90 @@ describe("GitHub API authentication and transport", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("repository-scoped execution credentials", () => {
+  it.each([
+    ["SCAN", { contents: "read", metadata: "read" }],
+    ["CHECK_PUBLICATION", { checks: "write", metadata: "read" }],
+  ] as const)(
+    "requests only the immutable repository and %s permissions",
+    async (purpose, permissions) => {
+      const fetchImpl = vi.fn((_url: unknown, init?: RequestInit) => {
+        const body = init?.body;
+        if (typeof body !== "string") throw new Error("Expected a JSON token-scope body");
+        expect(JSON.parse(body)).toEqual({ repository_ids: [123], permissions });
+        return Promise.resolve(
+          Response.json({
+            token: ["synthetic", "scoped"].join("-"),
+            expires_at: new Date(Date.now() + 3600_000).toISOString(),
+          }),
+        );
+      });
+      await new FetchGitHubAppClient(config, { fetchImpl }).createInstallationToken(42, {
+        repositoryId: "123",
+        purpose,
+      });
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    },
+  );
+  it.each(["9007199254740993", "00123", "123e0"])(
+    "rejects an unsupported or ambiguous repository ID %s before HTTP",
+    async (repositoryId) => {
+      const fetchImpl = vi.fn();
+      await expect(
+        new FetchGitHubAppClient(config, { fetchImpl }).createInstallationToken(42, {
+          repositoryId,
+          purpose: "CHECK_PUBLICATION",
+        }),
+      ).rejects.toThrow("GITHUB_TOKEN_SCOPE_INVALID");
+      expect(fetchImpl).not.toHaveBeenCalled();
+    },
+  );
+});
+
+describe("Check update and reconciliation identity", () => {
+  it("keeps the commit in the create context but omits create-only head_sha from PATCH", async () => {
+    const fetchImpl = vi.fn((_url: unknown, init?: RequestInit) => {
+      expect(init?.method).toBe("PATCH");
+      const body = init?.body;
+      if (typeof body !== "string") throw new Error("Expected update JSON");
+      const parsed = JSON.parse(body) as Record<string, unknown>;
+      expect(parsed).not.toHaveProperty("head_sha");
+      expect(parsed.external_id).toBe("exact-scan");
+      return Promise.resolve(Response.json({ id: 123 }));
+    });
+    await new FetchGitHubAppClient(config, { fetchImpl })
+      .withInstallationToken("synthetic")
+      .updateCheckRun(123, {
+        owner: "octo",
+        repository: "example",
+        name: "AgentShield Security",
+        headSha: sha,
+        externalId: "exact-scan",
+        status: "completed",
+        conclusion: "success",
+        output: { title: "Complete", summary: "Complete evidence" },
+      });
+  });
+  it("refuses multiple matching external identities across pages instead of choosing one", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({
+          check_runs: Array.from({ length: 100 }, (_, index) => ({
+            id: index + 1,
+            external_id: index === 0 ? "exact-scan" : `other-${index}`,
+          })),
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({ check_runs: [{ id: 999, external_id: "exact-scan" }] }),
+      );
+    await expect(
+      new FetchGitHubAppClient(config, { fetchImpl })
+        .withInstallationToken("synthetic")
+        .findCheckRun("octo", "example", sha, "exact-scan"),
+    ).rejects.toThrow("GITHUB_CHECK_IDENTITY_AMBIGUOUS");
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+});

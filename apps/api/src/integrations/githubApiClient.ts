@@ -16,6 +16,7 @@ interface InstallationTokenResponse {
 }
 
 interface RepositoryListResponse {
+  total_count?: number;
   repositories: Array<{
     id: number;
     full_name: string;
@@ -201,12 +202,32 @@ export class FetchGitHubAppClient
 
   async createInstallationToken(
     installationId: number,
+    scope?: { repositoryId: string; purpose: "SCAN" | "CHECK_PUBLICATION" },
   ): Promise<{ token: string; expiresAt: Date }> {
+    let scopedBody: Record<string, unknown> | undefined;
+    if (scope != null) {
+      const repositoryId = Number(scope.repositoryId);
+      if (
+        !/^[1-9][0-9]*$/.test(scope.repositoryId) ||
+        !Number.isSafeInteger(repositoryId) ||
+        String(repositoryId) !== scope.repositoryId ||
+        !["SCAN", "CHECK_PUBLICATION"].includes(scope.purpose)
+      )
+        throw new Error("GITHUB_TOKEN_SCOPE_INVALID");
+      scopedBody = {
+        repository_ids: [repositoryId],
+        permissions:
+          scope.purpose === "SCAN"
+            ? { contents: "read", metadata: "read" }
+            : { checks: "write", metadata: "read" },
+      };
+    }
     const jwt = await this.createAppJwt();
     const { data } = await this.request<InstallationTokenResponse>(
       "POST",
       `/app/installations/${installationId}/access_tokens`,
       jwt,
+      scopedBody,
     );
     const expiresAt = new Date(data.expires_at);
     if (
@@ -244,7 +265,17 @@ export class FetchGitHubAppClient
         },
       }));
       repositories.push(...pageItems);
-      if (pageItems.length < 100) return repositories;
+      if (data.total_count != null) {
+        if (!Number.isSafeInteger(data.total_count) || data.total_count < repositories.length)
+          throw new Error("GITHUB_REPOSITORY_SNAPSHOT_INCOMPLETE");
+        if (repositories.length === data.total_count) return repositories;
+        if (pageItems.length < 100) throw new Error("GITHUB_REPOSITORY_SNAPSHOT_INCOMPLETE");
+      } else if (pageItems.length < 100) return repositories;
+      if (page === MAX_REPOSITORY_PAGES) {
+        throw new Error(
+          "GITHUB_REPOSITORY_LIMIT_EXCEEDED: repository synchronization requires more than the bounded page limit.",
+        );
+      }
     }
     throw new Error("GITHUB_REPOSITORY_PAGE_LIMIT");
   }
@@ -255,6 +286,7 @@ export class FetchGitHubAppClient
       `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}`,
       token,
     );
+    if (!Number.isSafeInteger(data.id) || data.id <= 0) throw new GitHubApiError(0, false);
     return {
       id: data.id,
       fullName: data.full_name,
@@ -297,6 +329,7 @@ export class FetchGitHubAppClient
     headSha: string,
     externalId: string,
   ): Promise<number | null> {
+    let match: number | null = null;
     for (let page = 1; page <= 10; page++) {
       const { data } = await this.request<{
         check_runs: Array<{ id: number; external_id: string }>;
@@ -305,9 +338,12 @@ export class FetchGitHubAppClient
         `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}/commits/${headSha}/check-runs?check_name=AgentShield%20Security&app_id=${encodeURIComponent(this.config.appId)}&filter=all&per_page=100&page=${page}`,
         this.requireInstallationToken(),
       );
-      const found = data.check_runs.find((run) => run.external_id === externalId);
-      if (found != null) return found.id;
-      if (data.check_runs.length < 100) return null;
+      for (const run of data.check_runs.filter((run) => run.external_id === externalId)) {
+        if (!Number.isSafeInteger(run.id) || run.id <= 0) throw new GitHubApiError(0, false);
+        if (match != null && match !== run.id) throw new Error("GITHUB_CHECK_IDENTITY_AMBIGUOUS");
+        match = run.id;
+      }
+      if (data.check_runs.length < 100) return match;
     }
     throw new Error("GITHUB_CHECK_PAGE_LIMIT");
   }
@@ -338,10 +374,10 @@ export class FetchGitHubAppClient
     ).data;
   }
 
-  private checkBody(request: GitHubCheckRunRequest): Record<string, unknown> {
+  private checkBody(request: GitHubCheckRunRequest, creation: boolean): Record<string, unknown> {
     return {
       name: request.name,
-      head_sha: request.headSha,
+      ...(creation ? { head_sha: request.headSha } : {}),
       external_id: request.externalId,
       status: request.status,
       ...(request.conclusion == null ? {} : { conclusion: request.conclusion }),
@@ -373,7 +409,7 @@ export class FetchGitHubAppClient
       "POST",
       `/repos/${encodeURIComponent(request.owner)}/${encodeURIComponent(request.repository)}/check-runs`,
       this.requireInstallationToken(),
-      this.checkBody(request),
+      this.checkBody(request, true),
     );
     if (!Number.isSafeInteger(data.id) || data.id <= 0) throw new GitHubApiError(0, false);
     return data.html_url == null ? { id: data.id } : { id: data.id, htmlUrl: data.html_url };
@@ -383,13 +419,15 @@ export class FetchGitHubAppClient
     checkRunId: number,
     request: GitHubCheckRunRequest,
   ): Promise<{ id: number; htmlUrl?: string }> {
+    if (!Number.isSafeInteger(checkRunId) || checkRunId <= 0) throw new GitHubApiError(0, false);
     const { data } = await this.request<CheckRunResponse>(
       "PATCH",
       `/repos/${encodeURIComponent(request.owner)}/${encodeURIComponent(request.repository)}/check-runs/${checkRunId}`,
       this.requireInstallationToken(),
-      this.checkBody(request),
+      this.checkBody(request, false),
     );
-    if (!Number.isSafeInteger(data.id) || data.id <= 0) throw new GitHubApiError(0, false);
+    if (!Number.isSafeInteger(data.id) || data.id !== checkRunId)
+      throw new GitHubApiError(0, false);
     return data.html_url == null ? { id: data.id } : { id: data.id, htmlUrl: data.html_url };
   }
 
