@@ -11,6 +11,7 @@ import helmet from "helmet";
 import { ZodError } from "zod";
 
 import { sanitizeText } from "@agentshield/schemas";
+import { verifyAuthorityJson } from "./security/authorityJson.js";
 import { ServiceError } from "./security/serviceError.js";
 
 import { getRuntimeConfig } from "./config.js";
@@ -53,7 +54,15 @@ export function createServer(): Express {
     "/api/v1/integrations/github/webhooks",
     express.raw({ type: "application/json", limit: "1mb" }),
   );
-  app.use(express.json({ limit: "1mb" }));
+  app.use(
+    express.json({
+      limit: "1mb",
+      verify: (request, _response, buffer) => {
+        if (/^\/api\/v1\/action-authority(?:\/|\?|$)/i.test(request.url ?? ""))
+          verifyAuthorityJson(buffer);
+      },
+    }),
+  );
 
   app.use("/", router);
 
@@ -70,6 +79,21 @@ export function createServer(): Express {
   app.use(((error: unknown, _request: Request, response: Response, next) => {
     void next;
 
+    if (
+      error != null &&
+      typeof error === "object" &&
+      "type" in error &&
+      error.type === "entity.verify.failed"
+    ) {
+      response.status(400).json({
+        error: {
+          code: "AMBIGUOUS_JSON",
+          message: "Authority requests require unambiguous UTF-8 JSON literal encodings.",
+          correlationId: getCorrelationId(response),
+        },
+      });
+      return;
+    }
     if (error instanceof ServiceError) {
       response.status(error.status).json({
         error: {

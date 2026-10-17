@@ -92,14 +92,14 @@ reclaim at the final retry and run the actual fenced scanner successfully, witho
 false lease loss or dead-lettering. Acceptance: local checks, exact-head CI and
 fresh independent review. Recovery: additive code revert retains history/schema.
 
-| Track              | Current status                                     | Required next evidence                                                                              |
-| ------------------ | -------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| R0 research        | PARTIAL: desk research and pilot protocol recorded | Actual team interviews, comparator trials, pilot outcomes and buyer evidence                        |
-| Phase 1 / #9 + #16 | PASS: owner accepted automated review of 95de63e   | No production or human acceptance claimed                                                           |
-| Phase 2 / #10      | IN PROGRESS: authorized foundation integration     | Integrated contracts, PostgreSQL authority races/rollback, exact-head CI and independent acceptance |
-| Phase 3 / #11      | BLOCKED                                            | Accepted Phase 2; delivery qualification, then explicit ADR/scope for one bounded write             |
-| Phase 4 / #12      | BLOCKED                                            | Accepted Phase 3; tested artifact, isolated restore, configuration and operational evidence         |
-| Phase 5            | BLOCKED                                            | Accepted backend capabilities and Figma source; end-to-end usability evidence                       |
+| Track              | Current status                                     | Required next evidence                                                                                      |
+| ------------------ | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| R0 research        | PARTIAL: desk research and pilot protocol recorded | Actual team interviews, comparator trials, pilot outcomes and buyer evidence                                |
+| Phase 1 / #9 + #16 | PASS: owner accepted automated review of 95de63e   | No production or human acceptance claimed                                                                   |
+| Phase 2 / #10      | PARTIAL: integrated authority/admission candidate  | Local contracts/races/rollback verified; final published-head CI, review and independent acceptance pending |
+| Phase 3 / #11      | BLOCKED                                            | Accepted Phase 2; delivery qualification, then explicit ADR/scope for one bounded write                     |
+| Phase 4 / #12      | BLOCKED                                            | Accepted Phase 3; tested artifact, isolated restore, configuration and operational evidence                 |
+| Phase 5            | BLOCKED                                            | Accepted backend capabilities and Figma source; end-to-end usability evidence                               |
 
 Preserve #9 → #10 → #11 → #12. Do not merge, retarget or rewrite history.
 Do not interpret root AGENTS.md's historical “Phase 8+” posture as permission to

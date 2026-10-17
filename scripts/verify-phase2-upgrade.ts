@@ -89,7 +89,9 @@ try {
       ];
       const before = await Promise.all(
         tables.map((table) =>
-          db.$queryRawUnsafe<Array<Record<string, unknown>>>(`SELECT * FROM "${table}"`),
+          db.$queryRawUnsafe<Array<Record<string, unknown>>>(
+            `SELECT * FROM "${table}" ORDER BY "id"`,
+          ),
         ),
       );
       // Deploy the actual merged migration directory, including older missing migration IDs.
@@ -102,7 +104,7 @@ try {
       await db.$disconnect();
       for (let i = 0; i < tables.length; i++) {
         const after = await db.$queryRawUnsafe<Array<Record<string, unknown>>>(
-          `SELECT * FROM "${tables[i]}"`,
+          `SELECT * FROM "${tables[i]}" ORDER BY "id"`,
         );
         assert.equal(after.length, before[i]!.length);
         for (let row = 0; row < after.length; row++) {

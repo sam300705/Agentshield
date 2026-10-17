@@ -1,3 +1,4 @@
+import * as actionAuthority from "../controllers/actionAuthorityController.js";
 import {
   createAgentSessionController,
   getAgentSessionController,
@@ -215,4 +216,52 @@ router.get(
   "/api/dashboard/summary",
   requirePermission("scan:read"),
   asyncHandler(getDashboardSummaryController),
+);
+
+// Authorization/admission only. The durable outbox has no dispatch consumer.
+router.use("/api/v1/action-authority", actionAuthority.validateQuery);
+router.get(
+  "/api/v1/action-authority/policy",
+  requirePermission("scan:read"),
+  asyncHandler(actionAuthority.getPolicy),
+);
+router.put(
+  "/api/v1/action-authority/policy",
+  requirePermission("policy:manage"),
+  asyncHandler(actionAuthority.updatePolicy),
+);
+router.post(
+  "/api/v1/action-authority/intents",
+  requirePermission("scan:run"),
+  asyncHandler(actionAuthority.submitIntent),
+);
+router.get(
+  "/api/v1/action-authority/intents/:authorizationId",
+  requirePermission("scan:read"),
+  asyncHandler(actionAuthority.getIntent),
+);
+router.post(
+  "/api/v1/action-authority/intents/:authorizationId/review",
+  requirePermission("approval:review"),
+  asyncHandler(actionAuthority.reviewIntent),
+);
+router.post(
+  "/api/v1/action-authority/intents/:authorizationId/revoke",
+  requirePermission("scan:read"),
+  asyncHandler(actionAuthority.revokeIntent),
+);
+router.post(
+  "/api/v1/action-authority/operations",
+  requirePermission("scan:run"),
+  asyncHandler(actionAuthority.admitOperation),
+);
+router.get(
+  "/api/v1/action-authority/operations/:operationId",
+  requirePermission("scan:read"),
+  asyncHandler(actionAuthority.getOperation),
+);
+router.post(
+  "/api/v1/action-authority/operations/:operationId/cancel",
+  requirePermission("scan:run"),
+  asyncHandler(actionAuthority.cancelOperation),
 );

@@ -240,3 +240,64 @@ The internal repository enqueue primitive rejects changed actor, trigger, action
 context or options on key replay; new keys use unambiguous tenant/key tuples, with
 tenant-filtered legacy lookup. No new execution or approval-consumption endpoint is
 introduced by the foundation merge. Existing SDK authorization remains cooperative.
+
+## Version 1 action authority (Phase 2 candidate, no provider execution)
+
+Shared contracts: `packages/schemas/src/action-authority.schema.ts`. Namespace:
+`/api/v1/action-authority`. Authenticated identity supplies tenant and actor; neither
+may be provided in request bodies. All routes reject unknown query fields.
+
+| Method/path                             | Permission      | Request / result                                                                                                                                                                                 |
+| --------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| GET `/policy`                           | scan:read       | Current configuration/revision, or configured=false                                                                                                                                              |
+| PUT `/policy`                           | policy:manage   | `{expectedRevision: null or UUID, mode: DENY or REQUIRE_APPROVAL}`; new server revision and audit, CAS conflict on stale revision                                                                |
+| POST `/intents`                         | scan:run        | Versioned narrow intent below; 201 new, 200 exact read-only replay, 409 changed context                                                                                                          |
+| GET `/intents/:authorizationId`         | scan:read       | Requester or same-tenant approval reviewer only                                                                                                                                                  |
+| POST `/intents/:authorizationId/review` | approval:review | `{contextDigest, decision: APPROVED or REJECTED, reason?}`; independent reviewer, current context and expiry                                                                                     |
+| POST `/intents/:authorizationId/revoke` | scan:read       | `{contextDigest}`; requester or reviewer, pending/approved only                                                                                                                                  |
+| POST `/operations`                      | scan:run        | `{authorizationId, contextDigest, operationKey}`; atomic consumption/admission/outbox/audit; same operation replays after closure/expiry/policy change, distinct operation cannot reuse approval |
+| GET `/operations/:operationId`          | scan:read       | Owned operation only                                                                                                                                                                             |
+| POST `/operations/:operationId/cancel`  | scan:run        | Empty object; owned HELD operation and outbox cancel atomically, terminal repeat is read-only                                                                                                    |
+
+Intent body:
+
+```json
+{
+  "schemaVersion": 1,
+  "normalizationVersion": 1,
+  "actionType": "GITHUB_CREATE_REF",
+  "sessionId": "owned-session",
+  "repositoryId": "owned-repository",
+  "evidenceScanId": "completed-scan",
+  "commitSha": "0123456789abcdef0123456789abcdef01234567",
+  "parameters": {
+    "ref": "refs/heads/agentshield/reviewed-change",
+    "targetMustBeAbsent": true
+  },
+  "idempotencyKey": "intent-unique-key"
+}
+```
+
+Full SHA is normalized to lowercase; refs use the strict ASCII namespace, without
+percent/Unicode/backslash/dot ambiguity. Unknown fields and credential-like refs or
+keys are rejected. Wire JSON must use JSON.stringify-compatible literal spellings;
+insignificant whitespace/key order are allowed. Duplicate keys, alternate numeric or
+escaped key/value spellings, BOM and invalid UTF-8 fail with `400 AMBIGUOUS_JSON`.
+Clients that automatically escape Unicode must use literal UTF-8 for this API.
+
+The server derives immutable provider IDs from owned mappings, a hash-verified
+modern receipt with COMPLETE supported-static-check coverage, and current policy.
+Legacy receipts remain readable but cannot qualify new authority without the required
+coverage/payload. Evidence must match repository/commit, be under thirty minutes old,
+and have no blocking or approval-required scan decisions. No signature verification
+is implied: context explicitly reports APPLICATION_HASH_ONLY. Decision/approval
+context includes policy revision, matched rule/reason, digest/canonicalization version
+and expiry (at most ten minutes and bounded by evidence age). Caller tool/model text
+is not an authoritative input. Reviewer permission is verified at review time and
+recorded in audit; continuous IdP revocation is outside this implementation.
+
+Every operation returns `dispatchEnabled: false`, state `HELD` or `CANCELLED`, and
+`observedOutcome: NOT_DISPATCHED`. No provider request, ref-absence observation,
+external success, exactly-once guarantee or action-outcome receipt is produced.
+HELD records cannot automatically become provider work in a later upgrade. The
+operator dashboard and legacy SDK have not yet adopted these endpoints.

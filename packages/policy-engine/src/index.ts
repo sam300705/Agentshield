@@ -41,3 +41,4 @@ export {
   type ReceiptSigningKey,
   type SignedSecurityReceipt,
 } from "./signedReceipt.js";
+export { ACTION_AUTHORITY_POLICY_VERSION, evaluateAuthorityPolicy } from "./actionAuthority.js";

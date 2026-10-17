@@ -59,6 +59,10 @@ enum DependencyScope {
 }
 
 enum AuditAction {
+  AUTHORITY_POLICY_CHANGED
+  ACTION_ADMITTED
+  ACTION_CANCELLED
+  AUTHORIZATION_REVOKED
   SCAN_ATTEMPT_ARCHIVED
   SESSION_CREATED
   SESSION_CLOSED
@@ -724,4 +728,61 @@ model AgentBaseline {
 
   @@unique([organizationId, repositoryId, agentIdentifier])
   @@index([organizationId, agentIdentifier])
+}
+
+// Owner-consistent foreign keys and state checks are preserved in additive SQL.
+model ActionAuthorityPolicy {
+  organizationId String   @id
+  revision       String   @unique
+  mode           String
+  changedBy      String
+  updatedAt      DateTime @updatedAt
+}
+
+model ActionAuthorization {
+  id             String    @id @default(cuid())
+  organizationId String
+  actor          String
+  sessionId      String
+  repositoryId   String
+  evidenceScanId String
+  idempotencyKey String
+  requestDigest  String
+  contextDigest  String
+  context        Json
+  policyRevision String
+  decision       String
+  status         String
+  expiresAt      DateTime
+  reviewedBy     String?
+  reviewedAt     DateTime?
+  reason         String?
+  revokedAt      DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@unique([organizationId, actor, idempotencyKey])
+  @@unique([id, organizationId, actor])
+  @@index([organizationId, sessionId, createdAt])
+}
+
+model ActionOperation {
+  id              String    @id @default(cuid())
+  organizationId  String
+  actor           String
+  authorizationId String    @unique
+  operationKey    String
+  contextDigest   String
+  state           String    @default("HELD")
+  createdAt       DateTime  @default(now())
+  cancelledAt     DateTime?
+
+  @@unique([organizationId, actor, operationKey])
+  @@index([organizationId, createdAt])
+}
+
+model ActionOutbox {
+  id          String   @id @default(cuid())
+  operationId String   @unique
+  state       String   @default("HELD")
+  createdAt   DateTime @default(now())
 }

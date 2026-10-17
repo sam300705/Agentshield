@@ -90,6 +90,9 @@ jobs:
       - run: pnpm test:phase2-upgrade
         env:
           AGENTSHIELD_DISPOSABLE_DATABASE: "true"
+      - run: pnpm test:action-authority
+        env:
+          AGENTSHIELD_DISPOSABLE_DATABASE: "true"
       - run: pnpm test:backend-security
         env:
           AGENTSHIELD_DISPOSABLE_DATABASE: "true"

@@ -97,3 +97,15 @@ Scans/jobs follow `QUEUED -> RUNNING -> COMPLETED`, or `RUNNING -> FAILED` with 
 Known credential formats and sensitive evidence properties are redacted before persistence and receipt hashing. Review reasons and event text/resources are sanitized. Database query/error payload logging is disabled; API/worker process errors use opaque messages. Durable scan-job history retains bounded sanitized failure text under tenant access controls; pattern-based redaction does not recognize every possible private value. Validation errors return only bounded code/path/generic-message issues. Lists have limits up to 100 and bounded pages; repository listing is now paginated. Stable 400/401/403/404/409/429/500 envelopes retain correlation IDs.
 
 `pnpm test:backend-security` exercises real PostgreSQL and real JWT/JWKS verification, including concurrent claims/reviews, tenant access, retries, overlapping recovery, cancellation, rollback, audit, and separate-client persistence reads. It creates and removes only uniquely named synthetic tenants and does not reset existing data. Existing unit, gateway, GitHub lifecycle, scanner/SARIF and browser checks remain CI gates.
+
+## Phase 2 authority candidate
+
+[The current handoff](phase2-integration-handoff.md) and
+[ADR](adr-phase2-authority-admission.md) distinguish authorization-only admission from
+provider execution. Strict versioned shared schemas bind server identity, owned
+session/repository/installation, full commit, verified recent scan receipt, current
+action policy, exact parameters and expiry. Independent review precedes atomic
+one-operation consumption, durable HELD outbox creation and audit. Policy/session
+locks serialize revocation, changes and closure; provider HTTP is absent from these
+transactions. Legacy SDK approvals cannot admit these operations. No worker consumes
+the outbox, and no provider side effect is observed or implied by its records.

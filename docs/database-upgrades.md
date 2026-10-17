@@ -55,3 +55,27 @@ workers. Mixed old/new workers cannot promise this numbering because old workers
 not increment the column. For code rollback, stop workers, retain the additive column
 and history, and acknowledge that old code restores its earlier retry-numbering
 limitations. No schema rollback/drop or production operation is performed here.
+
+## Phase 2 authorization-only expansion
+
+`20261016200000_action_authority_admission` adds policy/authorization/operation/held
+outbox tables and audit labels. It does not reinterpret legacy approvals or receipts.
+Owner-consistent SQL foreign keys and checks supplement Prisma scalar models; retain
+these manual constraints in future migrations and never use db push as an upgrade.
+Populated histories from accepted Phase 1 and original Phase 2 are rehearsed by
+`pnpm test:phase2-upgrade`, including execution of the old supported demo payload.
+The predecessor migration directory is copied byte-for-byte into an isolated schema,
+then the real merged migration directory is deployed. The observer reconnects after
+DDL to avoid cached SELECT \* result types. Unknown unversioned schemas still fail
+closed; this is not a blanket baseline for arbitrary drift.
+
+Rollout requires expanding schema and upgrading every API/worker/audit reader before
+configuring an authority policy. New audit enum labels are incompatible with unaware
+Prisma clients once new events exist. Before activation, code rollback retains the
+unused additive schema. After activation, disable admission with a new DENY policy
+revision and retain a compatible reader binary or forward compatibility patch; do
+not assume an old binary ignores unknown enum values, and do not delete audit/history
+for rollback. Production binary rollback and mixed-version operation are NOT RUN and
+remain Phase 4 qualification. This work performs no production migration or rollout.
+Out-of-order missing migrations are tested; enum ordering is not an authorization
+input or an application ordering contract.

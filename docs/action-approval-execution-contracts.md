@@ -1,9 +1,15 @@
 # Proposed action authority contracts and transitions
 
-Design version: 1, 2026-10-15. **PROPOSED, not implemented by Phase 1.**
+Design version: 1, originally proposed 2026-10-15. Phase 1 did not implement it.
+The Phase 2 candidate now implements a bounded authorization-only request, decision,
+independent review, revocation and durable HELD admission contract in
+`packages/schemas/src/action-authority.schema.ts`. See [the admission ADR](adr-phase2-authority-admission.md)
+and [current handoff](phase2-integration-handoff.md). Provider execution, execution
+attempts/leases/reconciliation and action-outcome receipts remain proposed and gated.
+Legacy SDK approval objects remain separate and cannot consume this authority.
 Existing session and receipt APIs remain documented in [API contracts](api-contracts.md).
-These contracts must become strict versioned Zod schemas in `packages/schemas`
-after predecessor acceptance, with reviewed privacy and compatibility behavior.
+The implemented subset uses strict versioned Zod schemas; future execution/receipt
+contracts still require their phase gate and compatibility review.
 
 ## Authoritative inputs and normalization
 

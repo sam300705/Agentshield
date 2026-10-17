@@ -41,7 +41,8 @@
     "test:database-upgrade": "node --import tsx scripts/verify-database-upgrade.ts",
     "test:lease-takeover": "node --import tsx scripts/verify-scan-lease-takeover.ts",
     "test:backend-security": "node --import tsx scripts/verify-backend-security.ts",
-    "test:phase2-upgrade": "node --import tsx scripts/verify-phase2-upgrade.ts"
+    "test:phase2-upgrade": "node --import tsx scripts/verify-phase2-upgrade.ts",
+    "test:action-authority": "node --import tsx scripts/verify-action-authority.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.0.0"
