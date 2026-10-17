@@ -54,15 +54,16 @@ export function createServer(): Express {
     "/api/v1/integrations/github/webhooks",
     express.raw({ type: "application/json", limit: "1mb" }),
   );
+  // Mount with Express's pathname matching, including absolute-form HTTP targets.
+  // A raw request.url prefix check can disagree with the router's interpretation.
   app.use(
+    "/api/v1/action-authority",
     express.json({
       limit: "1mb",
-      verify: (request, _response, buffer) => {
-        if (/^\/api\/v1\/action-authority(?:\/|\?|$)/i.test(request.url ?? ""))
-          verifyAuthorityJson(buffer);
-      },
+      verify: (_request, _response, buffer) => verifyAuthorityJson(buffer),
     }),
   );
+  app.use(express.json({ limit: "1mb" }));
 
   app.use("/", router);
 

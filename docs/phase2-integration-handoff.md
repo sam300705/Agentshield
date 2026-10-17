@@ -171,3 +171,20 @@ acceptance: PENDING. Phase 3 integration: BLOCKED on that acceptance. Live GitHu
 external IdP revocation, staging qualification, mixed-binary production rollback,
 backup restoration, load/cost measurements and production deployment: NOT RUN.
 The six existing browser tests do not cover a new action-authority UI; none exists.
+
+## Published candidate and follow-up review correction
+
+Implementation head `b57fa8c48ae289de2fcc7f7a107baf33ee524f33` passed both
+published CI runs: push 39056203892 and PR 39056206001. The completed PR job log
+confirms 414 workspace tests, the ten authority/fifteen backend PostgreSQL groups,
+all upgrade/lifecycle/seed regressions, six browsers, container/startup/build/source
+checks. This supersedes the earlier local checkpoint's pending-CI observation for
+that head only. It does not qualify a later correction automatically.
+
+The fresh Codex review then identified an absolute-form HTTP target ambiguity-check
+bypass (4303856429). It was reproduced with actual signed HTTP and corrected by
+mounting the verified parser on Express's pathname-matched authority prefix. See
+[the failure/fix register](phase2-review-fix-register.md). The new regression fails
+before correction (201 instead of 400) and all ten authority PostgreSQL groups pass
+after correction. Final correction-head CI and a fresh review remain required;
+Phase 2 acceptance and Phase 3 integration are still pending/blocked respectively.

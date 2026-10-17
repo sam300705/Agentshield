@@ -5,7 +5,7 @@ import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
-import type { Server } from "node:http";
+import { request as httpRequest, type Server } from "node:http";
 import express from "express";
 import { PrismaClient, Prisma } from "@prisma/client";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
@@ -332,6 +332,71 @@ async function main() {
     }),
     0,
   );
+  // Send the request target literally: fetch() normalizes it to origin form.
+  async function absoluteForm(target: string, body: string) {
+    return new Promise<{ status: number; text: string }>((resolve, reject) => {
+      const request = httpRequest(
+        url(apiServer!),
+        {
+          method: "POST",
+          path: target,
+          headers: {
+            authorization: `Bearer ${wireToken}`,
+            "content-type": "application/json",
+            "content-length": Buffer.byteLength(body),
+          },
+        },
+        (response) => {
+          const chunks: Buffer[] = [];
+          response.on("data", (chunk: Buffer) => chunks.push(chunk));
+          response.on("error", reject);
+          response.on("end", () =>
+            resolve({ status: response.statusCode!, text: Buffer.concat(chunks).toString() }),
+          );
+        },
+      );
+      request.on("error", reject);
+      request.setTimeout(5000, () => request.destroy(new Error("Absolute-form request timed out")));
+      request.end(body);
+    });
+  }
+  const validAbsolute = await absoluteForm(
+    url(apiServer) + prefix + "/intents",
+    JSON.stringify(input("absolute-valid")),
+  );
+  assert.equal(validAbsolute.status, 201, validAbsolute.text);
+  for (const [key, pathname, transform] of [
+    [
+      "absolute-duplicate",
+      prefix + "/intents",
+      (body: string) =>
+        body.replace(
+          '"targetMustBeAbsent":true',
+          '"targetMustBeAbsent":false,"targetMustBeAbsent":true',
+        ),
+    ],
+    [
+      "absolute-escaped",
+      prefix.toUpperCase() + "/intents",
+      (body: string) => body.replace('"schemaVersion"', '"schema\\u0056ersion"'),
+    ],
+  ] as const) {
+    const result = await absoluteForm(
+      url(apiServer) + pathname,
+      transform(JSON.stringify(input(key))),
+    );
+    assert.equal(result.status, 400, result.text);
+    assert.equal(
+      (JSON.parse(result.text) as { error: { code: string } }).error.code,
+      "AMBIGUOUS_JSON",
+    );
+    assert.equal(
+      await db.actionAuthorization.count({
+        where: { organizationId: org, idempotencyKey: input(key).idempotencyKey },
+      }),
+      0,
+    );
+  }
   await error("/policy?actor=forged", undefined, 400, "VALIDATION_ERROR");
   const legacy = await call<{ id: string; actionDigest: string }>("/api/v1/agent/approvals", {
     organizationId: org,

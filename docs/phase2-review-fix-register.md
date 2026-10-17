@@ -20,3 +20,25 @@ Disposition after local correction is implementation verification, not independe
 acceptance. Final published-head CI and a fresh review remain required. Provider HTTP,
 live OIDC and production behavior remain unverified. The newer exact-intent authority
 package has a separate handoff/ADR and cannot be inferred from this review closure.
+
+## Exact-intent candidate review: absolute-form ingress
+
+Reviewed head: `b57fa8c48ae289de2fcc7f7a107baf33ee524f33`; Codex thread
+4303856429 (medium, `apps/api/src/server.ts`, prior line 62). An authenticated
+client can send an absolute-form request target (`POST http://host/api/v1/action-authority/intents`)
+with duplicate nested preconditions. Express routes by pathname while the raw-URL
+prefix guard skips verification. Native JSON parsing accepts the last value; a
+valid intent is persisted with HTTP 201 instead of 400 AMBIGUOUS_JSON. This violates
+the unambiguous-ingress contract and can disagree with an intermediary's first-value
+interpretation. It does not bypass tenant authentication or enable provider dispatch.
+
+Reproduction: a real Node HTTP request with a literal absolute-form target and a
+valid signed local OIDC actor. The new PostgreSQL regression fails before correction
+with `201 !== 400`. Correction mounts the verified parser on the authority prefix
+using Express's own pathname matching, before the ordinary JSON parser; no custom
+URL parser or dependency is added. Origin-form and mixed-case requests retain the
+same boundary. The regression accepts a valid absolute-form intent, rejects duplicate
+preconditions and alternate escaped keys (including mixed-case absolute paths) with
+400 AMBIGUOUS_JSON, and verifies no rejected intent row exists. All ten authority
+PostgreSQL groups pass after correction. The thread remains unresolved by this agent;
+final new-head CI/review and Phase 2 acceptance remain pending.
