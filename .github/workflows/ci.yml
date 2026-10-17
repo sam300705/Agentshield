@@ -3,7 +3,7 @@ name: AgentShield CI
 on:
   pull_request:
   push:
-    branches: [main, "phase1/**", "phase2/**"]
+    branches: [main, "phase1/**", "phase2/**", "phase3/**"]
 
 permissions:
   contents: read
@@ -98,6 +98,9 @@ jobs:
           AGENTSHIELD_DISPOSABLE_DATABASE: "true"
       - run: pnpm test:gateway
       - run: pnpm test:github-lifecycle
+      - run: pnpm test:github-e2e
+        env:
+          AGENTSHIELD_DISPOSABLE_DATABASE: "true"
       - name: Install Playwright browser
         run: pnpm exec playwright install --with-deps chromium
       - name: Browser E2E

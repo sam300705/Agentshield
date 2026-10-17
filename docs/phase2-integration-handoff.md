@@ -188,3 +188,15 @@ mounting the verified parser on Express's pathname-matched authority prefix. See
 before correction (201 instead of 400) and all ten authority PostgreSQL groups pass
 after correction. Final correction-head CI and a fresh review remain required;
 Phase 2 acceptance and Phase 3 integration are still pending/blocked respectively.
+
+## Owner acceptance and Phase 3 continuation
+
+Final head 17793743b2e38c73b0f6094c690d170ac09fb8dc passed exact-head push/PR
+CI 39056753496 / 39056757039. The completed PR log confirms 414 workspace tests,
+all PostgreSQL suites and six browsers. Current Codex automated code review completed
+with no findings; dedicated security-review completion remains unconfirmed. The owner
+then instructed “Keep on doing continue but don't deviate from path” in direct response
+to the concrete acceptance question. This is recorded as owner acceptance of that
+automated gate and authorization for history-preserving Phase 3 development, not human
+security review, live-provider qualification or deployment authorization. See the
+[Phase 3 handoff](phase3-integration-handoff.md) for current work.

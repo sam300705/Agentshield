@@ -109,3 +109,15 @@ one-operation consumption, durable HELD outbox creation and audit. Policy/sessio
 locks serialize revocation, changes and closure; provider HTTP is absent from these
 transactions. Legacy SDK approvals cannot admit these operations. No worker consumes
 the outbox, and no provider side effect is observed or implied by its records.
+
+## Phase 3 provider execution
+
+GitHub webhook acceptance and enqueue share a transaction. Installations establish tenant
+ownership; immutable numeric repository IDs and selected-access state authorize work. Jobs carry
+the accepted full commit SHA and installation ID. The production worker resolves that mapping,
+checks the remote numeric identity and extracts only that SHA into an isolated bounded workspace.
+Existing scanner/policy/evidence persistence and attempt fencing remain authoritative.
+`GitHubCheckPublication` independently schedules queued/in-progress/completed output and safe
+publication retries under a per-scan advisory lock. Provider faults preserve completed scan data.
+See [the GitHub architecture and owner setup](./github-app.md) for limits, permissions, external-ID
+reconciliation, provider caveats and the blocked real-provider gate.

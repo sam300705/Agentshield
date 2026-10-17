@@ -209,3 +209,13 @@ See [deployment guidance](./docs/deployment.md), [security operations](./docs/SE
 ### Backend integrity verification
 
 The API and worker use real PostgreSQL persistence with tenant-scoped reads, conditional approval review, fenced job leases, bounded retries and atomic result completion. See [architecture](docs/architecture.md) for the role matrix and lifecycle guarantees. After `pnpm db:deploy` and `pnpm db:seed`, run `pnpm test:backend-security` against an isolated local database. The seed preserves existing tenant history; no reset is required. CI includes this database security gate alongside the existing tests.
+
+## Phase 3 GitHub App lifecycle
+
+The API and worker now support signed GitHub App events, tenant-bound installation/repository
+access, exact commit acquisition, isolated bounded archive extraction, the existing durable scan
+queue, and independently retryable GitHub Checks. Configure only a controlled test installation
+using [GitHub App setup and security details](./docs/github-app.md). Live verification is
+**BLOCKED BY OWNER/EXTERNAL CONFIG** until App credentials, a test repository and an approved
+public webhook endpoint are configured. Run `pnpm test:github-e2e` for the deterministic
+HTTP-provider/PostgreSQL flow; it does not establish a real GitHub installation.

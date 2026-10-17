@@ -3,7 +3,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 export interface GitHubAppConfig {
   appId: string;
-  clientId: string;
+  clientId?: string;
   webhookSecret: string;
   privateKey: string;
 }
@@ -61,11 +61,8 @@ export function verifyGitHubWebhookSignature(
   ) {
     return false;
   }
-  const expected = Buffer.from(
-    `sha256=${createHmac("sha256", webhookSecret).update(payload).digest("hex")}`,
-    "utf8",
-  );
-  const supplied = Buffer.from(signature, "utf8");
+  const expected = createHmac("sha256", webhookSecret).update(payload).digest();
+  const supplied = Buffer.from(signature.slice(7), "hex");
   return expected.length === supplied.length && timingSafeEqual(expected, supplied);
 }
 

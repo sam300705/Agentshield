@@ -778,6 +778,14 @@ async function main() {
     where: { id: installation.id },
     data: { status: "ACTIVE" },
   });
+  await db.repository.update({ where: { id: repo }, data: { githubAccessible: false } });
+  await error(
+    "/operations",
+    admission(evidence, "deselected-repository"),
+    404,
+    "REPOSITORY_NOT_FOUND",
+  );
+  await db.repository.update({ where: { id: repo }, data: { githubAccessible: true } });
   await db.repository.update({ where: { id: repo }, data: { externalId: "9007199254740995" } });
   await error(
     "/operations",

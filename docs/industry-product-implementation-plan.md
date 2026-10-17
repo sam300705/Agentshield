@@ -96,8 +96,8 @@ fresh independent review. Recovery: additive code revert retains history/schema.
 | ------------------ | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
 | R0 research        | PARTIAL: desk research and pilot protocol recorded | Actual team interviews, comparator trials, pilot outcomes and buyer evidence                                |
 | Phase 1 / #9 + #16 | PASS: owner accepted automated review of 95de63e   | No production or human acceptance claimed                                                                   |
-| Phase 2 / #10      | PARTIAL: integrated authority/admission candidate  | Local contracts/races/rollback verified; final published-head CI, review and independent acceptance pending |
-| Phase 3 / #11      | BLOCKED                                            | Accepted Phase 2; delivery qualification, then explicit ADR/scope for one bounded write                     |
+| Phase 2 / #10      | PASS: owner accepted automated gate of 1779374     | Exact-head CI and no-findings automated review accepted on continuation; no human/provider acceptance claim |
+| Phase 3 / #11      | IN PROGRESS: accepted-authority integration        | Accepted Phase 2; delivery qualification, then explicit ADR/scope for one bounded write                     |
 | Phase 4 / #12      | BLOCKED                                            | Accepted Phase 3; tested artifact, isolated restore, configuration and operational evidence                 |
 | Phase 5            | BLOCKED                                            | Accepted backend capabilities and Figma source; end-to-end usability evidence                               |
 

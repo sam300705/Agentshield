@@ -1,4 +1,4 @@
-import { Prisma, type PrismaClient } from "@prisma/client";
+import { type PrismaClient } from "@prisma/client";
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { PrismaGitHubDeliveryStore, type GitHubDeliveryClaim } from "./githubDeliveryStore.js";
@@ -16,11 +16,9 @@ const claim: GitHubDeliveryClaim = {
   rawPayload: Buffer.from("{}"),
   correlationId: "corr",
 };
-const uniqueError = () =>
-  new Prisma.PrismaClientKnownRequestError("unique", { code: "P2002", clientVersion: "6" });
 function fixture() {
   const delivery = {
-    create: vi.fn().mockResolvedValue({}),
+    createMany: vi.fn().mockResolvedValue({ count: 1 }),
     findUnique: vi.fn(),
     updateMany: vi.fn().mockResolvedValue({ count: 1 }),
   };
@@ -35,7 +33,7 @@ describe("webhook delivery retry claims", () => {
   it("claims first delivery with a bounded processing lease", async () => {
     const { store, delivery } = fixture();
     expect(await store.claim(claim)).toBe(true);
-    expect(delivery.create).toHaveBeenCalledWith(
+    expect(delivery.createMany).toHaveBeenCalledWith(
       contains({
         data: contains({ attempts: 1, nextAttemptAt: dateMatcher }),
       }),
@@ -43,7 +41,7 @@ describe("webhook delivery retry claims", () => {
   });
   it("reclaims failed identical payloads atomically and fences subsequent updates", async () => {
     const { store, delivery } = fixture();
-    delivery.create.mockRejectedValue(uniqueError());
+    delivery.createMany.mockResolvedValue({ count: 0 });
     delivery.findUnique.mockResolvedValue({
       id: "row",
       attempts: 2,
@@ -66,7 +64,7 @@ describe("webhook delivery retry claims", () => {
   });
   it("rejects completed, concurrent or active duplicate claims", async () => {
     const { store, delivery } = fixture();
-    delivery.create.mockRejectedValue(uniqueError());
+    delivery.createMany.mockResolvedValue({ count: 0 });
     delivery.findUnique.mockResolvedValue({
       id: "row",
       attempts: 1,
@@ -85,7 +83,7 @@ describe("webhook delivery retry claims", () => {
   });
   it("rejects a changed payload using the same delivery ID", async () => {
     const { store, delivery } = fixture();
-    delivery.create.mockRejectedValue(uniqueError());
+    delivery.createMany.mockResolvedValue({ count: 0 });
     delivery.findUnique.mockResolvedValue({ payloadHash: "different" });
     expect(await store.claim(claim)).toBe(false);
     expect(delivery.updateMany).not.toHaveBeenCalled();

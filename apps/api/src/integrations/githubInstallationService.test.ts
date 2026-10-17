@@ -31,7 +31,12 @@ it("does not write repository rows or a success timestamp after incomplete synch
   const lookup = vi.fn();
   const client = {
     $transaction: transaction,
-    gitHubInstallation: { findUniqueOrThrow: lookup },
+    gitHubInstallation: {
+      findUniqueOrThrow: lookup,
+      findFirst: vi
+        .fn()
+        .mockResolvedValue({ id: "install", organizationId: "org", status: "ACTIVE" }),
+    },
   } as unknown as PrismaClient;
   const github = {
     createInstallationToken: () => Promise.resolve({ token: "synthetic", expiresAt: new Date() }),

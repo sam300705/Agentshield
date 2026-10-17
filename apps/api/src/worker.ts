@@ -5,6 +5,8 @@ import { randomUUID } from "node:crypto";
 
 import { getRuntimeConfig } from "./config.js";
 import { prisma } from "./db/prisma.js";
+import { createGitHubExecutor, githubClientFromEnvironment } from "./integrations/githubRuntime.js";
+import { publishGitHubChecks } from "./integrations/githubCheckPublisher.js";
 import { processNextScanJob } from "./services/scanQueue.js";
 
 const workerId = `scan-worker-${hostname()}-${process.pid}-${randomUUID()}`;
@@ -13,7 +15,9 @@ const shutdownController = new AbortController();
 let stopping = false;
 
 async function run(): Promise<void> {
-  getRuntimeConfig();
+  const config = getRuntimeConfig();
+  const github = config.githubMaterializationEnabled ? githubClientFromEnvironment() : null;
+  const executor = github == null ? undefined : createGitHubExecutor(prisma, github);
   console.warn(
     JSON.stringify({
       level: "info",
@@ -24,7 +28,9 @@ async function run(): Promise<void> {
   );
   try {
     while (!stopping) {
-      const processed = await processNextScanJob(workerId, undefined, shutdownController.signal);
+      if (github != null) await publishGitHubChecks(prisma, github);
+      const processed = await processNextScanJob(workerId, executor, shutdownController.signal);
+      if (github != null) await publishGitHubChecks(prisma, github);
       if (!processed && runOnce) break;
       if (!processed) await new Promise((resolve) => setTimeout(resolve, 1000));
     }

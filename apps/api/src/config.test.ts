@@ -82,13 +82,61 @@ describe("runtime configuration", () => {
     expect(config.OIDC_ISSUER).toBeUndefined();
     expect(config.rateLimitEnabled).toBe(false);
   });
+  it("rejects a scan lifecycle without a configured materialization worker", () => {
+    expect(() =>
+      getRuntimeConfig({
+        ...validProductionEnv,
+        GITHUB_WEBHOOK_ENABLED: "true",
+        GITHUB_WEBHOOK_SECRET: "synthetic",
+        GITHUB_SCAN_LIFECYCLE_ENABLED: "true",
+        GITHUB_SCAN_POLICY_BUNDLE_VERSION: "v1",
+      }),
+    ).toThrow("GITHUB_MATERIALIZATION_ENABLED must be true");
+  });
+  it("fails closed for missing App credentials and malformed private keys", () => {
+    const live = {
+      ...validProductionEnv,
+      GITHUB_WEBHOOK_ENABLED: "true",
+      GITHUB_WEBHOOK_SECRET: "synthetic",
+      GITHUB_SCAN_LIFECYCLE_ENABLED: "true",
+      GITHUB_MATERIALIZATION_ENABLED: "true",
+      GITHUB_SCAN_POLICY_BUNDLE_VERSION: "v1",
+    };
+    expect(() => getRuntimeConfig(live)).toThrow("GITHUB_APP_ID is required");
+    expect(() =>
+      getRuntimeConfig({
+        ...live,
+        GITHUB_APP_ID: "123",
+        GITHUB_PRIVATE_KEY: ["invalid", "key"].join("-"),
+      }),
+    ).toThrow("GITHUB_PRIVATE_KEY is invalid");
+  });
+  it("accepts coherent live flags and GitHub's escaped PKCS1 RSA key", () => {
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const config = getRuntimeConfig({
+      ...validProductionEnv,
+      GITHUB_WEBHOOK_ENABLED: "true",
+      GITHUB_WEBHOOK_SECRET: "synthetic",
+      GITHUB_SCAN_LIFECYCLE_ENABLED: "true",
+      GITHUB_MATERIALIZATION_ENABLED: "true",
+      GITHUB_SCAN_POLICY_BUNDLE_VERSION: "v1",
+      GITHUB_APP_ID: "123",
+      GITHUB_PRIVATE_KEY: privateKey
+        .export({ format: "pem", type: "pkcs1" })
+        .toString()
+        .replaceAll("\n", "\\n"),
+    });
+    expect(config.githubMaterializationEnabled).toBe(true);
+  });
 });
 
 it.each(["GITHUB_SCAN_LIFECYCLE_ENABLED", "GITHUB_MATERIALIZATION_ENABLED"])(
-  "fails closed on unsupported repository runtime %s",
+  "fails closed on incompletely configured repository runtime %s",
   (flag) => {
     expect(() => getRuntimeConfig({ ...validProductionEnv, [flag]: "true" })).toThrow(
-      "Repository scanning is unavailable",
+      flag === "GITHUB_SCAN_LIFECYCLE_ENABLED"
+        ? "GITHUB_WEBHOOK_ENABLED must be true"
+        : "GITHUB_SCAN_LIFECYCLE_ENABLED must be true",
     );
   },
 );

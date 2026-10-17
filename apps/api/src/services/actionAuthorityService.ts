@@ -183,13 +183,23 @@ async function deriveContext(
   });
   if (session == null)
     fail("SESSION_NOT_FOUND", "An active owned repository session was not found.", 404);
+  const selectedRepository = await tx.repository.findFirst({
+    where: { id: input.repositoryId, organizationId: actor.organizationId, provider: "GITHUB" },
+  });
+  if (selectedRepository?.githubInstallationId == null)
+    fail("REPOSITORY_NOT_FOUND", "An owned GitHub repository was not found.", 404);
+  // Same installation-before-repository order as webhook revocation and scan admission.
+  await tx.$queryRaw`SELECT "id" FROM "GitHubInstallation" WHERE "id"=${selectedRepository.githubInstallationId} AND "organizationId"=${actor.organizationId} FOR SHARE`;
   await tx.$queryRaw`SELECT "id" FROM "Repository" WHERE "id"=${input.repositoryId} AND "organizationId"=${actor.organizationId} FOR SHARE`;
   const repository = await tx.repository.findFirst({
     where: { id: input.repositoryId, organizationId: actor.organizationId, provider: "GITHUB" },
   });
-  if (repository?.githubInstallationId == null)
-    fail("REPOSITORY_NOT_FOUND", "An owned GitHub repository was not found.", 404);
-  await tx.$queryRaw`SELECT "id" FROM "GitHubInstallation" WHERE "id"=${repository.githubInstallationId} AND "organizationId"=${actor.organizationId} FOR SHARE`;
+  if (
+    repository == null ||
+    !repository.githubAccessible ||
+    repository.githubInstallationId !== selectedRepository.githubInstallationId
+  )
+    fail("REPOSITORY_NOT_FOUND", "An accessible owned GitHub repository was not found.", 404);
   const installation = await tx.gitHubInstallation.findFirst({
     where: {
       id: repository.githubInstallationId,

@@ -21,7 +21,7 @@ function makeWebhook(
     installationId: 42,
     organizationLogin: "octo-org",
     repositoryFullName,
-    payload,
+    payload: { repository: { id: 123 }, ...payload },
   };
 }
 
@@ -51,11 +51,13 @@ function makeClient(
     organizationId: string;
     accountLogin: string;
     installationId: number;
+    status: string;
   } | null = {
     id: "installation-row",
     organizationId: "org-test",
     accountLogin: "octo-org",
     installationId: 42,
+    status: "ACTIVE",
   },
   repository: { id: string; fullName: string; defaultBranch: string } | null = {
     id: "repository-row",
