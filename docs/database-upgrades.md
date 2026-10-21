@@ -108,3 +108,28 @@ GITHUB_CHECK_CLAIMED for durable pre-HTTP attempt history. It leaves the previou
 applied fencing migration unchanged. Upgrade API/worker/audit readers for both
 labels/contracts before starting new publishers; keep expanded readers on rollback.
 Claim audit failure aborts claim/dispatch-marker creation before any HTTP.
+
+## Legacy GitHub selection revalidation
+
+`20261021140000_github_legacy_selection_revalidation` preserves the immutable
+lifecycle migration and revokes cached access for every preexisting GITHUB mapping.
+Before the access flag existed, a retained installation link did not prove current
+repository selection; historical rows absent from a later provider snapshot remained.
+The additive migration sets only githubAccessible=false. It does not delete/rename
+repositories, change LOCAL access, transfer ownership or modify scan/audit/receipt/
+authorization/HELD operation history. New selection requires verified synchronization
+or a supported signed selection event. A fresh empty install has no rows to revoke.
+
+Stop API/webhook writes and workers while applying this migration, then synchronize
+each approved installation using the operator before restarting admission/dispatch.
+Plan for temporarily unavailable GitHub admission; retained customer history remains
+readable. Preserve unknown external outcomes for separate reconciliation. On rollback
+keep the migration and conservative flags, and retain access-aware code; never enable
+all historical mappings or run pre-access-flag code. Concurrent/mixed-version production
+rollout, operational rollback and live-provider resynchronization remain NOT RUN.
+
+The four populated predecessor rehearsals include linked selected/stale GitHub
+repositories and a retained stale scan. Both mappings are denied by the actual queue
+service after migration with no new scan/job. The real transactional synchronizer then
+restores only the selected ID; the stale mapping and customer history remain. Existing
+LOCAL, HELD authority, known Check ID and unknown-create preservation checks remain.

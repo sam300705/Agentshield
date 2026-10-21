@@ -7,8 +7,12 @@ import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PrismaClient } from "@prisma/client";
+import { scanOptionsSchema } from "@agentshield/schemas";
+import { enqueueRepositoryScan } from "../apps/api/src/services/scanQueue.js";
+import { ServiceError } from "../apps/api/src/security/serviceError.js";
 import { assertSafeSeedTarget } from "../apps/api/src/services/seedSafety.js";
 import { migrationNames } from "./database-baseline.js";
+import { synchronizeGitHubRepositories } from "../apps/api/src/integrations/githubInstallationService.js";
 
 const databaseUrl = process.env.DATABASE_URL_UNPOOLED ?? "";
 assertSafeSeedTarget(process.env.NODE_ENV, databaseUrl);
@@ -71,6 +75,13 @@ try {
       );
       await db.$executeRaw`INSERT INTO "Organization" ("id","slug","name","updatedAt") VALUES ('preserve-org','preserve-org','Upgrade preservation',CURRENT_TIMESTAMP)`;
       await db.$executeRaw`INSERT INTO "Repository" ("id","organizationId","provider","externalId","fullName","updatedAt") VALUES ('preserve-repo','preserve-org','LOCAL','1','synthetic/preserve',CURRENT_TIMESTAMP)`;
+      await db.$executeRaw`INSERT INTO "GitHubInstallation" ("id","organizationId","installationId","accountLogin","updatedAt") VALUES ('preserve-installation','preserve-org',12345,'synthetic-upgrade',CURRENT_TIMESTAMP)`;
+      // Pre-flag synchronizers retained deselected rows: both selected and stale
+      // mappings have identical cached authority, so neither can be trusted on upgrade.
+      await db.$executeRaw`INSERT INTO "Repository" ("id","organizationId","provider","externalId","fullName","githubInstallationId","updatedAt") VALUES
+        ('preserve-selected-github','preserve-org','GITHUB','123','synthetic/selected','preserve-installation',CURRENT_TIMESTAMP),
+        ('preserve-stale-github','preserve-org','GITHUB','124','synthetic/stale','preserve-installation',CURRENT_TIMESTAMP)`;
+      await db.$executeRaw`INSERT INTO "Scan" ("id","organizationId","repositoryId","repositoryName","branch","status","updatedAt") VALUES ('preserve-stale-scan','preserve-org','preserve-stale-github','synthetic/stale','main','FAILED',CURRENT_TIMESTAMP)`;
       await db.$executeRaw`INSERT INTO "AgentSession" ("id","organizationId","repositoryId","actor","source","taskSummary","correlationId") VALUES ('preserve-session','preserve-org','preserve-repo','synthetic-actor','test','Preserved session','preserve-session')`;
       await db.$executeRaw`INSERT INTO "Scan" ("id","organizationId","repositoryId","repositoryName","branch","status","updatedAt") VALUES ('preserve-scan','preserve-org','preserve-repo','synthetic/preserve','main','FAILED',CURRENT_TIMESTAMP)`;
       await db.$executeRaw`INSERT INTO "ScanJob" ("id","scanId","idempotencyKey","status","attempts","failureCode","failureMessage","correlationId","policyBundleVersion","repositoryRef","requester","nextAttemptAt","updatedAt") VALUES ('preserve-job','preserve-scan','preserve-job','FAILED',2,'HISTORICAL_FAILURE','Preserved synthetic failure','preserve-job','synthetic','main','synthetic-actor','2099-01-01',CURRENT_TIMESTAMP)`;
@@ -102,6 +113,7 @@ try {
       const tables = [
         "Organization",
         "Repository",
+        "GitHubInstallation",
         "AgentSession",
         "Scan",
         "ScanJob",
@@ -134,11 +146,98 @@ try {
           for (const [key, value] of Object.entries(before[i]![row]!))
             assert.deepEqual(
               after[row]![key],
-              value,
+              tables[i] === "Repository" &&
+                before[i]![row]!.provider === "GITHUB" &&
+                key === "githubAccessible"
+                ? false
+                : value,
               `${history.name}: ${tables[i]}.${key} changed`,
             );
         }
       }
+      const revoked = await db.repository.findMany({
+        where: { organizationId: "preserve-org", provider: "GITHUB" },
+      });
+      assert.equal(revoked.length, 2);
+      assert(
+        revoked.every((row) => row.githubAccessible === false),
+        "Legacy GitHub selection must be untrusted until resynchronized",
+      );
+      assert.equal(
+        (await db.repository.findUniqueOrThrow({ where: { id: "preserve-repo" } }))
+          .githubAccessible,
+        true,
+        "LOCAL access is preserved",
+      );
+      assert.equal(
+        (await db.scan.findUniqueOrThrow({ where: { id: "preserve-stale-scan" } })).repositoryId,
+        "preserve-stale-github",
+      );
+      const beforeDeniedScans = await db.scan.count();
+      const beforeDeniedJobs = await db.scanJob.count();
+      for (const repositoryId of ["preserve-selected-github", "preserve-stale-github"]) {
+        await assert.rejects(
+          db.$transaction((tx) =>
+            enqueueRepositoryScan(
+              {
+                repositoryId,
+                ref: "main",
+                commitSha: "a".repeat(40),
+                policyBundleVersion: "synthetic",
+                options: scanOptionsSchema.parse({}),
+              },
+              `upgrade-denied-${repositoryId}`,
+              "preserve-org",
+              "synthetic-actor",
+              "upgrade-denial",
+              "MANUAL",
+              tx,
+            ),
+          ),
+          (error: unknown) =>
+            error instanceof ServiceError && error.code === "GITHUB_REPOSITORY_UNAVAILABLE",
+        );
+      }
+      assert.equal(await db.scan.count(), beforeDeniedScans);
+      assert.equal(await db.scanJob.count(), beforeDeniedJobs);
+      await synchronizeGitHubRepositories(
+        db,
+        {
+          createInstallationToken: () =>
+            Promise.resolve({ token: "synthetic", expiresAt: new Date(Date.now() + 3600_000) }),
+          listInstallationRepositories: () =>
+            Promise.resolve([
+              {
+                id: 123,
+                fullName: "synthetic/selected",
+                private: true,
+                defaultBranch: "main",
+                permissions: { admin: false, push: false, pull: true },
+              },
+            ]),
+        },
+        {
+          organizationId: "preserve-org",
+          installationId: 12345,
+          accountLogin: "synthetic-upgrade",
+        },
+      );
+      assert.equal(
+        (await db.repository.findUniqueOrThrow({ where: { id: "preserve-selected-github" } }))
+          .githubAccessible,
+        true,
+      );
+      assert.equal(
+        (await db.repository.findUniqueOrThrow({ where: { id: "preserve-stale-github" } }))
+          .githubAccessible,
+        false,
+        "Deselected mapping remains denied after fresh synchronization",
+      );
+      assert.equal(
+        await db.repository.count({ where: { organizationId: "preserve-org" } }),
+        3,
+        "Synchronization preserves customer history",
+      );
       if (history.name === "existing_phase3") {
         const publications = await db.gitHubCheckPublication.findMany({
           orderBy: { scanId: "asc" },

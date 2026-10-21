@@ -33,3 +33,11 @@ barrier race between successful finalizer and waiting claimant. Attacker capabil
 untrusted provider responses or delayed scheduling, not arbitrary database-admin
 writes; synthetic database mutations only arrange the tested race. These regressions
 qualify the adapter/application boundary, not real GitHub behavior or global capture.
+
+Legacy selection trust on upgrade: attacker/operational prerequisite is a retained
+GitHub repository once linked to an active installation but subsequently deselected
+before the access flag existed. Four real populated upgrade histories must deny new
+queue admission until verified synchronization, preserve every customer row and keep
+the stale ID denied afterward. This is migration/queue evidence; current authority
+regressions separately exercise deselected-repository action refusal. Live selection
+refresh and production rollout/rollback remain unqualified.

@@ -189,3 +189,31 @@ all other workspace suites had passed). PASS seventeen actual HTTP/PostgreSQL
 GitHub groups on the final source. Existing browser/upgrade/security CI evidence
 was inspected for e501891; it does not qualify the new head. No new local browser,
 container, production or live GitHub qualification is claimed for P3-D2.
+
+## Work package P3-D3: distrust legacy GitHub selection on upgrade
+
+Objective: correct the new review finding in review 5559617043: the immutable
+lifecycle migration adds githubAccessible with default true, trusting retained
+pre-flag mappings that may have been deselected. Scope: additive data migration,
+four populated predecessor rehearsals and upgrade/handoff documentation. Dependencies:
+existing accepted foundations and current lifecycle admission checks. Invariant:
+unknown legacy selection grants no scan/action/publication authority; retain rows,
+identities, audits, HELD operations and receipts. Reuse: existing migration tooling
+and transactional repository synchronizer; no dependency or schema rewrite. Migration
+impact: revoke cached access for all preexisting GITHUB mappings once, requiring
+fresh verified synchronization/selection events; LOCAL mappings are unaffected.
+Tests: stale linked GitHub mappings and history before upgrade, denial afterward,
+then only selected mappings restored by the real synchronizer. Gate: fail-before/
+pass-after populated rehearsals, targeted GitHub/authority regressions, exact new-head
+CI/current review. Rollback retains the conservative flags and migration history;
+never mass-reset access to true. No production upgrade is performed.
+
+P3-D3 local evidence: PASS all four populated predecessors with real queue denial
+and selective synchronization, seventeen HTTP/PostgreSQL GitHub groups, ten authority
+groups, disposable migration deployment, lint/typecheck/format/docs. The migration
+changes only cached GitHub selection; every prior migration byte remains unchanged.
+Checkpoint f48670a passed exact-head push/PR CI (39608766593 / 39608776399), including
+container build, four populated histories, seventeen GitHub groups and six browser
+tests. Current review identified the legacy-selection upgrade defect despite green
+CI, and P3-D3 adds the missing regression. New-head CI/current review remain pending
+until published; Phase 3 acceptance, live provider and Phase 4 remain gated.

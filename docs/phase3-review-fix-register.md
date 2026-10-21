@@ -44,3 +44,17 @@ resolution evidence. Each correction requires a fresh published-head review.
 Automated feedback is supporting evidence, not independent human acceptance.
 Live provider, restore/production/mixed-binary behavior and demand validation remain
 unverified. No migration, customer record deletion or production change is involved.
+
+### Additional upgrade finding from review 5559617043
+
+Medium, current code still affected despite the review linking the older immutable
+lifecycle migration: pre-access-flag repositories retained after deselection become
+trusted through default true during upgrade. An active linked installation is the
+prerequisite; stale scan/action admission is the impact until fresh synchronization.
+Correction: additive 20261021140000 migration revokes only cached GITHUB access,
+requiring verified selection refresh. Four populated histories now include linked
+stale/selected mappings and retained scan history. The new legacy-selection assertion
+failed before the migration. Afterward it passes, real queue admission rejects both
+unvalidated mappings without creating work, and real synchronization restores only the
+selected ID. LOCAL/customer/HELD/history preservation checks remain. No old migration
+is edited, no thread is resolved and no production upgrade/rollback is claimed.
