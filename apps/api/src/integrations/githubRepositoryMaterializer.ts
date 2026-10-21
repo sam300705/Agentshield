@@ -22,7 +22,7 @@ export interface GitHubRepositoryBindingResolver {
 }
 
 export interface GitHubInstallationTokenProvider {
-  getInstallationToken(installationId: number): Promise<string>;
+  getInstallationToken(installationId: number, repositoryId?: string): Promise<string>;
 }
 
 export interface GitHubArchiveLimits {
@@ -60,13 +60,18 @@ function splitRepositoryName(fullName: string): { owner: string; repository: str
   return { owner: parts[0]!, repository: parts[1]! };
 }
 
-function validateRelativeArchivePath(workspacePath: string, archivePath: string): void {
-  const normalized = archivePath.replaceAll("\\", "/");
+function validateRelativeArchivePath(
+  workspacePath: string,
+  archivePath: string,
+  directory: boolean,
+): void {
+  const raw = archivePath.replaceAll("\\", "/");
+  const normalized = directory && raw.endsWith("/") ? raw.slice(0, -1) : raw;
   if (
     normalized.length > 4096 ||
     normalized.startsWith("/") ||
     /^[A-Za-z]:/.test(normalized) ||
-    normalized.split("/").some((segment) => segment === ".." || segment === "")
+    normalized.split("/").some((segment) => segment === ".." || segment === "." || segment === "")
   ) {
     throw new Error("GITHUB_ARCHIVE_PATH_INVALID");
   }
@@ -121,7 +126,10 @@ export class GitHubRepositoryMaterializer implements RepositoryMaterializer {
       throw new Error("GITHUB_REPOSITORY_MAPPING_INVALID");
     }
 
-    const token = await this.options.tokenProvider.getInstallationToken(binding.installationId);
+    const token = await this.options.tokenProvider.getInstallationToken(
+      binding.installationId,
+      binding.externalId,
+    );
     if (token.length === 0) throw new Error("GITHUB_INSTALLATION_TOKEN_UNAVAILABLE");
     const { owner, repository } = splitRepositoryName(binding.fullName);
     const remote = await this.options.archiveClient.getRepository(owner, repository, token);
@@ -145,6 +153,7 @@ export class GitHubRepositoryMaterializer implements RepositoryMaterializer {
     let compressedBytes = 0;
     let extractedBytes = 0;
     let files = 0;
+    let entries = 0;
     let aborted = false;
     let failure: Error | undefined;
     const thisLimits = this.limits;
@@ -174,39 +183,49 @@ export class GitHubRepositoryMaterializer implements RepositoryMaterializer {
       strict: true,
       preservePaths: false,
       noMtime: true,
-      onentry: (entry: ReadEntry) => {
+      // Reject before Unpack schedules filesystem work; onentry is observational.
+      filter: (_path, candidate) => {
+        if (!("type" in candidate)) return false;
+        const entry: ReadEntry = candidate;
         if (aborted || signal.aborted) {
           failure ??= abortError();
-          return;
+          return false;
         }
-        if (failure != null) return;
+        if (failure != null) return false;
         try {
-          validateRelativeArchivePath(workspacePath, entry.path.replace(/\/$/, ""));
-          if (entry.path.split("/").length > thisLimits.maxDepth)
+          validateRelativeArchivePath(workspacePath, entry.path, entry.type === "Directory");
+          if (entry.path.replace(/\/$/, "").split("/").length > thisLimits.maxDepth)
             throw new Error("GITHUB_ARCHIVE_DEPTH_LIMIT");
         } catch (error) {
           fail(error instanceof Error ? error.message : "GITHUB_ARCHIVE_PATH_INVALID");
-          return;
+          return false;
         }
         if (entry.type !== "File" && entry.type !== "Directory") {
           fail("GITHUB_ARCHIVE_LINK_OR_DEVICE_REJECTED");
-          return;
+          return false;
         }
-        files += 1;
-        if (files > thisLimits.maxFiles) {
-          fail("GITHUB_ARCHIVE_FILE_COUNT_LIMIT");
-          return;
+        // Directories consume inodes too; count all accepted archive entries.
+        entries += 1;
+        if (entries > thisLimits.maxFiles) {
+          fail("GITHUB_ARCHIVE_ENTRY_COUNT_LIMIT");
+          return false;
         }
         if (entry.type === "File") {
+          files += 1;
+          if (files > thisLimits.maxFiles) {
+            fail("GITHUB_ARCHIVE_FILE_COUNT_LIMIT");
+            return false;
+          }
           if (entry.size > thisLimits.maxFileBytes) {
             fail("GITHUB_ARCHIVE_FILE_SIZE_LIMIT");
-            return;
+            return false;
           }
           extractedBytes += entry.size;
           if (extractedBytes > thisLimits.maxExtractedBytes) {
             fail("GITHUB_ARCHIVE_EXTRACTED_LIMIT");
           }
         }
+        return failure == null;
       },
     });
     signal.addEventListener("abort", abort, { once: true });

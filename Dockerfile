@@ -7,7 +7,7 @@ RUN npm install --global pnpm@9.15.4
 WORKDIR /app
 COPY . .
 RUN pnpm install --frozen-lockfile
-RUN pnpm db:generate
+RUN DATABASE_URL=postgresql://build:build@localhost:5432/agentshield DATABASE_URL_UNPOOLED=postgresql://build:build@localhost:5432/agentshield pnpm db:generate
 RUN pnpm --filter @agentshield/api build
 
 FROM node:22-bookworm-slim AS runtime

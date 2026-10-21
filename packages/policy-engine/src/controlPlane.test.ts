@@ -7,6 +7,7 @@ import {
   createSecurityReceipt,
   redactEvidence,
   verifyIntegrityChain,
+  canonicalJson,
   type AgentEventInput,
 } from "./controlPlane.js";
 import { evaluateAgentAction } from "./agentGateway.js";
@@ -61,7 +62,7 @@ describe("control plane primitives", () => {
 
   it("redacts sensitive keys and high-confidence token values", () => {
     expect(redactEvidence({ token: "abc", note: "Bearer secret-value" })).toEqual({
-      token: "[REDACTED]",
+      token: "[REDACTED:SENSITIVE_FIELD]",
       note: "[REDACTED]",
     });
   });
@@ -139,4 +140,66 @@ describe("control plane primitives", () => {
     expect(fingerprint.drift.map((item) => item.metric)).toContain("sensitivePathAccesses");
     expect(fingerprint.drift.map((item) => item.metric)).toContain("infrastructureChanges");
   });
+});
+
+describe("Phase 1 evidence and graph regressions", () => {
+  it.each(["ghp", "gho", "ghu", "ghs", "ghr", "github_pat"])(
+    "redacts underscore-form %s tokens before chaining",
+    (prefix) => {
+      const credential = `${prefix}_${"a".repeat(40)}`;
+      expect(redactEvidence({ output: credential })).toEqual({ output: "[REDACTED]" });
+      const events = createIntegrityChain([
+        { ...baseEvents[0]!, evidence: { output: credential } },
+      ]);
+      expect(JSON.stringify(events)).not.toContain(credential);
+      expect(verifyIntegrityChain(events)).toBe(true);
+      expect(redactEvidence({ output: "ghp_short ordinary_identifier" })).toEqual({
+        output: "ghp_short ordinary_identifier",
+      });
+    },
+  );
+  it("keeps low-risk predecessors in a connected highest-risk path", () => {
+    const events = createIntegrityChain([{ ...baseEvents[0]!, riskLevel: "LOW" }, baseEvents[1]!]);
+    const graph = buildAttackGraph(events);
+    expect(graph.highestRiskPath).toEqual(["task", "event:evt-1", "event:evt-2"]);
+    for (let index = 1; index < graph.highestRiskPath.length; index++) {
+      expect(
+        graph.edges.some(
+          (edge) =>
+            edge.from === graph.highestRiskPath[index - 1] &&
+            edge.to === graph.highestRiskPath[index],
+        ),
+      ).toBe(true);
+    }
+  });
+});
+
+it("redacts shared credential formats before hashing fresh agent evidence", () => {
+  const stripe = ["sk", "live", "a".repeat(30)].join("_");
+  const github = "ghp_" + "a_".repeat(20);
+  const events = createIntegrityChain([
+    { ...baseEvents[0]!, evidence: { command: `deploy ${stripe}`, nested: [{ output: github }] } },
+  ]);
+  expect(JSON.stringify(events)).not.toContain(stripe);
+  expect(JSON.stringify(events)).not.toContain(github);
+  expect(verifyIntegrityChain(events)).toBe(true);
+});
+it.each([
+  [[], 0],
+  [["APPROVAL_REQUEST"], 1],
+  [["POLICY_EVALUATION", "APPROVAL_REQUEST", "APPROVAL_REQUEST"], 2 / 3],
+])("defines approval frequency as a bounded share of session events", (types, expected) => {
+  const events = createIntegrityChain(
+    (types as AgentEventInput["type"][]).map((type, sequence) => ({
+      ...baseEvents[0]!,
+      id: `event-${sequence}`,
+      sequence,
+      type,
+    })),
+  );
+  expect(calculateAgentFingerprint(events).approvalFrequency).toBe(expected);
+});
+
+it("sorts Unicode keys by code point", () => {
+  expect(canonicalJson({ ä: 1, z: 2 })).toBe('{"z":2,"ä":1}');
 });

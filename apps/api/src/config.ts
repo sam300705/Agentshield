@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { isIP } from "node:net";
+import { receiptSigningSettings } from "./security/receiptSigningConfig.js";
 import { validateGitHubPrivateKey } from "./integrations/githubApiClient.js";
 
 const blankToUndefined = (value: unknown) =>
@@ -23,6 +25,31 @@ const baseSchema = z.object({
   OIDC_AUDIENCE: optionalString,
   OIDC_JWKS_URL: optionalUrl,
   OIDC_ROLE_CLAIM: z.string().min(1).default("roles"),
+  TRUSTED_PROXY_CIDRS: z
+    .string()
+    .default("")
+    .transform((value) =>
+      value
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean),
+    )
+    .refine(
+      (items) =>
+        items.every((item) => {
+          const [address, prefix, extra] = item.split("/");
+          const family = isIP(address ?? "");
+          return (
+            family !== 0 &&
+            extra == null &&
+            (prefix == null ||
+              (/^\d+$/.test(prefix) &&
+                Number(prefix) > 0 &&
+                Number(prefix) <= (family === 4 ? 32 : 128)))
+          );
+        }),
+      "Expected explicit proxy IP addresses or CIDRs",
+    ),
   RATE_LIMIT_ENABLED: booleanFromEnv.optional(),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().max(100_000).default(120),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().max(86_400_000).default(60_000),
@@ -35,6 +62,18 @@ const baseSchema = z.object({
   GITHUB_MATERIALIZATION_ENABLED: booleanFromEnv.optional(),
   GITHUB_SCAN_POLICY_BUNDLE_VERSION: optionalString,
 });
+
+export function assertOidcKeyTransport(value: string, production: boolean): void {
+  const url = new URL(value);
+  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+  if (
+    url.username ||
+    url.password ||
+    url.hash ||
+    (url.protocol !== "https:" && !(url.protocol === "http:" && loopback && !production))
+  )
+    throw new Error("OIDC_JWKS_URL requires HTTPS; HTTP is allowed only for loopback development.");
+}
 
 export type RuntimeConfig = z.infer<typeof baseSchema> & {
   corsOrigin: string;
@@ -50,14 +89,33 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     throw new Error(`Invalid environment configuration: ${formatIssues(parsed.error)}`);
   }
 
+  receiptSigningSettings(env);
   const value = parsed.data;
   const issues: string[] = [];
   const isProduction = value.NODE_ENV === "production";
+  if (value.OIDC_JWKS_URL != null) assertOidcKeyTransport(value.OIDC_JWKS_URL, isProduction);
   const demoEnabled = value.DEMO_AUTH_ENABLED === true;
   const corsOrigin = value.CORS_ORIGIN ?? (isProduction ? undefined : "http://localhost:5173");
 
   if (value.DATABASE_URL == null) issues.push("DATABASE_URL is required");
   if (corsOrigin == null) issues.push("CORS_ORIGIN is required");
+  if (corsOrigin != null) {
+    const origin = new URL(corsOrigin);
+    if (
+      !["http:", "https:"].includes(origin.protocol) ||
+      origin.origin !== corsOrigin ||
+      origin.username !== "" ||
+      origin.password !== "" ||
+      origin.pathname !== "/" ||
+      origin.search !== "" ||
+      origin.hash !== ""
+    ) {
+      issues.push("CORS_ORIGIN must be a bare HTTP(S) origin");
+    }
+    if (isProduction && origin.protocol !== "https:") {
+      issues.push("CORS_ORIGIN must use HTTPS in production");
+    }
+  }
   if (isProduction && value.AUTH_MODE !== "oidc") {
     issues.push("AUTH_MODE must be oidc in production");
   }

@@ -33,7 +33,12 @@ describe("GitHub Checks adapter", () => {
   it("uses an explicit installation token for Check API calls", async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(
-        JSON.stringify({ id: 77, html_url: "https://github.com/acme/project/runs/77" }),
+        JSON.stringify({
+          id: 77,
+          html_url: "https://github.com/acme/project/runs/77",
+          external_id: "scan-1",
+          head_sha: "0123456789abcdef0123456789abcdef01234567",
+        }),
         {
           status: 201,
           headers: { "content-type": "application/json" },
