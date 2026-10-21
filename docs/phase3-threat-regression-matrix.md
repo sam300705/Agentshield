@@ -25,3 +25,11 @@ live GitHub, external IdP, production isolation or user-demand evidence.
 See `test:github-e2e`, `test:action-authority`, `test:phase2-upgrade` and the current
 [handoff](phase3-integration-handoff.md). Final exact-head CI/review is recorded in
 the new integration PR after publication, not inferred from predecessor green CI.
+
+P3-D2 adds adversarial pagination/count drift before persisted synchronization,
+provider success with incorrect external ID/SHA, one-hour worker clock skew,
+explicit refusal/recovery versus ambiguous create, and a real publication-row/audit
+barrier race between successful finalizer and waiting claimant. Attacker capability:
+untrusted provider responses or delayed scheduling, not arbitrary database-admin
+writes; synthetic database mutations only arrange the tested race. These regressions
+qualify the adapter/application boundary, not real GitHub behavior or global capture.

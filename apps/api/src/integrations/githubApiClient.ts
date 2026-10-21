@@ -28,6 +28,8 @@ interface RepositoryListResponse {
 
 interface CheckRunResponse {
   id: number;
+  external_id?: string;
+  head_sha?: string;
   html_url?: string;
 }
 
@@ -247,12 +249,26 @@ export class FetchGitHubAppClient
     token: string,
   ): Promise<GitHubRepository[]> {
     const repositories: GitHubRepository[] = [];
+    const seenIds = new Set<number>();
+    let expectedCount: number | undefined;
     for (let page = 1; page <= MAX_REPOSITORY_PAGES; page += 1) {
       const { data } = await this.request<RepositoryListResponse>(
         "GET",
         `/installation/repositories?per_page=100&page=${page}`,
         token,
       );
+      if (page === 1) expectedCount = data.total_count;
+      if (data.total_count !== expectedCount || data.repositories.length > 100)
+        throw new Error("GITHUB_REPOSITORY_SNAPSHOT_INCOMPLETE");
+      for (const repository of data.repositories) {
+        if (
+          !Number.isSafeInteger(repository.id) ||
+          repository.id <= 0 ||
+          seenIds.has(repository.id)
+        )
+          throw new Error("GITHUB_REPOSITORY_SNAPSHOT_INCOMPLETE");
+        seenIds.add(repository.id);
+      }
       const pageItems = data.repositories.map((repository) => ({
         id: repository.id,
         fullName: repository.full_name,
@@ -412,6 +428,8 @@ export class FetchGitHubAppClient
       this.checkBody(request, true),
     );
     if (!Number.isSafeInteger(data.id) || data.id <= 0) throw new GitHubApiError(0, false);
+    if (data.external_id !== request.externalId || data.head_sha !== request.headSha)
+      throw new Error("GITHUB_CHECK_IDENTITY_MISMATCH");
     return data.html_url == null ? { id: data.id } : { id: data.id, htmlUrl: data.html_url };
   }
 

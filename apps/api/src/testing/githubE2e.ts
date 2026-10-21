@@ -3,6 +3,7 @@ import { PrismaClient } from "@prisma/client";
 import { securityReceiptSchema } from "@agentshield/schemas";
 import { createHmac, generateKeyPairSync, randomUUID } from "node:crypto";
 import type { Server } from "node:http";
+import { setTimeout as delay } from "node:timers/promises";
 import express from "express";
 import { jwtVerify } from "jose";
 import { POLICY_RULE_VERSION, createSecurityReceipt } from "@agentshield/policy-engine";
@@ -16,7 +17,10 @@ import {
   requestJobCancellation,
   renewScanJobLease,
 } from "../services/scanQueue.js";
-import { registerGitHubInstallation } from "../integrations/githubInstallationService.js";
+import {
+  registerGitHubInstallation,
+  synchronizeGitHubRepositories,
+} from "../integrations/githubInstallationService.js";
 import { assertSafeSeedTarget } from "../services/seedSafety.js";
 import { createTar } from "./githubArchiveFixture.js";
 
@@ -38,6 +42,10 @@ let api: Server | undefined, provider: Server | undefined;
 const archiveRequests: string[] = [],
   checkRequests: Record<string, unknown>[] = [];
 let uncertainCreate = false;
+let rejectedCreateStatus = 0;
+let mismatchedCreateField: "external_id" | "head_sha" | undefined;
+let skewFailureClock = false;
+const realDateNow = Date.now;
 let providerCalls = 0;
 let failPublication = false,
   createCount = 0;
@@ -214,10 +222,15 @@ async function main() {
         }
         if (req.path.includes("/check-runs")) {
           if (failPublication) {
+            if (skewFailureClock) Date.now = () => realDateNow() - 3_600_000;
             res.status(503).json({ error: "sensitive-provider-response" });
             return;
           }
           const request = req.body as Record<string, unknown>;
+          if (req.method === "POST" && rejectedCreateStatus !== 0) {
+            res.status(rejectedCreateStatus).json({ error: "synthetic-rejection" });
+            return;
+          }
           if (req.method === "POST") assert.equal(request.head_sha, shaA);
           else {
             assert(!("head_sha" in request), "PATCH must not contain create-only head_sha");
@@ -240,7 +253,14 @@ async function main() {
               res.status(503).json({ error: "synthetic-uncertain-create" });
               return;
             }
-            res.json({ id });
+            res.status(201).json({
+              id: mismatchedCreateField == null ? id : id + 5000,
+              external_id: request.external_id,
+              head_sha: request.head_sha,
+              ...(mismatchedCreateField == null
+                ? {}
+                : { [mismatchedCreateField]: "wrong-context" }),
+            });
           } else res.json({ id: Number(req.path.split("/").at(-1)) });
           return;
         }
@@ -406,7 +426,27 @@ async function main() {
   const resultCount = await prisma.finding.count({ where: { scanId } });
   assert.equal(resultCount, 0);
   failPublication = true;
+  skewFailureClock = true;
+  try {
+    await publishGitHubChecks(prisma, github, scanId);
+  } finally {
+    Date.now = realDateNow;
+    skewFailureClock = false;
+  }
+  const databaseNow = (
+    await prisma.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS now`
+  )[0]!.now;
+  const delayed = await prisma.gitHubCheckPublication.findUniqueOrThrow({ where: { scanId } });
+  assert(
+    delayed.nextAttemptAt > databaseNow,
+    "Slow application clock must not bypass database-clock retry backoff",
+  );
+  assert(delayed.nextAttemptAt.getTime() < databaseNow.getTime() + 310_000);
   await publishGitHubChecks(prisma, github, scanId);
+  assert.equal(
+    (await prisma.gitHubCheckPublication.findUniqueOrThrow({ where: { scanId } })).attempts,
+    1,
+  );
   assert.equal(
     (await prisma.scan.findUniqueOrThrow({ where: { id: scanId } })).status,
     "COMPLETED",
@@ -589,6 +629,127 @@ async function main() {
     "paused real provider holds no publication/job transaction lock; concurrent claim excluded; cancellation and generation takeover reject stale finalizer",
   );
 
+  // A valid finalizer can hold its row past lease expiry while its audit is blocked.
+  // The next claimant must lock/reload that row, not overwrite an earlier MVCC snapshot.
+  const finalizationDelivery = await webhook("pull_request", payload());
+  const finalizationScan = finalizationDelivery.body.scanId as string;
+  const finalizationJob = await prisma.scanJob.findUniqueOrThrow({
+    where: { scanId: finalizationScan },
+  });
+  await requestJobCancellation(finalizationJob.id, org, {
+    actor: "synthetic",
+    correlationId: suffix,
+  });
+  const finalizeObserver = new PrismaClient();
+  const barrier = Number.parseInt(suffix.replaceAll("-", "").slice(0, 7), 16) + 1_000_000;
+  const holderReady = deferred(),
+    holderRelease = deferred();
+  let holderPid = 0;
+  const holder = finalizeObserver.$transaction(
+    async (tx) => {
+      holderPid = (await tx.$queryRaw<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`)[0]!
+        .pid;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${barrier}::bigint)`;
+      holderReady.resolve();
+      await holderRelease.promise;
+    },
+    { timeout: 10000 },
+  );
+  await holderReady.promise;
+  await prisma.$executeRawUnsafe(
+    `CREATE OR REPLACE FUNCTION "${failureTrigger}"() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_advisory_xact_lock(${barrier}::bigint); RETURN NEW; END; $$`,
+  );
+  await prisma.$executeRawUnsafe(
+    `CREATE TRIGGER "${failureTrigger}" BEFORE INSERT ON "AuditEvent" FOR EACH ROW WHEN (NEW."organizationId" = '${org}' AND NEW."entityId" = '${finalizationScan}' AND NEW."action"::text = 'GITHUB_CHECK_PUBLISHED') EXECUTE FUNCTION "${failureTrigger}"()`,
+  );
+  const finalizationArrived = deferred(),
+    finalizationRelease = deferred();
+  pauseReply = {
+    externalId: finalizationScan,
+    arrived: finalizationArrived,
+    release: finalizationRelease,
+  };
+  let validFinalizer: Promise<void> | undefined, nextClaimant: Promise<void> | undefined;
+  try {
+    validFinalizer = publishGitHubChecks(prisma, github, finalizationScan);
+    await Promise.race([
+      finalizationArrived.promise,
+      validFinalizer.then(() => {
+        throw new Error("Expected provider pause before finalization");
+      }),
+    ]);
+    const originalClaim = await finalizeObserver.gitHubCheckPublication.findUniqueOrThrow({
+      where: { scanId: finalizationScan },
+    });
+    const expiry = new Date(Date.now() + 2000);
+    await finalizeObserver.gitHubCheckPublication.update({
+      where: { scanId: finalizationScan },
+      data: { leaseExpiresAt: expiry },
+    });
+    finalizationRelease.resolve();
+    let finalizerPid: number | undefined;
+    for (let probe = 0; probe < 100; probe++) {
+      const rows = await finalizeObserver.$queryRaw<
+        Array<{ pid: number }>
+      >`SELECT pid FROM pg_stat_activity WHERE ${holderPid} = ANY(pg_blocking_pids(pid)) AND query LIKE '%AuditEvent%'`;
+      if (rows.length) {
+        finalizerPid = rows[0]!.pid;
+        break;
+      }
+      await delay(10);
+    }
+    assert(finalizerPid != null, "Actual successful finalizer must be blocked at its audit");
+    await delay(Math.max(1, expiry.getTime() - Date.now() + 30));
+    nextClaimant = publishGitHubChecks(prisma, github, finalizationScan);
+    let claimantWaiting = false;
+    for (let probe = 0; probe < 100; probe++) {
+      const rows = await finalizeObserver.$queryRaw<
+        Array<{ waiting: boolean }>
+      >`SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE ${finalizerPid} = ANY(pg_blocking_pids(pid)) AND query LIKE '%GitHubCheckPublication%' AND wait_event_type='Lock') AS waiting`;
+      if (rows[0]!.waiting) {
+        claimantWaiting = true;
+        break;
+      }
+      await delay(10);
+    }
+    assert(claimantWaiting, "Contender must actually wait for the successful finalization row");
+    const callsBeforeRelease = providerCalls;
+    holderRelease.resolve();
+    await holder;
+    await validFinalizer;
+    await nextClaimant;
+    const terminalRow = await finalizeObserver.gitHubCheckPublication.findUniqueOrThrow({
+      where: { scanId: finalizationScan },
+    });
+    assert.equal(terminalRow.status, "COMPLETE");
+    assert.equal(
+      terminalRow.lastOutcome,
+      "OBSERVED",
+      "A stale claim snapshot must not overwrite successful finalization",
+    );
+    assert.equal(terminalRow.leaseOwner, null);
+    assert.equal(terminalRow.generation, originalClaim.generation);
+    assert.equal(
+      providerCalls,
+      callsBeforeRelease,
+      "The stale claimant must not dispatch after observing committed completion",
+    );
+  } finally {
+    holderRelease.resolve();
+    finalizationRelease.resolve();
+    await holder;
+    await Promise.allSettled(
+      [validFinalizer, nextClaimant].filter((value): value is Promise<void> => value != null),
+    );
+    pauseReply = undefined;
+    await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS "${failureTrigger}" ON "AuditEvent"`);
+    await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS "${failureTrigger}"()`);
+    await finalizeObserver.$disconnect();
+  }
+  pass(
+    "a claimant waiting past lease expiry reloads committed successful finalization instead of overwriting it or dispatching again",
+  );
+
   const rejectedClaimDelivery = await webhook("pull_request", payload());
   const rejectedClaimScan = rejectedClaimDelivery.body.scanId as string;
   await prisma.$executeRawUnsafe(
@@ -670,6 +831,135 @@ async function main() {
   await publishGitHubChecks(prisma, github, rollbackScan);
   pass(
     "real audit failure after remote create rolls back finalization; expired dispatch reconciles existing object without duplicate create",
+  );
+
+  for (const field of ["external_id", "head_sha"] as const) {
+    const mismatched = await webhook("pull_request", payload());
+    const mismatchedScan = mismatched.body.scanId as string;
+    const beforeMismatch: number = createCount;
+    mismatchedCreateField = field;
+    await publishGitHubChecks(prisma, github, mismatchedScan);
+    mismatchedCreateField = undefined;
+    const uncertain = await prisma.gitHubCheckPublication.findUniqueOrThrow({
+      where: { scanId: mismatchedScan },
+    });
+    assert.equal(
+      uncertain.checkRunId,
+      null,
+      "Mismatched success must not bind returned provider ID",
+    );
+    assert.equal(uncertain.lastOutcome, "UNKNOWN");
+    assert.equal(uncertain.createMayHaveOccurred, true);
+    await prisma.gitHubCheckPublication.update({
+      where: { scanId: mismatchedScan },
+      data: { nextAttemptAt: new Date(0) },
+    });
+    await publishGitHubChecks(prisma, github, mismatchedScan);
+    assert.equal(
+      createCount,
+      beforeMismatch + 1,
+      "Reconcile the actual object without a second create",
+    );
+    assert.equal(
+      (await prisma.gitHubCheckPublication.findUniqueOrThrow({ where: { scanId: mismatchedScan } }))
+        .checkRunId,
+      String(checkRuns.find((run) => run.external_id === mismatchedScan)!.id),
+    );
+    const mismatchJob = await prisma.scanJob.findUniqueOrThrow({
+      where: { scanId: mismatchedScan },
+    });
+    await requestJobCancellation(mismatchJob.id, org, {
+      actor: "synthetic",
+      correlationId: suffix,
+    });
+    await publishGitHubChecks(prisma, github, mismatchedScan);
+  }
+  pass(
+    "mismatched successful create identity remains unbound and UNKNOWN; exact lookup recovers the real object",
+  );
+
+  const selectionBefore = await prisma.repository.findMany({
+    where: { organizationId: org },
+    orderBy: { id: "asc" },
+  });
+  const snapshotClient = new FetchGitHubAppClient(
+    { appId: "123", privateKey: pem, webhookSecret: secret },
+    {
+      fetchImpl: (input) => {
+        const endpoint = new URL(
+          typeof input === "string" ? input : input instanceof URL ? input.href : input.url,
+        );
+        if (endpoint.pathname.endsWith("/access_tokens"))
+          return Promise.resolve(
+            Response.json({
+              token: ["synthetic", "snapshot"].join("-"),
+              expires_at: new Date(Date.now() + 3600_000).toISOString(),
+            }),
+          );
+        const page = Number(endpoint.searchParams.get("page"));
+        return Promise.resolve(
+          Response.json({
+            total_count: 102,
+            repositories: Array.from({ length: page === 1 ? 100 : 2 }, (_, index) => ({
+              id: page === 1 ? index + 1 : index + 100,
+              full_name: `synthetic/overlap-${page}-${index}`,
+              private: true,
+              default_branch: "main",
+            })),
+          }),
+        );
+      },
+    },
+  );
+  await assert.rejects(
+    synchronizeGitHubRepositories(prisma, snapshotClient, {
+      organizationId: org,
+      installationId,
+      accountLogin: "synthetic",
+    }),
+    /GITHUB_REPOSITORY_SNAPSHOT_INCOMPLETE/,
+  );
+  assert.deepEqual(
+    await prisma.repository.findMany({ where: { organizationId: org }, orderBy: { id: "asc" } }),
+    selectionBefore,
+    "Rejected snapshot must preserve every existing customer mapping",
+  );
+  pass(
+    "overlapping repository pages fail before synchronization mutates persisted customer mappings",
+  );
+
+  for (const status of [401, 403, 404, 422]) {
+    const refused = await webhook("pull_request", payload());
+    const refusedScan = refused.body.scanId as string;
+    const beforeRefused: number = createCount;
+    rejectedCreateStatus = status;
+    await publishGitHubChecks(prisma, github, refusedScan);
+    rejectedCreateStatus = 0;
+    const refusedPublication = await prisma.gitHubCheckPublication.findUniqueOrThrow({
+      where: { scanId: refusedScan },
+    });
+    assert.equal(refusedPublication.status, "STOPPED");
+    assert.equal(refusedPublication.failureCode, `GITHUB_HTTP_${status}`);
+    assert.equal(refusedPublication.createMayHaveOccurred, false);
+    assert.equal(refusedPublication.lastOutcome, "NOT_DISPATCHED");
+    assert.equal(createCount, beforeRefused);
+    // Same state transition as the operator retry-check command, preserving uncertainty markers.
+    await prisma.gitHubCheckPublication.update({
+      where: { scanId: refusedScan },
+      data: { status: "PENDING", attempts: 0, nextAttemptAt: new Date(0) },
+    });
+    await publishGitHubChecks(prisma, github, refusedScan);
+    assert.equal(createCount, beforeRefused + 1);
+    assert(
+      (await prisma.gitHubCheckPublication.findUniqueOrThrow({ where: { scanId: refusedScan } }))
+        .checkRunId != null,
+    );
+    const refusedJob = await prisma.scanJob.findUniqueOrThrow({ where: { scanId: refusedScan } });
+    await requestJobCancellation(refusedJob.id, org, { actor: "synthetic", correlationId: suffix });
+    await publishGitHubChecks(prisma, github, refusedScan);
+  }
+  pass(
+    "definitive create rejections stop without uncertainty; operator retry can create after correction",
   );
 
   const invisible = await webhook("pull_request", payload());

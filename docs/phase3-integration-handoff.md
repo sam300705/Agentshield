@@ -142,3 +142,50 @@ diagnostic against actual HTTP/PostgreSQL, including read-only scoped credential
 exact provider ID and receipt/conclusion consistency. No live qualification or
 production readiness may be inferred from the currently unexercised diagnostic.
 Phase 4, production deployment and any create-ref adapter remain gated.
+
+## Work package P3-D2: review corrections (2026-10-21)
+
+Objective: correct the four medium findings on PR #18 head
+`e501891ae33f7274264655452745e048091ea768`, plus two local compatibility/race
+findings. Its exact-head push/PR quality jobs passed (39060944709 / 39060994531),
+but automated review reported findings; that checkpoint is not accepted.
+
+Scope/files: existing GitHub transport, installation normalization, publisher,
+unit/actual PostgreSQL-HTTP regressions and Phase 3 evidence documents. No new
+provider operation, dependency, migration, deployment or phase advancement.
+Dependencies: accepted Phase 2 and existing P3-D1 candidate. Reuse: EXTEND the
+current PostgreSQL/Prisma and fetch adapter. Invariants: incomplete discovery must
+not mutate customer mappings; returned Check identity must match exact context;
+ambiguous effects retain uncertainty; definitive refusals permit explicit recovery;
+leases/retries use the database clock; successful finalization survives claim races.
+Migration impact: none; existing migration/lockfile bytes retained. Recovery:
+ordinary additive correction/revert, retaining publication history. Gate: targeted
+fail-before/pass-after regressions, full quality and exact new-head CI/current
+review; controlled live GitHub and Phase 3 acceptance remain separate requirements.
+
+Implemented locally: unique repository IDs and stable count-presence/value across
+pages; exact created Check external ID/SHA validation; database-clock finalization
+and retry timestamps; explicit nonretryable 401/403/404/422 create refusal without
+clearing older uncertainty; row-lock/reload before claim; valid `.github` repository
+names. Non-atomic provider pagination still cannot prove a point-in-time snapshot
+when membership changes without observable overlap/count changes. GitHub selection
+and scoped provider credentials remain additional boundaries, not inferred guarantees.
+
+Evidence: five new pagination/identity unit cases failed before corrections;
+PostgreSQL skew regression failed at the backoff assertion, then passed after
+using the database clock; rejection/recovery failed at STOPPED assertion before
+classification correction. Prior local finalizer-race and `.github` regressions
+also failed before their fixes. Final targeted run passes 38 unit cases and
+seventeen actual HTTP/PostgreSQL groups, including persisted mapping preservation,
+unbound mismatched response and reconciliation, four definitive refusal/recovery
+statuses, and retained ambiguous-create budget behavior. Final full quality,
+new published-head CI and current review are recorded after execution. No old
+thread is marked resolved and no acceptance is self-awarded.
+
+P3-D2 local verification: PASS typecheck, lint, formatting, build, documentation
+consistency and source scanner/SARIF gate; 450 workspace unit cases pass across
+runs (219 API cases rerun after correcting the positive provider-response fixture;
+all other workspace suites had passed). PASS seventeen actual HTTP/PostgreSQL
+GitHub groups on the final source. Existing browser/upgrade/security CI evidence
+was inspected for e501891; it does not qualify the new head. No new local browser,
+container, production or live GitHub qualification is claimed for P3-D2.

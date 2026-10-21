@@ -44,6 +44,9 @@ export async function publishGitHubChecks(
         Array<{ locked: boolean }>
       >`SELECT pg_try_advisory_xact_lock(hashtextextended(${`github-check:${candidate.scanId}`}, 0)) AS locked`;
       if (!lock[0]?.locked) return null;
+      // Finalizers hold this row too. Reload after waiting, so a pre-commit MVCC
+      // snapshot cannot overwrite a successful finalizer whose lease expired mid-audit.
+      await tx.$queryRaw`SELECT "scanId" FROM "GitHubCheckPublication" WHERE "scanId"=${candidate.scanId} FOR UPDATE`;
       const publication = await tx.gitHubCheckPublication.findUniqueOrThrow({
         where: { scanId: candidate.scanId },
       });
@@ -291,6 +294,9 @@ export async function publishGitHubChecks(
         AND "leaseOwner" = ${claim.leaseOwner} AND "generation" = ${claim.generation}
         AND "leaseExpiresAt" > clock_timestamp()`;
       if (fenced !== 1) return;
+      const finalizedAt = (
+        await tx.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS now`
+      )[0]!.now;
       const fence = {
         scanId: claim.scanId,
         status: "PENDING",
@@ -306,7 +312,7 @@ export async function publishGitHubChecks(
             status: claim.terminal ? "COMPLETE" : "PENDING",
             attempts: 0,
             failureCode: null,
-            nextAttemptAt: new Date(),
+            nextAttemptAt: finalizedAt,
             lastOutcome: "OBSERVED",
             leaseOwner: null,
             leaseExpiresAt: null,
@@ -316,7 +322,7 @@ export async function publishGitHubChecks(
         if (claim.terminal)
           await tx.gitHubWebhookDelivery.updateMany({
             where: { scanId: claim.scanId, organizationId: claim.organizationId },
-            data: { status: "PROCESSED", processedAt: new Date() },
+            data: { status: "PROCESSED", processedAt: finalizedAt },
           });
         await audit(tx, claim.organizationId, claim.scanId, "GITHUB_CHECK_PUBLISHED", {
           checkRunId: String(result.id),
@@ -326,8 +332,15 @@ export async function publishGitHubChecks(
           commitSha: claim.request.headSha,
         });
       } else {
+        // Only these explicit non-rate-limited refusals establish that this POST
+        // created no object. Transport errors, malformed success and 5xx remain ambiguous.
+        const createRejected =
+          createDispatched &&
+          failure instanceof GitHubApiError &&
+          !failure.retryable &&
+          [401, 403, 404, 422].includes(failure.status);
         const unknown =
-          createDispatched ||
+          (createDispatched && !createRejected) ||
           !claim.allowCreate ||
           (failure instanceof Error && failure.message === "GITHUB_CHECK_IDENTITY_AMBIGUOUS");
         const retryable = unknown || !(failure instanceof GitHubApiError) || failure.retryable;
@@ -343,7 +356,7 @@ export async function publishGitHubChecks(
             failureCode,
             lastOutcome: unknown || claim.checkRunId != null ? "UNKNOWN" : "NOT_DISPATCHED",
             nextAttemptAt: new Date(
-              Date.now() +
+              finalizedAt.getTime() +
                 Math.max(
                   failure instanceof GitHubApiError ? (failure.retryAfterMs ?? 0) : 0,
                   Math.min(300_000, 1_000 * 2 ** claim.attempt) + Math.floor(Math.random() * 250),

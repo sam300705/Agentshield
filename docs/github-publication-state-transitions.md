@@ -32,3 +32,13 @@ Delayed remote application/visibility, genuine permission enforcement, rate limi
 and controlled staging remain live-provider qualification items. Tenant lanes and
 per-pass bounds are implemented; production fairness, latency/cost, restored-worker
 reconciliation and mixed-binary rollout are unmeasured Phase 4 gates.
+
+Correction checkpoint: claims lock and reload the publication row after advisory
+admission so an overlapping successful finalizer cannot be overwritten from a stale
+MVCC snapshot. Finalization and retry timestamps use PostgreSQL clock_timestamp().
+A first create explicitly refused with nonretryable 401/403/404/422 is STOPPED with
+its safe HTTP code and NOT_DISPATCHED, permitting an operator retry after correction.
+This clears only new uncertainty; older possible-create history is preserved.
+Transport failures, malformed/mismatched success and ambiguous 5xx remain UNKNOWN.
+A successful create binds its returned ID only after exact external_id/head_sha
+validation; reconciliation never treats a mismatched success as proof of absence.

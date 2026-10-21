@@ -108,3 +108,20 @@ it.each([Number.MAX_SAFE_INTEGER + 1, 0, -1])(
     ).toThrow();
   },
 );
+
+it("retains valid dot-prefixed GitHub repository names during synchronization", () => {
+  expect(
+    normalizeGitHubRepository({
+      id: 123,
+      fullName: "synthetic/.github",
+      private: true,
+      defaultBranch: "main",
+      permissions: { admin: false, push: false, pull: true },
+    }),
+  ).toEqual({
+    provider: "GITHUB",
+    externalId: "123",
+    fullName: "synthetic/.github",
+    defaultBranch: "main",
+  });
+});

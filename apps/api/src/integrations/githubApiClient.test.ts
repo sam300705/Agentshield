@@ -206,3 +206,38 @@ describe("Check update and reconciliation identity", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("created Check identity binding", () => {
+  it.each(["external_id", "head_sha"])(
+    "rejects a successful response with mismatched %s",
+    async (field) => {
+      const fetchImpl = vi.fn(() =>
+        Promise.resolve(
+          Response.json(
+            {
+              id: 123,
+              external_id: "exact-scan",
+              head_sha: sha,
+              [field]: "wrong-context",
+            },
+            { status: 201 },
+          ),
+        ),
+      );
+      await expect(
+        new FetchGitHubAppClient(config, { fetchImpl })
+          .withInstallationToken("synthetic")
+          .createCheckRun({
+            owner: "octo",
+            repository: "example",
+            name: "AgentShield Security",
+            headSha: sha,
+            externalId: "exact-scan",
+            status: "queued",
+            output: { title: "Queued", summary: "Pending evidence" },
+          }),
+      ).rejects.toThrow("GITHUB_CHECK_IDENTITY_MISMATCH");
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    },
+  );
+});

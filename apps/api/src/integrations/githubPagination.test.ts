@@ -109,3 +109,35 @@ it.each([0, 1000])(
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   },
 );
+
+it.each(["overlap", "changed-count", "missing-count"])(
+  "rejects an inconsistent repository snapshot: %s",
+  async (scenario) => {
+    let page = 0;
+    const fetchImpl = vi.fn(() => {
+      page++;
+      return Promise.resolve(
+        Response.json({
+          ...(scenario === "missing-count" && page === 2
+            ? {}
+            : {
+                total_count: scenario === "changed-count" && page === 1 ? 101 : 102,
+              }),
+          repositories: Array.from({ length: page === 1 ? 100 : 2 }, (_, index) => ({
+            id: page === 1 ? index + 1 : scenario === "overlap" ? index + 100 : index + 101,
+            full_name: `synthetic/repo-${page}-${index}`,
+            private: true,
+            default_branch: "main",
+          })),
+        }),
+      );
+    });
+    await expect(
+      new FetchGitHubAppClient({} as GitHubAppConfig, { fetchImpl }).listInstallationRepositories(
+        1,
+        "synthetic",
+      ),
+    ).rejects.toThrow("GITHUB_REPOSITORY_SNAPSHOT_INCOMPLETE");
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  },
+);
