@@ -43,7 +43,8 @@ resolution evidence. Each correction requires a fresh published-head review.
 
 Automated feedback is supporting evidence, not independent human acceptance.
 Live provider, restore/production/mixed-binary behavior and demand validation remain
-unverified. No migration, customer record deletion or production change is involved.
+unverified. P3-D2 involves no migration, customer record deletion or production change;
+the additional P3-D3 migration is recorded below.
 
 ### Additional upgrade finding from review 5559617043
 
@@ -58,3 +59,16 @@ failed before the migration. Afterward it passes, real queue admission rejects b
 unvalidated mappings without creating work, and real synchronization restores only the
 selected ID. LOCAL/customer/HELD/history preservation checks remain. No old migration
 is edited, no thread is resolved and no production upgrade/rollback is claimed.
+
+### P3-Q1 read-only diagnostic boundary
+
+The historical inline verifier could print PASS with a mismatched returned provider
+ID/conclusion, incomplete receipt, stale selection or unqualified signature. It also
+requested a broad token. Extract a scoped read-only verifier, validate exact lineage/
+receipt/Check state, and recheck context after HTTP without holding a transaction.
+Actual HTTP/PostgreSQL tests reject five provider field mismatches, foreign tenant,
+unsafe/ambiguous ID, UNKNOWN/stale projection, tampered/partial/legacy-without-coverage/
+missing receipt payload, and in-flight suspend/deselect/unknown transitions. They
+assert no provider writes and honest UNSIGNED/NOT_VERIFIED output. Tagged PostgreSQL
+activity verifies no open transaction across the paused HTTP response. This qualifies
+the helper called by the CLI, not shell parsing or actual live GitHub behavior.

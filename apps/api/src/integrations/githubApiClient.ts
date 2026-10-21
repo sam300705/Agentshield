@@ -204,7 +204,7 @@ export class FetchGitHubAppClient
 
   async createInstallationToken(
     installationId: number,
-    scope?: { repositoryId: string; purpose: "SCAN" | "CHECK_PUBLICATION" },
+    scope?: { repositoryId: string; purpose: "SCAN" | "CHECK_PUBLICATION" | "VERIFY_CHECK" },
   ): Promise<{ token: string; expiresAt: Date }> {
     let scopedBody: Record<string, unknown> | undefined;
     if (scope != null) {
@@ -213,7 +213,7 @@ export class FetchGitHubAppClient
         !/^[1-9][0-9]*$/.test(scope.repositoryId) ||
         !Number.isSafeInteger(repositoryId) ||
         String(repositoryId) !== scope.repositoryId ||
-        !["SCAN", "CHECK_PUBLICATION"].includes(scope.purpose)
+        !["SCAN", "CHECK_PUBLICATION", "VERIFY_CHECK"].includes(scope.purpose)
       )
         throw new Error("GITHUB_TOKEN_SCOPE_INVALID");
       scopedBody = {
@@ -221,7 +221,7 @@ export class FetchGitHubAppClient
         permissions:
           scope.purpose === "SCAN"
             ? { contents: "read", metadata: "read" }
-            : { checks: "write", metadata: "read" },
+            : { checks: scope.purpose === "VERIFY_CHECK" ? "read" : "write", metadata: "read" },
       };
     }
     const jwt = await this.createAppJwt();

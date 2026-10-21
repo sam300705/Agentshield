@@ -12,6 +12,7 @@ import { createServer } from "../server.js";
 import { FetchGitHubAppClient } from "../integrations/githubApiClient.js";
 import { createGitHubExecutor } from "../integrations/githubRuntime.js";
 import { publishGitHubChecks } from "../integrations/githubCheckPublisher.js";
+import { verifyGitHubDelivery } from "../integrations/githubDeliveryVerifier.js";
 import {
   processNextScanJob,
   requestJobCancellation,
@@ -49,7 +50,17 @@ const realDateNow = Date.now;
 let providerCalls = 0;
 let failPublication = false,
   createCount = 0;
-const checkRuns: Array<{ id: number; external_id: string }> = [];
+const checkRuns: Array<{
+  id: number;
+  external_id: string;
+  head_sha: string;
+  status: string;
+  conclusion: string | null;
+}> = [];
+let observedCheckOverride: Record<string, unknown> | undefined;
+let readCheckPause:
+  | { arrived: ReturnType<typeof deferred>; release: ReturnType<typeof deferred> }
+  | undefined;
 function deferred() {
   let resolve!: () => void;
   const promise = new Promise<void>((done) => {
@@ -170,10 +181,12 @@ async function main() {
           assert([123, 124].includes(scope.repository_ids[0]!));
           assert.deepEqual(
             scope.permissions,
-            scope.permissions.checks === "write"
-              ? { checks: "write", metadata: "read" }
+            scope.permissions.checks != null
+              ? { checks: scope.permissions.checks, metadata: "read" }
               : { contents: "read", metadata: "read" },
           );
+          if (scope.permissions.checks != null)
+            assert(["read", "write"].includes(scope.permissions.checks));
           const issued = `synthetic-scoped-${randomUUID()}`;
           issuedScopes.set(issued, {
             repositoryId: scope.repository_ids[0]!,
@@ -192,7 +205,10 @@ async function main() {
             (req.path.includes("/branches/") && credential === "synthetic-installation-credential"),
         );
         if (req.path.includes("/check-runs")) {
-          assert.equal(issuedScope?.permissions.checks, "write");
+          assert.equal(
+            issuedScope?.permissions.checks,
+            req.method === "GET" && !req.path.includes("/commits/") ? "read" : "write",
+          );
           assert.equal(issuedScope?.repositoryId, req.path.includes("blocked-repo") ? 124 : 123);
         }
         if (req.path.includes("/tarball/")) assert.equal(issuedScope?.permissions.contents, "read");
@@ -220,6 +236,17 @@ async function main() {
           res.json({ check_runs: checkRuns.filter((run) => !hiddenCheckIds.has(run.external_id)) });
           return;
         }
+        if (req.method === "GET" && /\/check-runs\/[0-9]+$/.test(req.path)) {
+          const target = checkRuns.find((run) => run.id === Number(req.path.split("/").at(-1)));
+          assert(target != null);
+          const pause = readCheckPause;
+          if (pause != null) {
+            pause.arrived.resolve();
+            await pause.release.promise;
+          }
+          res.json({ ...target, ...observedCheckOverride });
+          return;
+        }
         if (req.path.includes("/check-runs")) {
           if (failPublication) {
             if (skewFailureClock) Date.now = () => realDateNow() - 3_600_000;
@@ -236,13 +263,22 @@ async function main() {
             assert(!("head_sha" in request), "PATCH must not contain create-only head_sha");
             const target = checkRuns.find((run) => run.id === Number(req.path.split("/").at(-1)));
             assert.equal(target?.external_id, request.external_id);
+            assert(target != null);
+            target.status = request.status as string;
+            target.conclusion = (request.conclusion as string | undefined) ?? null;
           }
           assert(!JSON.stringify(request).includes(rawFinding));
           checkRequests.push(request);
           if (req.method === "POST") {
             createCount++;
             const id = 12_000_000_000 + createCount;
-            checkRuns.push({ id, external_id: request.external_id as string });
+            checkRuns.push({
+              id,
+              external_id: request.external_id as string,
+              head_sha: request.head_sha as string,
+              status: request.status as string,
+              conclusion: (request.conclusion as string | undefined) ?? null,
+            });
             const pause = pauseReply;
             if (pause != null && pause.externalId === request.external_id) {
               pause.arrived.resolve();
@@ -477,6 +513,209 @@ async function main() {
   pass(
     "real worker/scanner/policy/receipt, exact acquisition SHA A after branch B, queued/in-progress/success Check and independent temporary publication retry",
   );
+  const beforeVerificationCreates: number = createCount;
+  const beforeVerificationWrites = checkRequests.length;
+  const verified = await verifyGitHubDelivery(prisma, github, org, delivery);
+  assert.equal(verified.result, "PASS");
+  assert.equal(verified.scope, "GITHUB_CHECK_OBSERVATION");
+  assert.equal(verified.hashVerification, "VERIFIED");
+  assert.equal(verified.signatureVerification, "UNSIGNED");
+  assert.equal(verified.coverage, "COMPLETE");
+  assert.equal(verified.conclusion, "success");
+  for (const override of [
+    { id: verified.checkRunId + 1 },
+    { head_sha: shaB },
+    { external_id: "other-scan" },
+    { status: "in_progress" },
+    { conclusion: "failure" },
+  ]) {
+    observedCheckOverride = override;
+    await assert.rejects(
+      verifyGitHubDelivery(prisma, github, org, delivery),
+      /LIVE_CHECK_MISMATCH/,
+    );
+  }
+  observedCheckOverride = undefined;
+  let beforeLocalRefusal = providerCalls;
+  await assert.rejects(verifyGitHubDelivery(prisma, github, other, delivery));
+  assert.equal(providerCalls, beforeLocalRefusal, "Foreign tenant must fail before provider HTTP");
+  const originalPublication = await prisma.gitHubCheckPublication.findUniqueOrThrow({
+    where: { scanId },
+  });
+  for (const invalid of [
+    { checkRunId: "9007199254740993" },
+    { checkRunId: "00123" },
+    { lastOutcome: "UNKNOWN" },
+    { publishedState: "queued" },
+  ]) {
+    await prisma.gitHubCheckPublication.update({ where: { scanId }, data: invalid });
+    beforeLocalRefusal = providerCalls;
+    await assert.rejects(verifyGitHubDelivery(prisma, github, org, delivery));
+    assert.equal(providerCalls, beforeLocalRefusal);
+    await prisma.gitHubCheckPublication.update({
+      where: { scanId },
+      data: {
+        checkRunId: originalPublication.checkRunId,
+        lastOutcome: originalPublication.lastOutcome,
+        publishedState: originalPublication.publishedState,
+      },
+    });
+  }
+  pass(
+    "read-only verifier uses repository-scoped Checks-read auth; exact returned identity/conclusion and current tenant/projection are required",
+  );
+
+  const verifierReceipt = await prisma.securityReceipt.findUniqueOrThrow({ where: { scanId } });
+  const originalVerifierPayload = securityReceiptSchema.parse(verifierReceipt.signedPayload);
+  const {
+    receiptHash: _verifierHash,
+    coverage: verifierCoverage,
+    ...verifierInput
+  } = originalVerifierPayload;
+  void _verifierHash;
+  assert(verifierCoverage != null);
+  const partialVerifierReceipt = createSecurityReceipt({
+    ...verifierInput,
+    evidence: [],
+    coverage: { ...verifierCoverage, status: "PARTIAL" },
+  });
+  const legacyVerifierReceipt = createSecurityReceipt({ ...verifierInput, evidence: [] });
+  for (const invalid of [
+    {
+      signedPayload: { ...originalVerifierPayload, gateResult: "BLOCK" },
+      receiptHash: verifierReceipt.receiptHash,
+    },
+    { signedPayload: partialVerifierReceipt, receiptHash: partialVerifierReceipt.receiptHash },
+    { signedPayload: legacyVerifierReceipt, receiptHash: legacyVerifierReceipt.receiptHash },
+    { signedPayload: {}, receiptHash: verifierReceipt.receiptHash },
+  ]) {
+    await prisma.securityReceipt.update({
+      where: { scanId },
+      data: {
+        signedPayload: JSON.parse(JSON.stringify(invalid.signedPayload)) as object,
+        receiptHash: invalid.receiptHash,
+      },
+    });
+    beforeLocalRefusal = providerCalls;
+    await assert.rejects(
+      verifyGitHubDelivery(prisma, github, org, delivery),
+      /LIVE_RECEIPT_INCOMPLETE/,
+    );
+    assert.equal(providerCalls, beforeLocalRefusal);
+  }
+  await prisma.securityReceipt.update({
+    where: { scanId },
+    data: {
+      signedPayload: verifierReceipt.signedPayload as object,
+      receiptHash: verifierReceipt.receiptHash,
+      signature: "synthetic-signature",
+      keyId: "synthetic-key",
+      signingAlgorithm: "ed25519",
+    },
+  });
+  assert.equal(
+    (await verifyGitHubDelivery(prisma, github, org, delivery)).signatureVerification,
+    "NOT_VERIFIED",
+  );
+  await prisma.securityReceipt.update({
+    where: { scanId },
+    data: {
+      signature: verifierReceipt.signature,
+      keyId: verifierReceipt.keyId,
+      signingAlgorithm: verifierReceipt.signingAlgorithm,
+    },
+  });
+  pass(
+    "verifier refuses tampered/partial/legacy-without-coverage/missing receipt payload before HTTP and never claims a present signature was verified",
+  );
+
+  const verifierRepository = await prisma.repository.findFirstOrThrow({
+    where: { organizationId: org, externalId: "123" },
+  });
+  for (const change of ["suspend", "deselect", "unknown"]) {
+    const pause = { arrived: deferred(), release: deferred() };
+    readCheckPause = pause;
+    const verifierTag = `verifier-${suffix}-${change}`;
+    const verifierUrl = new URL(process.env.DATABASE_URL!);
+    verifierUrl.searchParams.set("application_name", verifierTag);
+    const verificationDb = new PrismaClient({ datasourceUrl: verifierUrl.href });
+    const marked = await verificationDb.$queryRaw<
+      Array<{ name: string }>
+    >`SELECT current_setting('application_name') AS name`;
+    assert.equal(marked[0]!.name, verifierTag);
+    const pendingVerification = verifyGitHubDelivery(verificationDb, github, org, delivery);
+    const observer = new PrismaClient();
+    try {
+      await Promise.race([
+        pause.arrived.promise,
+        pendingVerification.then(() => {
+          throw new Error("Verifier returned without reaching provider read");
+        }),
+      ]);
+      const openTransactions = await observer.$queryRaw<Array<{ count: bigint }>>`
+        SELECT count(*) FROM pg_stat_activity WHERE application_name=${verifierTag} AND xact_start IS NOT NULL`;
+      assert.equal(
+        openTransactions[0]!.count,
+        0n,
+        "Verifier must hold no PostgreSQL transaction during provider HTTP",
+      );
+      if (change === "suspend")
+        await observer.gitHubInstallation.update({
+          where: { id: installation.id },
+          data: { status: "SUSPENDED" },
+        });
+      if (change === "deselect")
+        await observer.repository.update({
+          where: { id: verifierRepository.id },
+          data: { githubAccessible: false },
+        });
+      if (change === "unknown")
+        await observer.gitHubCheckPublication.update({
+          where: { scanId },
+          data: { lastOutcome: "UNKNOWN" },
+        });
+      const beforeChangedRead = providerCalls;
+      await assert.rejects(
+        verifyGitHubDelivery(prisma, github, org, delivery),
+        /LIVE_LIFECYCLE_INCOMPLETE/,
+      );
+      assert.equal(
+        providerCalls,
+        beforeChangedRead,
+        "Already invalid local context must fail before provider HTTP",
+      );
+      pause.release.resolve();
+      await assert.rejects(pendingVerification, /LIVE_CONTEXT_CHANGED/);
+    } finally {
+      pause.release.resolve();
+      readCheckPause = undefined;
+      await pendingVerification.catch(() => undefined);
+      await verificationDb.$disconnect();
+      await observer.$disconnect();
+      await prisma.gitHubInstallation.update({
+        where: { id: installation.id },
+        data: { status: "ACTIVE" },
+      });
+      await prisma.repository.update({
+        where: { id: verifierRepository.id },
+        data: { githubAccessible: verifierRepository.githubAccessible },
+      });
+      await prisma.gitHubCheckPublication.update({
+        where: { scanId },
+        data: { lastOutcome: originalPublication.lastOutcome },
+      });
+    }
+  }
+  assert.equal(createCount, beforeVerificationCreates);
+  assert.equal(
+    checkRequests.length,
+    beforeVerificationWrites,
+    "Verification must perform no provider writes",
+  );
+  pass(
+    "paused read-only verification holds no database transaction across HTTP and rejects in-flight suspend/deselect/unknown changes",
+  );
+
   const renamed = await webhook(
     "pull_request",
     payload({ repository: { id: 123, full_name: "synthetic/renamed-repo" } }),
@@ -506,6 +745,16 @@ async function main() {
   await publishGitHubChecks(prisma, github, blockedScan);
   assert.equal(checkRequests.at(-1)!.conclusion, "failure");
   assert((await prisma.finding.count({ where: { scanId: blockedScan } })) > 0);
+  const blockedDelivery = await prisma.gitHubWebhookDelivery.findFirstOrThrow({
+    where: { organizationId: org, scanId: blockedScan },
+  });
+  const verifiedBlock = await verifyGitHubDelivery(prisma, github, org, blockedDelivery.deliveryId);
+  assert.equal(
+    verifiedBlock.result,
+    "PASS",
+    "Successful observation does not mean the security gate allows",
+  );
+  assert.equal(verifiedBlock.conclusion, "failure");
   assert(!JSON.stringify(checkRequests).includes(rawFinding));
   assert(
     !JSON.stringify(await prisma.finding.findMany({ where: { scanId: blockedScan } })).includes(
@@ -1156,6 +1405,7 @@ main()
     await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS "${failureTrigger}" ON "AuditEvent"`);
     await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS "${failureTrigger}"()`);
     pauseReply?.release.resolve();
+    readCheckPause?.release.resolve();
     await close(api);
     await close(provider);
     await prisma.gitHubWebhookDelivery.deleteMany({

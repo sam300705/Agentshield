@@ -124,6 +124,7 @@ describe("repository-scoped execution credentials", () => {
   it.each([
     ["SCAN", { contents: "read", metadata: "read" }],
     ["CHECK_PUBLICATION", { checks: "write", metadata: "read" }],
+    ["VERIFY_CHECK", { checks: "read", metadata: "read" }],
   ] as const)(
     "requests only the immutable repository and %s permissions",
     async (purpose, permissions) => {

@@ -41,3 +41,11 @@ queue admission until verified synchronization, preserve every customer row and 
 the stale ID denied afterward. This is migration/queue evidence; current authority
 regressions separately exercise deselected-repository action refusal. Live selection
 refresh and production rollout/rollback remain unqualified.
+
+P3-Q1 read-only observation: untrusted provider fields and concurrent local lifecycle
+changes cannot yield an accepted diagnostic for the wrong ID/SHA/external ID/status/
+conclusion or incomplete receipt. Tests exercise real HTTP, scoped Checks-read token
+requests, persisted projection mutation and a tagged independent PostgreSQL activity
+probe. No provider write occurs. Signature presence remains NOT_VERIFIED; unsigned
+state is explicit. A post-observation change or undetected change-and-restore is a
+residual limit; this diagnostic is not an action authorization or atomic global snapshot.

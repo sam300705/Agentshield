@@ -201,8 +201,14 @@ policy decision, Check ID and timestamps. The existing evidence/receipt/SARIF re
    Redeliver the event and confirm one scan/job and the same Check. Move the branch after acceptance
    and confirm the accepted scan's original SHA is retained.
 6. Run `pnpm github:operator verify-live <organization-id> <delivery-id>` from the configured backend.
-   It verifies database lineage and the actual Check using installation auth and prints safe IDs and
-   conclusion only. The normal CI simulator does not invoke this command or count as live proof.
+   It performs the same read-only helper exercised by the normal HTTP/PostgreSQL simulator,
+   using a repository-ID-scoped Checks-read token. It requires current owned/selected active
+   lineage, COMPLETE/OBSERVED publication, a valid-hash complete receipt, exact safe Check ID,
+   SHA/external ID/status and conservative expected conclusion. It rechecks local context after
+   HTTP. PASS is limited to GITHUB_CHECK_OBSERVATION, with hash VERIFIED and signature
+   UNSIGNED or NOT_VERIFIED; no signing key is requested. A legacy receipt without coverage
+   remains readable but cannot qualify this diagnostic. The helper persists no data and
+   performs no Check write. Synthetic qualification is not live GitHub evidence.
 7. After fixing stopped publication: `pnpm github:operator retry-check <organization-id> <scan-id>`.
    This schedules publication only; keep the worker running.
 
@@ -252,3 +258,14 @@ preserved; runtime code-scanning publication is not required.
 - [Downloaded App private keys](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps)
 - [Repository archives](https://docs.github.com/en/rest/repos/contents#download-a-repository-archive-tar)
 - [Checks API](https://docs.github.com/en/rest/checks/runs)
+
+Read-only observation limits: the provider or local state can change after the
+observation. A post-HTTP local recheck does not provide a globally atomic snapshot
+or detect every change-and-restore ABA sequence, and a matching provider response is
+not independent signature verification, complete capture or action authorization.
+No private signing credential is used. Two short repeatable-read local snapshots
+surround HTTP; a tagged PostgreSQL activity probe verifies no transaction remains
+open while the provider response is paused. A malformed/partial/missing receipt,
+foreign tenant, invalid ID, revoked selection, suspended installation, UNKNOWN
+publication or changed Check identity/conclusion fails qualification. Present
+signature metadata is explicitly NOT_VERIFIED, never promoted to signed acceptance.

@@ -217,3 +217,43 @@ container build, four populated histories, seventeen GitHub groups and six brows
 tests. Current review identified the legacy-selection upgrade defect despite green
 CI, and P3-D3 adds the missing regression. New-head CI/current review remain pending
 until published; Phase 3 acceptance, live provider and Phase 4 remain gated.
+
+## Work package P3-Q1: qualify read-only provider observation
+
+Objective: prevent the existing operator verify-live command from printing a broad
+PASS for an unrelated/stale Check or incomplete receipt. Current evidence: inline
+command requests a broad installation credential, converts Check IDs with Number,
+and omits returned-ID, current selection, receipt integrity/coverage and conclusion
+checks. Scope: extract read-only helper, scoped Checks-read credential, strict current
+lineage/receipt/Check observation and actual HTTP/PostgreSQL regressions. Exclusions:
+new writes/API/UI, portable verification, signature verification, production or live
+provider acceptance. Dependencies: existing integrated delivery and receipt contracts;
+current correction CI/review can run independently. Files: operator/client/helper,
+existing simulator/tests and docs. Invariants: tenant/installation/repository ownership,
+canonical safe provider IDs/full SHA, COMPLETE observed projection and complete valid
+receipt, exact returned Check identity/conclusion, no HTTP in transaction, no stale
+local PASS after mutable context changes. Reuse: EXTEND existing Prisma/fetch/hash
+verification; no new dependency/migration. Tests: real local HTTP plus PostgreSQL
+foreign tenant, stale/unknown state, tampered/missing/partial receipt, wrong provider
+ID/SHA/external ID/conclusion, scoped read credential and in-flight revocation.
+Gate: targeted regressions, quality, exact-head CI/current review; actual GitHub remains
+separate. Recovery: additive code revert; command is read-only and persists no data.
+
+P3-Q1 local evidence: PASS 220 API unit cases, twenty actual HTTP/PostgreSQL GitHub
+groups, lint/typecheck/format/build/docs and source/SARIF gate. The helper used by
+the CLI passes both successful and blocking completed Check observations (PASS is
+observation success, not security approval). Signature presence is NOT_VERIFIED,
+absence UNSIGNED. Missing/partial/legacy coverage cannot qualify. An independent
+tagged pg_stat_activity probe confirms no open verifier transaction during paused
+HTTP, and persisted changes reject both already-invalid and in-flight contexts.
+No CLI shell parsing or live GitHub execution is inferred from helper qualification.
+
+Preceding checkpoint c18a4bb passed exact-head push/PR CI (39610077971 / 39610086920)
+and completed Codex code review reported no findings. This is supporting automated
+evidence, not Phase 3 owner acceptance or independent human/security acceptance.
+The new P3-Q1 published head needs its own CI/current review. Controlled live App
+qualification, operational restore/mixed-version behavior, user demand and production
+remain unverified; Phase 4 remains gated. Saved cloud setup was corrected from the
+historical npm/in-memory workflow to the actual pnpm/PostgreSQL checkout and tested
+with frozen installation, Prisma generation and build. Draft save is not publication
+or validation in a restored task; the configured main ref may still select old code.
