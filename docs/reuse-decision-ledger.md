@@ -41,3 +41,16 @@ Source: https://github.com/octokit/app.js/releases/tag/v16.1.4 .
 GitHub token docs explicitly describe repository_ids and permission restriction;
 local unit and real HTTP simulator checks verify our request shape, not GitHub's
 live enforcement. No external integration or product-demand claim follows.
+
+## R0-C1 framework comparison, 2026-10-21
+
+INVESTIGATE optional adapters; DEFER adopting Google ADK 2.12.0 (Apache-2.0,
+Python >=3.11) or LangGraph 1.2.16 (MIT, Python >=3.10) into the TypeScript runtime.
+Pinned source, manifests/licenses and an isolated LangGraph recovery probe are in
+[the comparison ledger](research-framework-boundaries.md). Existing approval/task
+capabilities are contrary evidence against building replacements. These research
+packages are not added to application dependencies or its lockfile. Full transitive
+security/license audit, operating cost, deployment burden, cross-runtime adapter
+compatibility, migration/rollback and buyer value remain unqualified. Keep existing
+PostgreSQL claims and use provider-owned idempotency where actually available;
+never infer exactly-once external execution from a workflow checkpoint or local claim.
