@@ -23,19 +23,63 @@ const config: OidcConfig = {
   audience: "agentshield-api",
 };
 
-const futureClaims = (nonce: string) => ({
+const futureClaims = (nonce?: string) => ({
   issuer: config.issuer,
   audience: config.clientId,
-  nonce,
+  ...(nonce == null ? {} : { nonce }),
   subject: "user-1",
   expiresAt: Math.floor(Date.now() / 1000) + 3600,
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe("provider-neutral OIDC session", () => {
+  it("accepts a signed refresh ID token without nonce while requiring it on login", async () => {
+    const { privateKey, publicKey } = await generateKeyPair("RS256");
+    const jwk = await exportJWK(publicKey);
+    jwk.kid = "refresh-key";
+    const idToken = await new SignJWT({})
+      .setProtectedHeader({ alg: "RS256", kid: "refresh-key" })
+      .setIssuer(config.issuer)
+      .setAudience(config.clientId)
+      .setSubject("user-1")
+      .setIssuedAt()
+      .setExpirationTime("1h")
+      .sign(privateKey);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>((input) => {
+        const url =
+          typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        return Promise.resolve(
+          new Response(
+            JSON.stringify(
+              url === config.tokenEndpoint
+                ? { access_token: "refresh-access", expires_in: 3600, id_token: idToken }
+                : { keys: [jwk] },
+            ),
+            { headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      }),
+    );
+    const client = createFetchTokenClient(config);
+    await expect(
+      client.refresh({ refreshToken: "synthetic-refresh", clientId: config.clientId }),
+    ).resolves.toMatchObject({ idTokenClaims: { subject: "user-1" } });
+    await expect(
+      client.exchangeCode({
+        code: "synthetic",
+        codeVerifier: "verifier",
+        redirectUri: config.redirectUri,
+        clientId: config.clientId,
+        nonce: "required-nonce",
+      }),
+    ).rejects.toThrow();
+  });
   it("builds an authorization-code PKCE URL without persisting tokens", async () => {
     vi.stubGlobal("crypto", webcrypto);
     const client: OidcTokenClient = {
@@ -224,7 +268,7 @@ describe("provider-neutral OIDC session", () => {
         expiresAt: now + 60_000,
         refreshToken: "refresh-token-2",
         idToken: "id-token-2",
-        idTokenClaims: futureClaims("refresh"),
+        idTokenClaims: futureClaims(),
       }),
     );
     const client: OidcTokenClient = {
@@ -258,6 +302,36 @@ describe("provider-neutral OIDC session", () => {
     expect(session.isAuthenticated()).toBe(false);
   });
 
+  it("retains a non-rotated refresh token over successive refreshes", async () => {
+    vi.stubGlobal("crypto", webcrypto);
+    let now = 1_000_000;
+    const refresh = vi.fn(() => Promise.resolve({ accessToken: "new", expiresAt: now + 1 }));
+    const client: OidcTokenClient = { exchangeCode: vi.fn(), refresh };
+    const session = new OidcSession(config, client, () => now);
+    const params = new URL(await session.beginLogin()).searchParams;
+    client.exchangeCode = vi.fn(() =>
+      Promise.resolve({
+        accessToken: "old",
+        expiresAt: now + 1,
+        refreshToken: "retained",
+        idTokenClaims: futureClaims(params.get("nonce") ?? ""),
+      }),
+    );
+    const callback = new URL(config.redirectUri);
+    callback.searchParams.set("code", "code");
+    callback.searchParams.set("state", params.get("state") ?? "");
+    await session.handleCallback(callback.toString());
+    now += 5000;
+    expect(await session.getAccessToken()).toBe("new");
+    now += 5000;
+    expect(await session.getAccessToken()).toBe("new");
+    expect(refresh).toHaveBeenCalledTimes(2);
+    expect(refresh).toHaveBeenLastCalledWith({
+      refreshToken: "retained",
+      clientId: config.clientId,
+    });
+  });
+
   it("returns no live configuration when required owner values are absent", () => {
     expect(readOidcConfig({ VITE_APP_MODE: "demo" })).toBeNull();
     expect(
@@ -276,3 +350,158 @@ describe("provider-neutral OIDC session", () => {
     ).toMatchObject({ issuer: config.issuer, clientId: config.clientId });
   });
 });
+
+it.each([false, true])(
+  "discards a refresh completion after logout (reject=%s)",
+  async (rejectRefresh) => {
+    vi.stubGlobal("crypto", webcrypto);
+    let finish!: (value: { accessToken: string; expiresAt: number }) => void;
+    let fail!: (error: Error) => void;
+    const pending = new Promise<{ accessToken: string; expiresAt: number }>((resolve, reject) => {
+      finish = resolve;
+      fail = reject;
+    });
+    const client: OidcTokenClient = { exchangeCode: vi.fn(), refresh: vi.fn(() => pending) };
+    const session = new OidcSession(config, client);
+    async function login(accessToken: string, expiresAt: number) {
+      const params = new URL(await session.beginLogin()).searchParams;
+      client.exchangeCode = vi.fn(() =>
+        Promise.resolve({
+          accessToken,
+          expiresAt,
+          refreshToken: "synthetic-refresh",
+          idTokenClaims: futureClaims(params.get("nonce") ?? ""),
+        }),
+      );
+      const callback = new URL(config.redirectUri);
+      callback.searchParams.set("code", "code");
+      callback.searchParams.set("state", params.get("state") ?? "");
+      await session.handleCallback(callback.toString());
+    }
+    await login("expired", 1);
+    const refresh = session.getAccessToken();
+    session.logout();
+    // A stale success or failure must also leave a subsequently established session intact.
+    await login("new-session", Date.now() + 3600000);
+    if (rejectRefresh) fail(new Error("old refresh failed"));
+    else finish({ accessToken: "stale", expiresAt: Date.now() + 3600000 });
+    expect(await refresh).toBeNull();
+    expect(await session.getAccessToken()).toBe("new-session");
+    session.logout();
+    expect(session.isAuthenticated()).toBe(false);
+  },
+);
+
+it.each([
+  "issuer",
+  "redirectUri",
+  "authorizationEndpoint",
+  "tokenEndpoint",
+  "jwksUri",
+  "endSessionEndpoint",
+] as const)("rejects insecure OIDC %s before any token request", (field) => {
+  const fetchMock = vi.fn();
+  vi.stubGlobal("fetch", fetchMock);
+  expect(() =>
+    createFetchTokenClient({ ...config, [field]: "http://provider.example.test/endpoint" }),
+  ).toThrow("HTTPS");
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+it("allows only explicit loopback development OIDC HTTP and rejects credential URLs", () => {
+  expect(() =>
+    createFetchTokenClient({ ...config, tokenEndpoint: "http://localhost:9000/token" }),
+  ).toThrow();
+  expect(() =>
+    createFetchTokenClient({
+      ...config,
+      allowLoopbackHttp: true,
+      tokenEndpoint: "http://localhost:9000/token",
+    }),
+  ).not.toThrow();
+  expect(() =>
+    createFetchTokenClient({
+      ...config,
+      allowLoopbackHttp: true,
+      tokenEndpoint: "http://localhost.example.test/token",
+    }),
+  ).toThrow();
+  expect(() =>
+    createFetchTokenClient({ ...config, tokenEndpoint: "https://user:password@issuer.test/token" }),
+  ).toThrow();
+});
+
+it("does not enable loopback HTTP in a production build even with the development flag", () => {
+  vi.stubEnv("DEV", false);
+  expect(() =>
+    createFetchTokenClient({
+      ...config,
+      allowLoopbackHttp: true,
+      tokenEndpoint: "http://localhost:9000/token",
+    }),
+  ).toThrow("HTTPS");
+  expect(
+    readOidcConfig({
+      VITE_APP_MODE: "live",
+      VITE_OIDC_ISSUER: config.issuer,
+      VITE_OIDC_CLIENT_ID: config.clientId,
+      VITE_OIDC_REDIRECT_URI: config.redirectUri,
+      VITE_OIDC_AUTHORIZATION_ENDPOINT: config.authorizationEndpoint,
+      VITE_OIDC_TOKEN_ENDPOINT: "http://localhost:9000/token",
+      VITE_OIDC_JWKS_URI: config.jwksUri,
+      VITE_OIDC_ALLOW_LOOPBACK_HTTP: "true",
+    }),
+  ).toBeNull();
+});
+
+it("preserves configured provider query parameters when constructing the PKCE authorization URL", async () => {
+  const client: OidcTokenClient = {
+    exchangeCode: vi.fn(),
+    refresh: vi.fn(),
+  };
+  const session = new OidcSession(
+    { ...config, authorizationEndpoint: "https://issuer.test/authorize?connection=corp" },
+    client,
+  );
+  const url = new URL(await session.beginLogin());
+  expect(url.searchParams.get("connection")).toBe("corp");
+  expect(url.searchParams.get("response_type")).toBe("code");
+  expect(url.searchParams.get("code_challenge_method")).toBe("S256");
+});
+
+it("preserves configured provider logout query parameters", () => {
+  const client: OidcTokenClient = { exchangeCode: vi.fn(), refresh: vi.fn() };
+  const session = new OidcSession(
+    { ...config, endSessionEndpoint: "https://issuer.test/logout?connection=corp" },
+    client,
+  );
+  const redirect = session.logout();
+  expect(redirect).not.toBeNull();
+  const url = new URL(redirect!);
+  expect(url.searchParams.get("connection")).toBe("corp");
+  expect(url.searchParams.get("post_logout_redirect_uri")).toBe(config.redirectUri);
+});
+
+it.each([{ scopes: [] }, { scopes: ["profile", "email"] }, { scopes: ["not-openid"] }])(
+  "rejects scopes without the exact openid token: %j",
+  ({ scopes }) => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    expect(
+      () => new OidcSession({ ...config, scopes }, { exchangeCode: vi.fn(), refresh: vi.fn() }),
+    ).toThrow("openid");
+    expect(() => createFetchTokenClient({ ...config, scopes })).toThrow("openid");
+    expect(
+      readOidcConfig({
+        VITE_APP_MODE: "live",
+        VITE_OIDC_ISSUER: config.issuer,
+        VITE_OIDC_CLIENT_ID: config.clientId,
+        VITE_OIDC_REDIRECT_URI: config.redirectUri,
+        VITE_OIDC_AUTHORIZATION_ENDPOINT: config.authorizationEndpoint,
+        VITE_OIDC_TOKEN_ENDPOINT: config.tokenEndpoint,
+        VITE_OIDC_JWKS_URI: config.jwksUri,
+        VITE_OIDC_SCOPES: scopes.join(" "),
+      }),
+    ).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  },
+);

@@ -14,6 +14,7 @@ export interface GitHubWebhookLifecycleClient {
         id: true;
         organizationId: true;
         accountLogin: true;
+        accountType: true;
         installationId: true;
         status: true;
       };
@@ -21,6 +22,7 @@ export interface GitHubWebhookLifecycleClient {
       id: string;
       organizationId: string;
       accountLogin: string;
+      accountType?: string | null;
       installationId: number;
       status: string;
     } | null>;
@@ -67,6 +69,7 @@ function readCommitContext(
 ): { ref: string; commitSha: string } | null {
   const payload = webhook.payload;
   if (webhook.eventName === "push") {
+    if (payload.deleted === true || payload.after === "0".repeat(40)) return null;
     const ref = readString(payload.ref);
     const commitSha = readString(payload.after, 64);
     return payload.deleted !== true &&
@@ -98,7 +101,11 @@ export async function processGitHubWebhookDelivery(
   correlationId: string,
   options: GitHubWebhookLifecycleOptions,
 ): Promise<GitHubWebhookLifecycleResult> {
-  if (!options.scanLifecycleEnabled || options.policyBundleVersion == null) {
+  if (
+    !options.scanLifecycleEnabled ||
+    options.policyBundleVersion == null ||
+    options.enqueueScan == null
+  ) {
     await options.deliveryStore.markIgnored(
       organizationId,
       webhook.deliveryId,
@@ -134,6 +141,7 @@ export async function processGitHubWebhookDelivery(
       id: true,
       organizationId: true,
       accountLogin: true,
+      accountType: true,
       installationId: true,
       status: true,
     },

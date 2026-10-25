@@ -8,20 +8,38 @@ Expired access tokens use the in-memory refresh token when available. A failed r
 
 ## Frontend variables
 
-| Variable                           | Purpose                           | Required in live mode                                 |
-| ---------------------------------- | --------------------------------- | ----------------------------------------------------- |
-| `VITE_APP_MODE`                    | Selects `demo` or `live` behavior | Yes; use `live` only for an authenticated deployment. |
-| `VITE_API_BASE_URL`                | API HTTPS origin                  | Yes for live API traffic.                             |
-| `VITE_OIDC_ISSUER`                 | Expected issuer claim             | Yes.                                                  |
-| `VITE_OIDC_CLIENT_ID`              | Public OIDC client identifier     | Yes.                                                  |
-| `VITE_OIDC_REDIRECT_URI`           | Registered callback URI           | Yes.                                                  |
-| `VITE_OIDC_AUTHORIZATION_ENDPOINT` | Authorization-code endpoint       | Yes.                                                  |
-| `VITE_OIDC_TOKEN_ENDPOINT`         | Code and refresh-token endpoint   | Yes.                                                  |
-| `VITE_OIDC_END_SESSION_ENDPOINT`   | Optional provider logout endpoint | Optional.                                             |
-| `VITE_OIDC_AUDIENCE`               | Expected API audience             | Recommended when the provider issues audience claims. |
-| `VITE_OIDC_SCOPES`                 | Space-separated scopes            | Defaults to `openid profile email`.                   |
+| Variable                           | Purpose                              | Required in live mode                                 |
+| ---------------------------------- | ------------------------------------ | ----------------------------------------------------- |
+| `VITE_APP_MODE`                    | Selects `demo` or `live` behavior    | Yes; use `live` only for an authenticated deployment. |
+| `VITE_API_BASE_URL`                | API HTTPS origin                     | Yes for live API traffic.                             |
+| `VITE_OIDC_ISSUER`                 | Expected issuer claim                | Yes.                                                  |
+| `VITE_OIDC_CLIENT_ID`              | Public OIDC client identifier        | Yes.                                                  |
+| `VITE_OIDC_REDIRECT_URI`           | Registered callback URI              | Yes.                                                  |
+| `VITE_OIDC_AUTHORIZATION_ENDPOINT` | Authorization-code endpoint          | Yes.                                                  |
+| `VITE_OIDC_TOKEN_ENDPOINT`         | Code and refresh-token endpoint      | Yes.                                                  |
+| `VITE_OIDC_JWKS_URI`               | ID-token signature verification keys | Yes.                                                  |
+| `VITE_OIDC_END_SESSION_ENDPOINT`   | Optional provider logout endpoint    | Optional.                                             |
+| `VITE_OIDC_AUDIENCE`               | Expected API audience                | Recommended when the provider issues audience claims. |
+| `VITE_OIDC_SCOPES`                 | Space-separated scopes               | Defaults to `openid profile email`.                   |
 
 Vite variables are public browser configuration. Never place client secrets, private keys, refresh tokens, or database credentials in `VITE_*` variables. The provider must register the exact HTTPS redirect URI and API audience used by the deployment.
+
+## API tenant and role claims
+
+The API accepts `OIDC_TENANT_CLAIM` as an optional exact, top-level JWT claim name,
+including a namespace URL. When configured, only that signed claim supplies the
+tenant; missing, non-string, empty or invalid values fail authentication even if
+`organization_id`, `organizationId` or `org_id` is also present. With the selector
+unset or blank, those legacy aliases retain their existing behavior. Tenant values
+must match `[A-Za-z0-9._:-]{1,128}`. The selector is not a nested JSON path.
+
+Use `OIDC_ROLE_CLAIM` for the exact trusted role claim as well. The issuer must
+derive both claims from administrator-controlled authorization data, never editable
+user metadata, request parameters or repository content. JWT signature, issuer and
+API audience verification still precede either mapping. The API trusts these claims;
+it does not create tenants or consult database memberships on each request.
+Provision and verify the matching internal organization before binding an
+installation. See [the controlled staging checklist](staging-auth-qualification.md).
 
 ## Current status
 

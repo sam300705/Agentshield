@@ -57,12 +57,18 @@ export function createGitHubExecutor(client: PrismaClient, github: FetchGitHubAp
         archiveClient: github,
         bindingResolver: githubBindingResolver(client),
         tokenProvider: {
-          async getInstallationToken(installationId) {
+          async getInstallationToken(installationId, repositoryId) {
             const installation = await client.gitHubInstallation.findFirst({
               where: { installationId, status: "ACTIVE" },
             });
             if (installation == null) throw new Error("GITHUB_INSTALLATION_UNAVAILABLE");
-            return (await github.createInstallationToken(installationId)).token;
+            if (repositoryId == null) throw new Error("GITHUB_TOKEN_SCOPE_REQUIRED");
+            return (
+              await github.createInstallationToken(installationId, {
+                repositoryId,
+                purpose: "SCAN",
+              })
+            ).token;
           },
         },
       }),
@@ -70,11 +76,12 @@ export function createGitHubExecutor(client: PrismaClient, github: FetchGitHubAp
   );
   return {
     async execute(input: Parameters<typeof executor.execute>[0]) {
-      if (input.leaseOwner != null) {
+      if (input.lease != null) {
         const owned = await client.scanJob.findFirst({
           where: {
             scanId: input.scanId,
-            lockedBy: input.leaseOwner,
+            lockedBy: input.lease.owner,
+            attempts: input.lease.attempt,
             status: "RUNNING",
             leaseExpiresAt: { gt: new Date() },
             cancelRequestedAt: null,
@@ -83,7 +90,7 @@ export function createGitHubExecutor(client: PrismaClient, github: FetchGitHubAp
         if (owned == null) throw new Error("WORKER_LEASE_LOST");
       }
       // Publication reads only durable state. Scan attempts never publish their own output.
-      await publishGitHubChecks(client, github, input.scanId);
+      await publishGitHubChecks(client, github, input.scanId, { signal: input.signal });
       return executor.execute(input);
     },
   };

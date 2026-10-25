@@ -1,5 +1,13 @@
 # Architecture
 
+Current gated product plan: [implementation and acceptance](industry-product-implementation-plan.md),
+[proposed action authority contracts](action-approval-execution-contracts.md),
+and [research/reuse evidence](product-research-ledger.md). Proposed execution
+authority remains proposed while Phase 2 foundation integration is in progress.
+See [current phase evidence and boundaries](phase2-integration-handoff.md).
+
+Current production boundaries and phase acceptance design: [Phases 1–4](flagship-architecture-phases1-4.md). The demo sequence below is historical; current demo admission is queued and returns 202, as described in [API contracts](api-contracts.md).
+
 AgentShield is organized as a TypeScript monorepo because the most important engineering boundary in v1 is contract integrity, not service distribution. The scanner, policy engine, remediation generator, API, and dashboard all depend on shared Zod schemas, which keeps runtime validation and TypeScript inference aligned across the stack.
 
 ## Monorepo Design Decisions
@@ -86,9 +94,21 @@ Scans/jobs follow `QUEUED -> RUNNING -> COMPLETED`, or `RUNNING -> FAILED` with 
 
 ### Evidence and API boundaries
 
-Known credential formats and sensitive evidence properties are redacted before persistence and receipt hashing. Review reasons and event text/resources are sanitized. Database query/error payload logging is disabled; API/worker failures use opaque messages rather than arbitrary exception contents. Validation errors return only bounded code/path/generic-message issues. Lists have limits up to 100 and bounded pages; repository listing is now paginated. Stable 400/401/403/404/409/429/500 envelopes retain correlation IDs.
+Known credential formats and sensitive evidence properties are redacted before persistence and receipt hashing. Review reasons and event text/resources are sanitized. Database query/error payload logging is disabled; API/worker process errors use opaque messages. Durable scan-job history retains bounded sanitized failure text under tenant access controls; pattern-based redaction does not recognize every possible private value. Validation errors return only bounded code/path/generic-message issues. Lists have limits up to 100 and bounded pages; repository listing is now paginated. Stable 400/401/403/404/409/429/500 envelopes retain correlation IDs.
 
 `pnpm test:backend-security` exercises real PostgreSQL and real JWT/JWKS verification, including concurrent claims/reviews, tenant access, retries, overlapping recovery, cancellation, rollback, audit, and separate-client persistence reads. It creates and removes only uniquely named synthetic tenants and does not reset existing data. Existing unit, gateway, GitHub lifecycle, scanner/SARIF and browser checks remain CI gates.
+
+## Phase 2 authority candidate
+
+[The current handoff](phase2-integration-handoff.md) and
+[ADR](adr-phase2-authority-admission.md) distinguish authorization-only admission from
+provider execution. Strict versioned shared schemas bind server identity, owned
+session/repository/installation, full commit, verified recent scan receipt, current
+action policy, exact parameters and expiry. Independent review precedes atomic
+one-operation consumption, durable HELD outbox creation and audit. Policy/session
+locks serialize revocation, changes and closure; provider HTTP is absent from these
+transactions. Legacy SDK approvals cannot admit these operations. No worker consumes
+the outbox, and no provider side effect is observed or implied by its records.
 
 ## Phase 3 provider execution
 
@@ -98,6 +118,10 @@ the accepted full commit SHA and installation ID. The production worker resolves
 checks the remote numeric identity and extracts only that SHA into an isolated bounded workspace.
 Existing scanner/policy/evidence persistence and attempt fencing remain authoritative.
 `GitHubCheckPublication` independently schedules queued/in-progress/completed output and safe
-publication retries under a per-scan advisory lock. Provider faults preserve completed scan data.
+publication retries using short claims, durable leases/generations, HTTP outside transactions and
+fenced atomic finalization/audit. UNKNOWN creates reconcile without blind duplication; invalid or
+partial evidence cannot publish success. Repository-scoped provider tokens narrow credential
+authority. Provider faults preserve completed scan data. See
+[the current integration handoff](phase3-integration-handoff.md) for measured scope and limits.
 See [the GitHub architecture and owner setup](./github-app.md) for limits, permissions, external-ID
 reconciliation, provider caveats and the blocked real-provider gate.

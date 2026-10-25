@@ -70,7 +70,7 @@ function compareValues(left: unknown, right: unknown): number | undefined {
   }
 
   if (typeof left === "string" && typeof right === "string") {
-    return left.localeCompare(right);
+    return left < right ? -1 : left > right ? 1 : 0;
   }
 
   return undefined;
@@ -84,7 +84,7 @@ function matchesRegex(actualValue: unknown, expectedValue: JsonValue | undefined
   return new RegExp(expectedValue, "i").test(actualValue);
 }
 
-function evaluateCondition(finding: Finding, condition: PolicyRuleCondition): boolean {
+export function evaluateCondition(finding: Finding, condition: PolicyRuleCondition): boolean {
   const actualValue = readFieldValue(finding, condition.field);
 
   switch (condition.operator) {
