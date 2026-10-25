@@ -15,6 +15,26 @@ const validProductionEnv = {
 };
 
 describe("runtime configuration", () => {
+  it("accepts an exact namespaced tenant selector and treats blank as unset", () => {
+    expect(
+      getRuntimeConfig({
+        ...validProductionEnv,
+        OIDC_TENANT_CLAIM: " https://agentshield.example/organization_id ",
+      }).OIDC_TENANT_CLAIM,
+    ).toBe("https://agentshield.example/organization_id");
+    expect(getRuntimeConfig(validProductionEnv).OIDC_TENANT_CLAIM).toBeUndefined();
+    expect(
+      getRuntimeConfig({ ...validProductionEnv, OIDC_TENANT_CLAIM: " " }).OIDC_TENANT_CLAIM,
+    ).toBeUndefined();
+  });
+
+  it.each(["claim with spaces", "claim\nname", "x".repeat(513)])(
+    "rejects invalid tenant selector %s",
+    (claim) => {
+      expect(() => getRuntimeConfig({ ...validProductionEnv, OIDC_TENANT_CLAIM: claim })).toThrow();
+    },
+  );
+
   it("accepts complete production OIDC configuration", () => {
     const config = getRuntimeConfig(validProductionEnv);
 

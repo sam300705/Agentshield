@@ -96,7 +96,10 @@ export function mapRole(claims: AuthClaims): Role | null {
 }
 
 function mapOrganizationId(claims: AuthClaims): string | null {
-  const candidates = [claims.organization_id, claims.organizationId, claims.org_id];
+  const configuredClaim = process.env.OIDC_TENANT_CLAIM?.trim();
+  const candidates = configuredClaim
+    ? [claims[configuredClaim]]
+    : [claims.organization_id, claims.organizationId, claims.org_id];
   const organizationId = candidates.find(
     (value): value is string => typeof value === "string" && /^[A-Za-z0-9._:-]{1,128}$/.test(value),
   );

@@ -25,6 +25,10 @@ const baseSchema = z.object({
   OIDC_AUDIENCE: optionalString,
   OIDC_JWKS_URL: optionalUrl,
   OIDC_ROLE_CLAIM: z.string().min(1).default("roles"),
+  OIDC_TENANT_CLAIM: z.preprocess(
+    blankToUndefined,
+    z.string().trim().min(1).max(512).regex(/^\S+$/).optional(),
+  ),
   TRUSTED_PROXY_CIDRS: z
     .string()
     .default("")
