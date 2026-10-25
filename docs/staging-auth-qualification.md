@@ -95,3 +95,102 @@ Final Phase 3 evidence must trace a live delivery to its exact commit, scan, pol
 decision, complete receipt and GitHub Check, including controlled blocking/replay
 cases and read-only `github:operator verify-live` observation. Implemented code,
 synthetic tests, CI, provider evidence and owner acceptance remain separate gates.
+
+## Continuation evidence, 2026-10-25
+
+This checkpoint supersedes the earlier runtime readiness and public-health
+observations above. It does not supersede unverified provider configuration.
+
+- PASS: runtime revision 4 reports running/connected, enforced networking and ready
+  Render binding/App ID setup. Setup readiness is not remote authorization.
+- PASS: both push and PR quality jobs for `17cd524` completed successfully
+  (40213126987 / 40213130975). The PR's Playwright installation completed. Prior
+  review receipts cover older commits, not this head.
+- PASS: independent `/health/live` and `/health/ready` requests returned 200.
+  Readiness reported `checks.database=ok`; the implementation executes `SELECT 1`.
+  This establishes API-to-database connectivity, not migration checksums, tenant
+  provisioning, a database plan or worker readiness.
+- PASS: repositories returned 401 without authentication, with forged demo/tenant
+  headers, and with an invalid bearer token. These are rejection tests, not a
+  successful Auth0 login or proof of cross-tenant data isolation in staging.
+- BLOCKED: current Render service/deploy reads returned 401 and the database
+  metadata read returned 403. Plugin discovery lists Render as installed, but no
+  Render tools are exposed in this thread. No unchanged management request was
+  retried. Current deployment SHA, startup logs, plans and runtime configuration
+  could not be independently inspected.
+- PASS: Auth0 discovery and public JWKS returned 200; the issuer advertises S256.
+  BLOCKED: no Auth0 management connector or configured management credential is
+  available. No existing SPA client, claim Action, callback registration, authorized
+  staging tenant or interactive login is inferred from public discovery.
+- PARTIAL: Vercel's branch preview at `17cd524` is READY and its page returns 200.
+  Project environment variables remain empty. The API's observed allowed origin is
+  `https://agentshield-ecf7ac7l6-sam300705s-projects.vercel.app`, while the current
+  preview is `https://agentshield-3hkzntg7r-sam300705s-projects.vercel.app`. Correct
+  this staging CORS mismatch before live browser qualification. No Vercel settings
+  were changed and an incomplete live configuration was not activated.
+- PARTIAL: GitHub confirms qualification repository ID `1429734213`, public and
+  neither disabled nor archived. The connected GitHub identity's installation
+  listing does not expose installation `174121239`; its repository-list endpoint
+  returns 403. That is an access limitation, not evidence the App is uninstalled.
+  No App credential, hook matching, tenant binding, worker or live scan/Check was
+  qualified in this continuation. The existing backend PEM was not read or copied.
+
+Additional local qualification extends the real HTTP/JWKS namespaced-claim tests
+with wrong audience, expired tokens, untrusted signatures using the expected key
+ID, and VIEWER denial/DEVELOPER admission. It changes tests and documentation only;
+API behavior, provider configuration, dependencies and migrations are unchanged.
+The existing PostgreSQL security suite separately covers cross-tenant stored-data
+isolation; synthetic evidence must stay separate from Auth0/staging evidence.
+
+### Minimum Auth0 inspection authorization
+
+Use a dedicated management client authorized only for the existing tenant's
+Management API audience:
+`https://dev-bhnwe1dx8llwlaeh.us.auth0.com/api/v2/`.
+
+| Scope                   | Required inspection                                                |
+| ----------------------- | ------------------------------------------------------------------ |
+| `read:clients`          | Existing SPA ID, callbacks, web origins, grants and refresh policy |
+| `read:resource_servers` | Existing API audience, RBAC and offline-access configuration       |
+| `read:actions`          | Existing post-login Actions and trigger bindings                   |
+
+Do not grant write scopes for initial inspection. Add `read:roles` only if an
+existing role mapping needs inspection, and `read:users` only for an explicitly
+approved test subject whose administrator-controlled tenant metadata must be
+checked. Do not enumerate users unnecessarily. Auth0 references:
+[clients](https://auth0.com/docs/api/management/v2/clients/get-clients),
+[resource servers](https://auth0.com/docs/api/management/v2/resource-servers/get-resource-servers),
+[Action bindings](https://auth0.com/docs/api/management/v2/actions/get-bindings).
+
+Provide `AUTH0_MANAGEMENT_CLIENT_ID` as runtime configuration and
+`AUTH0_MANAGEMENT_CLIENT_SECRET` through a secret binding restricted to
+`dev-bhnwe1dx8llwlaeh.us.auth0.com`. A backend-only client-credentials request to
+`/oauth/token` must request that Management API audience and only the granted
+inspection scopes. Keep the resulting short-lived token in memory; do not log,
+commit, put it in a `VITE_*` field, or send it in chat. A scoped existing management
+connection is also suitable. No secret value is needed in chat.
+
+After read-only inspection, prepare an exact diff for approval before changing
+Auth0 authorization metadata or claim Actions. Callback changes require
+`update:clients`; Action writes require the applicable `create:actions` and/or
+`update:actions`. Do not request those permissions preemptively. Refresh testing
+requires verified SPA refresh-token/rotation settings, API offline access and an
+approved `offline_access` scope; tenant-level discovery alone proves none of these.
+
+### Preview configuration readiness
+
+Use the issuer's verified authorization, token and JWKS endpoints from discovery,
+the staging API audience above, and the actual branch preview origin. The SPA
+client ID, registered callback and approved scopes are still required before an
+apply-ready configuration can be produced. `/callback` on the current preview is
+a candidate supported by the frontend, not a verified Auth0 registration. Keep
+Preview settings branch-scoped, and recheck the preview URL after any deployment;
+immutable deployment URLs change on a new commit. Prefer an existing stable branch
+alias only after verifying its ownership and exact registration. Production
+settings remain outside this work package.
+
+The smallest owner actions are to make the installed Render connection callable
+in this thread (or correct its secure runtime binding), and provide read-only Auth0
+management authorization plus the approved non-secret test tenant identity. These
+unblock inspection and an exact proposed staging configuration without requesting
+the existing GitHub App PEM, creating users, changing privileges or incurring cost.

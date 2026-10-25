@@ -39,6 +39,9 @@ beforeEach(async () => {
   app.get("/actor", requirePermission("scan:read"), (_request, response) =>
     response.json(getActor(response)),
   );
+  app.get("/developer", requirePermission("scan:run"), (_request, response) =>
+    response.json(getActor(response)),
+  );
   apiUrl = await listen(app);
 });
 
@@ -55,16 +58,27 @@ afterEach(async () => {
   vi.unstubAllEnvs();
 });
 
-async function request(claims: Record<string, unknown>, tokenIssuer = issuer) {
+async function request(
+  claims: Record<string, unknown>,
+  tokenIssuer = issuer,
+  options: {
+    audience?: string;
+    expiration?: string;
+    signer?: typeof pair.privateKey;
+    path?: string;
+  } = {},
+) {
   const token = await new SignJWT({ [roleClaim]: ["VIEWER"], ...claims })
     .setProtectedHeader({ alg: "RS256", kid: "tenant-test" })
     .setSubject("auth0|synthetic-user")
     .setIssuer(tokenIssuer)
-    .setAudience("tenant-test-api")
+    .setAudience(options.audience ?? "tenant-test-api")
     .setIssuedAt()
-    .setExpirationTime("5m")
-    .sign(pair.privateKey);
-  return fetch(`${apiUrl}/actor`, { headers: { authorization: `Bearer ${token}` } });
+    .setExpirationTime(options.expiration ?? "5m")
+    .sign(options.signer ?? pair.privateKey);
+  return fetch(`${apiUrl}${options.path ?? "/actor"}`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
 }
 
 it("derives the tenant exclusively from the configured signed claim", async () => {
@@ -106,4 +120,36 @@ it("still requires the trusted issuer and the configured role claim", async () =
   expect(
     (await request({ [tenantClaim]: "tenant", [roleClaim]: undefined, roles: ["VIEWER"] })).status,
   ).toBe(401);
+});
+
+it("rejects a signed token for another API audience", async () => {
+  expect(
+    (await request({ [tenantClaim]: "tenant" }, issuer, { audience: "other-api" })).status,
+  ).toBe(401);
+});
+
+it("rejects an expired signed token with otherwise valid tenant and role claims", async () => {
+  expect((await request({ [tenantClaim]: "tenant" }, issuer, { expiration: "-1m" })).status).toBe(
+    401,
+  );
+});
+
+it("rejects a token signed by an untrusted key despite the expected key ID", async () => {
+  const untrusted = await generateKeyPair("RS256");
+  expect(
+    (await request({ [tenantClaim]: "tenant" }, issuer, { signer: untrusted.privateKey })).status,
+  ).toBe(401);
+});
+
+it("enforces RBAC after verification of namespaced claims", async () => {
+  expect(
+    (await request({ [tenantClaim]: "tenant-a" }, issuer, { path: "/developer" })).status,
+  ).toBe(403);
+  const response = await request(
+    { [tenantClaim]: "tenant-b", [roleClaim]: ["DEVELOPER"] },
+    issuer,
+    { path: "/developer" },
+  );
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ organizationId: "tenant-b", role: "DEVELOPER" });
 });
