@@ -119,3 +119,16 @@ be enforced. Thresholds are hypotheses, not measured results or commercial promi
 Positioning decision: continue a narrow GitHub exact-action authority experiment
 after foundation acceptance. Treat scanning as an integrated evidence source.
 Do not claim novelty, production readiness or proven demand from this desk research.
+
+## R0-C1 framework-boundary follow-up, 2026-10-21
+
+[The source/experiment ledger](research-framework-boundaries.md) adds pinned ADK
+2.12.0 confirmation/consumption source, LangGraph 1.2.16 interrupt/durability contracts,
+license/manifest observations and narrowly sampled public issues. An original local
+nine-case HTTP/SQLite probe distinguishes completed-task reuse from an external effect whose
+acknowledgement was lost, with provider-side uniqueness as a positive control. This is
+stronger technical boundary evidence, not market demand or a production benchmark.
+Existing argument-bound approval and durable task replay contradict any claim these
+features are novel. AgentShield action operations remain HELD/no consumer; live
+Phase 3 and all dependent phase gates remain unchanged. Read the explicit limits
+and reproducible commands before using any result in product positioning.
