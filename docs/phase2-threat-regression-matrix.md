@@ -1,0 +1,25 @@
+# Phase 2 threat to regression evidence
+
+Scope: application control API, trusted configured identity issuer and PostgreSQL.
+A database administrator can alter records/keys and is not defeated by application
+append-only history. The new API admits an intent without provider dispatch.
+
+| Threat / attacker capability                                                    | Boundary and regression                                                                                                                    | Status / limitation                                                                     |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| Valid foreign tenant or actor, forged owner fields or direct IDs                | Actual signed local OIDC HTTP calls with configured foreign policy; session/approval/operation predicates; database parent FKs             | PASS local PostgreSQL; external identity provisioning unverified                        |
+| Ambiguous/changed ref, commit, evidence or provider ID                          | Strict UTF-8 JSON/duplicate rejection, normalized SHA, narrow ref grammar; actual server receipt/mapping reconstruction and mutation tests | PASS local; no GitHub state assertion                                                   |
+| Requester elevated to administrator tries self review                           | Server independence check, review permission and atomic pending transition; concurrent actual reviewers                                    | PASS local; identity alias governance remains issuer trust                              |
+| Approval replay, expiry, policy change or revocation                            | Same versus distinct concurrent operation keys; policy change-back; expiry before and during row-lock wait; actual revoke/admit race       | PASS local; continuous external role revocation not implemented                         |
+| Session closure racing admission                                                | Actual HTTP close pauses inside audit while holding its shared session lock; concurrent admission rejects after closure commits            | PASS PostgreSQL; previously admitted records remain historical                          |
+| Audit failure after state mutation                                              | Real PostgreSQL triggers abort submission, review, policy, consumption/outbox and cancellation transactions                                | PASS rollback; no mock substitutes for transaction boundaries                           |
+| Actor uses a legacy cooperative SDK approval                                    | Actual legacy request/review then new operation admission is refused                                                                       | PASS; cooperative SDK is not execution isolation                                        |
+| Worker crashes, expires or reuses a name                                        | Existing two-worker real scanner takeover plus new expired-failure/recovery race; actual persisted source canary/chain/replay              | PASS local; provider attempt/outcome recovery belongs to Phase 3                        |
+| Migration loses/rewrites customer data                                          | Populated predecessor histories and legacy baseline/drift refusal, old job execution, exact migration-byte comparison                      | PASS local known histories; arbitrary drift and production rollback unqualified         |
+| Direct provider credential bypass / duplicate remote effects / unknown outcomes | No provider consumer or credential in this authority path; HELD/NOT_DISPATCHED explicit                                                    | NOT IMPLEMENTED / NOT RUN provider enforcement; cannot claim bypass protection          |
+| Receipt tampering or secret leakage                                             | Actual hash corruption, valid-hash stale/partial receipts; bounded typed context; redacted source/reasons and raw replay commitment        | PASS supported local cases; hashes do not anonymize low-entropy inputs or prove safety  |
+| Resource exhaustion                                                             | Existing request/rate bounds, strict small typed context, short transactions without remote HTTP                                           | PARTIAL; tenant fairness, sustained load, shared production limits and costs unmeasured |
+
+Primary evidence: `test:action-authority` (ten PostgreSQL groups),
+`test:backend-security` plus current review regressions, `test:phase2-upgrade`, and
+accepted Phase 1 regressions. Published exact-head CI/review is recorded separately
+in PR #17. Passing fixtures do not prove security for every agent/provider/environment.

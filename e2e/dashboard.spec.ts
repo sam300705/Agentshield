@@ -45,6 +45,8 @@ test.describe("AgentShield deterministic dashboard", () => {
     await page.getByRole("button", { name: /Replay attack scenario/ }).click();
 
     await expect(page.getByRole("heading", { name: "Session AS-1842" })).toBeVisible();
+    await expect(page.getByText("Demo chain unverified")).toBeVisible();
+    await expect(page.getByText("Chain verified", { exact: true })).toHaveCount(0);
     await expect(
       page.getByRole("img", { name: "Attack path from agent task to blocked production change" }),
     ).toBeVisible();

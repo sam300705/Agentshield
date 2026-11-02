@@ -18,6 +18,7 @@ type EventRecord = {
   correlationId: string;
   eventHash: string;
   previousHash: string | null;
+  rawPayloadHash?: string | null;
 };
 
 type FakeClient = {
@@ -83,6 +84,7 @@ const fakePrisma = vi.hoisted(() => {
       events.splice(0);
       transactionChain = Promise.resolve();
       vi.clearAllMocks();
+      client.agentSession.findFirst.mockResolvedValue({ id: "session-test" });
     },
     events,
   };
@@ -167,4 +169,67 @@ describe("serializable agent-event ingestion", () => {
       expect(second.previousHash).toBe(first.eventHash);
     }
   });
+});
+
+it("denies another actor before both append and idempotent replay", async () => {
+  fakePrisma.reset();
+  await ingestAgentEvent(input());
+  fakePrisma.prisma.agentSession.findFirst.mockResolvedValue(null);
+  await expect(ingestAgentEvent(input({ actor: "other-actor" }))).resolves.toEqual({
+    kind: "SESSION_NOT_FOUND",
+  });
+  await expect(
+    ingestAgentEvent(input({ actor: "other-actor", idempotencyKey: "new-event" })),
+  ).resolves.toEqual({ kind: "SESSION_NOT_FOUND" });
+  expect(fakePrisma.events).toHaveLength(1);
+  fakePrisma.prisma.agentSession.findFirst.mockResolvedValue({ id: "session-test" });
+});
+
+it("binds idempotency to raw secrets without persisting either original token", async () => {
+  fakePrisma.reset();
+  const secret = (letter: string) => `sk_live_${letter.repeat(30)}`;
+  const first = input({ evidence: { command: `deploy ${secret("a")}` } });
+  const second = input({ evidence: { command: `deploy ${secret("b")}` } });
+  await expect(ingestAgentEvent(first)).resolves.toMatchObject({ kind: "CREATED" });
+  const stored = fakePrisma.events[0];
+  expect(stored?.rawPayloadHash).toMatch(/^[a-f0-9]{64}$/);
+  expect(JSON.stringify(stored)).not.toContain(secret("a"));
+  expect(JSON.stringify(stored)).not.toContain(secret("b"));
+  const conflictingEvent = await ingestAgentEvent(second);
+  expect(conflictingEvent).toEqual({ kind: "IDEMPOTENCY_CONFLICT" });
+  expect(fakePrisma.events).toHaveLength(1);
+});
+
+it("fails closed on a legacy event lacking its unredacted identity hash", async () => {
+  fakePrisma.reset();
+  await ingestAgentEvent(input());
+  const stored = fakePrisma.events[0];
+  if (stored == null) throw new Error("Expected fixture event");
+  stored.rawPayloadHash = null;
+  const legacyReplay = await ingestAgentEvent(input());
+  expect(legacyReplay).toEqual({ kind: "IDEMPOTENCY_CONFLICT" });
+});
+
+it("rejects append and retry when a session is no longer active", async () => {
+  fakePrisma.reset();
+  await ingestAgentEvent(input());
+  fakePrisma.prisma.agentSession.findFirst.mockResolvedValue(null);
+  await expect(ingestAgentEvent(input({ sequence: 1, idempotencyKey: "late" }))).resolves.toEqual({
+    kind: "SESSION_NOT_FOUND",
+  });
+  await expect(ingestAgentEvent(input())).resolves.toEqual({ kind: "SESSION_NOT_FOUND" });
+  expect(fakePrisma.events).toHaveLength(1);
+});
+
+it("does not persist credentials from event summaries while binding their raw identities", async () => {
+  fakePrisma.reset();
+  const token = "Bearer " + "a".repeat(30);
+  await expect(ingestAgentEvent(input({ summary: `Executed ${token}` }))).resolves.toMatchObject({
+    kind: "CREATED",
+  });
+  expect(fakePrisma.events[0]?.summary).not.toContain(token);
+  expect(fakePrisma.events[0]?.summary).toContain("REDACTED:BEARER_TOKEN");
+  await expect(
+    ingestAgentEvent(input({ summary: `Executed Bearer ${"b".repeat(30)}` })),
+  ).resolves.toEqual({ kind: "IDEMPOTENCY_CONFLICT" });
 });

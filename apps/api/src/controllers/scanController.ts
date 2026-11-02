@@ -9,11 +9,7 @@ import { z } from "zod";
 import { ServiceError } from "../security/serviceError.js";
 import { prisma } from "../db/prisma.js";
 import { getActor, getCorrelationId } from "../security/auth.js";
-import {
-  enqueueDemoScan,
-  enqueueRepositoryScan,
-  requestJobCancellation,
-} from "../services/scanQueue.js";
+import { enqueueDemoScan, requestJobCancellation } from "../services/scanQueue.js";
 
 const scanParamsSchema = z.object({
   scanId: z.string().min(1).max(128),
@@ -33,12 +29,13 @@ export async function listRepositoriesController(
   response: Response,
 ): Promise<void> {
   const actor = getActor(response);
-  const { limit, page, skip } = getPagination(request.query);
+  const { page, limit, skip } = getPagination(request.query);
+  const total = await prisma.repository.count({ where: { organizationId: actor.organizationId } });
   const repositories = await prisma.repository.findMany({
-    take: limit,
     skip,
+    take: limit,
     where: { organizationId: actor.organizationId },
-    orderBy: { fullName: "asc" },
+    orderBy: [{ fullName: "asc" }, { id: "asc" }],
     select: {
       id: true,
       provider: true,
@@ -49,34 +46,24 @@ export async function listRepositoriesController(
       updatedAt: true,
     },
   });
-  response.json({ page, limit, data: repositories });
+  response.json(paginatedResponseSchema.parse({ page, limit, total, data: repositories }));
 }
 
-export async function createRepositoryScanController(
+export function createRepositoryScanController(
   request: Request,
   response: Response,
 ): Promise<void> {
-  const actor = getActor(response);
-  const body = createRepositoryScanSchema.parse(request.body);
-  const suppliedKey = request.header("idempotency-key");
-  if (suppliedKey != null && !/^[A-Za-z0-9._:-]{8,128}$/.test(suppliedKey))
-    throw new ServiceError(
-      400,
-      "INVALID_IDEMPOTENCY_KEY",
-      "Idempotency key must contain 8 to 128 safe characters.",
-    );
-  const idempotencyKey =
-    suppliedKey != null && /^[A-Za-z0-9._:-]{8,128}$/.test(suppliedKey)
-      ? suppliedKey
-      : `manual:${getCorrelationId(response)}`;
-  const job = await enqueueRepositoryScan(
-    body,
-    idempotencyKey,
-    actor.organizationId,
-    actor.id,
-    getCorrelationId(response),
-  );
-  response.status(202).json({ ...job, correlationId: getCorrelationId(response) });
+  getActor(response);
+  createRepositoryScanSchema.parse(request.body);
+  // No live repository executor is composed in this phase. Never enqueue doomed work.
+  response.status(503).json({
+    error: {
+      code: "REPOSITORY_SCANS_UNAVAILABLE",
+      message: "Repository scanning is not available in this release.",
+      correlationId: getCorrelationId(response),
+    },
+  });
+  return Promise.resolve();
 }
 
 export async function getScanProgressController(
@@ -122,7 +109,13 @@ export async function cancelScanController(request: Request, response: Response)
     where: { scanId, scan: { organizationId: actor.organizationId } },
     select: { id: true },
   });
-  if (job == null) {
+  if (
+    job == null ||
+    !(await requestJobCancellation(job.id, actor.organizationId, {
+      actor: actor.id,
+      correlationId: getCorrelationId(response),
+    }))
+  ) {
     response.status(404).json({
       error: {
         code: "SCAN_JOB_NOT_FOUND",
@@ -132,19 +125,6 @@ export async function cancelScanController(request: Request, response: Response)
     });
     return;
   }
-  if (
-    !(await requestJobCancellation(
-      job.id,
-      actor.organizationId,
-      actor.id,
-      getCorrelationId(response),
-    ))
-  )
-    throw new ServiceError(
-      409,
-      "SCAN_STATE_CONFLICT",
-      "Scan job is terminal or cancellation was already requested.",
-    );
   response.status(202).json({
     scanId,
     status: "CANCEL_REQUESTED",
@@ -193,7 +173,7 @@ export async function listScansController(request: Request, response: Response):
     prisma.scan.count({ where }),
     prisma.scan.findMany({
       where,
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       skip,
       take: limit,
       include: {
@@ -252,7 +232,7 @@ export async function getScanFindingsController(
     prisma.finding.count({ where }),
     prisma.finding.findMany({
       where,
-      orderBy: [{ severity: "desc" }, { createdAt: "desc" }],
+      orderBy: [{ severity: "desc" }, { createdAt: "desc" }, { id: "desc" }],
       skip,
       take: limit,
       include: {
@@ -275,11 +255,39 @@ export async function getScanSbomController(request: Request, response: Response
     prisma.dependency.count({ where }),
     prisma.dependency.findMany({
       where,
-      orderBy: [{ packageName: "asc" }, { version: "asc" }],
+      orderBy: [{ packageName: "asc" }, { version: "asc" }, { id: "asc" }],
       skip,
       take: limit,
     }),
   ]);
 
   response.json(paginatedResponseSchema.parse({ page, limit, total, data: dependencies }));
+}
+
+export async function getScanFindingController(
+  request: Request,
+  response: Response,
+): Promise<void> {
+  const actor = getActor(response);
+  const { scanId, findingId } = z
+    .object({
+      scanId: z.string().min(1).max(128),
+      findingId: z.string().min(1).max(128),
+    })
+    .parse(request.params);
+  const finding = await prisma.finding.findFirst({
+    where: { id: findingId, scanId, scan: { organizationId: actor.organizationId } },
+    include: { policyDecision: true, remediation: true, approval: true },
+  });
+  if (finding == null) {
+    response.status(404).json({
+      error: {
+        code: "FINDING_NOT_FOUND",
+        message: "Finding was not found.",
+        correlationId: getCorrelationId(response),
+      },
+    });
+    return;
+  }
+  response.json({ data: finding });
 }

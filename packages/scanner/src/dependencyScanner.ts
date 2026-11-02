@@ -76,14 +76,15 @@ async function detectPackageManager(manifestPath: string): Promise<PackageManage
   return "NPM";
 }
 
-function createPackageUrl(
-  packageManager: PackageManager,
-  packageName: string,
-  version: string,
-): string {
-  const ecosystem = packageManager === "UNKNOWN" ? "npm" : packageManager.toLowerCase();
-
-  return `pkg:${ecosystem}/${encodeURIComponent(packageName)}@${encodeURIComponent(version)}`;
+function createPackageUrl(packageName: string, version: string): string {
+  // npm is the ecosystem regardless of the manifest's installation tool.
+  const identity = packageName.startsWith("@")
+    ? packageName
+        .split("/")
+        .map((part) => encodeURIComponent(part))
+        .join("/")
+    : encodeURIComponent(packageName);
+  return `pkg:npm/${identity}@${encodeURIComponent(version)}`;
 }
 
 export async function generateSbomForPackageJson(
@@ -113,7 +114,7 @@ export async function generateSbomForPackageJson(
           packageManager,
           scope: DEPENDENCY_FIELD_TO_SCOPE[field],
           manifestPath,
-          purl: createPackageUrl(packageManager, packageName, version),
+          purl: createPackageUrl(packageName, version),
           metadata: {
             dependencyField: field,
             source: "SBOM_GENERATOR",

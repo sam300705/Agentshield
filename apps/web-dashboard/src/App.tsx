@@ -243,7 +243,7 @@ function Sessions({ replayCount }: { replayCount: number }) {
             <Badge tone={replayCount > 0 && replayCount < demoEvents.length ? "warn" : "block"}>
               {replayCount > 0 && replayCount < demoEvents.length ? "REPLAYING" : "BLOCKED"}
             </Badge>
-            <span className="integrity-ok">◆ Chain verified</span>
+            <span className="integrity-ok">◆ Demo chain unverified</span>
           </div>
         }
       />
@@ -788,7 +788,7 @@ function Audit() {
         eyebrow="Immutable audit explorer"
         title="Every security-relevant transition."
         detail="Append-oriented records link actor, action, entity, correlation, and integrity metadata."
-        action={<Badge tone="allow">CHAIN VERIFIED</Badge>}
+        action={<Badge tone="warn">DEMO CHAIN UNVERIFIED</Badge>}
       />
       <section className="panel audit-list">
         {demoEvents

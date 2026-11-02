@@ -28,9 +28,17 @@ async function run(): Promise<void> {
   );
   try {
     while (!stopping) {
-      if (github != null) await publishGitHubChecks(prisma, github);
+      if (github != null)
+        await publishGitHubChecks(prisma, github, undefined, {
+          signal: shutdownController.signal,
+          maxPublications: 1,
+        });
       const processed = await processNextScanJob(workerId, executor, shutdownController.signal);
-      if (github != null) await publishGitHubChecks(prisma, github);
+      if (github != null)
+        await publishGitHubChecks(prisma, github, undefined, {
+          signal: shutdownController.signal,
+          maxPublications: 1,
+        });
       if (!processed && runOnce) break;
       if (!processed) await new Promise((resolve) => setTimeout(resolve, 1000));
     }

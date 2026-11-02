@@ -14,7 +14,7 @@ PRs #9 and #10 were inspected and remained open/unmerged. Phase 3 targets Phase 
 
 | Existing area                    | Baseline classification                              | Phase 3 disposition                                                           |
 | -------------------------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------- |
-| HMAC/raw body                    | VERIFIED by unit tests; synthetic provider only      | Exact digest bytes, bounded headers and 25 MiB raw body; real HTTP test       |
+| HMAC/raw body                    | VERIFIED by unit tests; synthetic provider only      | Exact digest bytes, bounded headers and 1 MiB raw body; real HTTP test        |
 | Installation JWT/API adapter     | PARTIAL                                              | PKCS1/PKCS8 RSA, safe failures, timeouts, headers, retry classification       |
 | Tenant installation registration | IMPLEMENTED BUT UNVERIFIED live; UNSAFE reassignment | Operator-only provider-verified binding, no tenant reassignment               |
 | Repository synchronization       | PARTIAL                                              | Numeric identity, explicit access flag, selected removal retained             |
@@ -49,9 +49,9 @@ administration, or secrets access. Install only on a disposable, owner-controlle
 
 The API captures raw bytes before JSON parsing. It requires HMAC-SHA256 with the `sha256=`
 prefix and compares decoded, equal-length digests using `timingSafeEqual`. Missing/bad signatures
-return 401; missing delivery/event context and malformed bodies return 400. The 25 MiB limit
-matches GitHub's documented webhook payload ceiling; oversized input receives the API's stable
-`REQUEST_TOO_LARGE` error. Unsupported signed events receive 202 without a scan, including ping.
+return 401; missing delivery/event context and malformed bodies return 400. The supported 1 MiB limit
+is narrower than GitHub's provider ceiling and preserves the existing bounded ingress; oversized input receives the API's stable
+`PAYLOAD_TOO_LARGE` error. Unsupported signed events receive 202 without a scan, including ping.
 
 A persisted installation determines the tenant; webhook tenant fields are ignored. Unknown
 installations return 403. New installations must first be bound by an authorized backend operator,
@@ -127,24 +127,47 @@ state are persisted. Workers publish queued before claiming, in-progress from du
 and completed after durable results. Publication is independent of the scan executor's result:
 old attempts have no client through which to publish their own findings.
 
-A per-scan PostgreSQL transaction advisory lock serializes publishers. A job share lock keeps
-the durable state stable during publication, following the queue’s job-before-scan lock order.
-The complete provider operation has a 40-second deadline inside a 60-second transaction;
-an old executor must prove its lease before requesting publication. On create uncertainty/crash,
-the publisher reconciles the exact `external_id` on that SHA (bounded 10 pages), rather than choosing
-by name alone, before creating. Retries update the persisted Check. GitHub does not expose an atomic
-create-idempotency key: there remains a provider visibility/crash window after an unacknowledged create;
-external-ID reconciliation minimizes it but cannot guarantee exactly-once remote creation under all
-provider failures. This is an explicit provider limitation, not a second scan/job.
+A short transaction claims a generation and 60-second lease, commits a durable possible-create
+marker and takes a snapshot of owned installation/repository and scan state. All token, lookup,
+create and update HTTP then runs outside transactions with a shared 40-second deadline. A short
+finalization atomically checks token/generation and unexpired PostgreSQL clock, records the
+observed result and audit, or makes no authoritative change after lease loss. Audit failure
+rolls back finalization; the durable dispatch marker survives for reconciliation.
 
-| Durable result                             | GitHub conclusion |
-| ------------------------------------------ | ----------------- |
-| All ALLOW / no findings                    | success           |
-| WARN                                       | neutral           |
-| REQUIRE_APPROVAL                           | action_required   |
-| BLOCK                                      | failure           |
-| Cancelled                                  | cancelled         |
-| Exhausted execution/infrastructure failure | failure           |
+A missing provider object after an ambiguous create is UNKNOWN, not permission to create again.
+Exact external-ID/SHA lookup is bounded to ten pages. Visible objects are updated; an invisible
+possible create is retried only as reconciliation and stops after ten attempts. Manual retry
+retains the possible-create marker and cannot turn missing visibility into proof of absence.
+Existing pre-upgrade null-ID records are conservatively UNKNOWN. Known legacy IDs are retained,
+and their output is requalified for coverage after upgrade. No exactly-once remote claim is made.
+
+Database fencing does not fence GitHub itself: a request already accepted remotely can finish
+after a timeout, lease loss, cancellation or local revocation. GitHub supplies no Check update
+compare-and-swap for this generation. Reconciliation records observed acknowledgments; live
+ordering/visibility and recovery qualification remain separate from synthetic tests. Local
+revocation that commits before a claim blocks that claim; it cannot recall an in-flight request.
+
+Requests use installation tokens restricted by immutable `repository_ids`. Scan tokens request
+Contents read/Metadata read; publisher tokens request Checks write/Metadata read. A renamed or
+reused path does not expand that provider token's repository authority. Live provider enforcement
+of this configuration remains unqualified. Provider numeric IDs outside JavaScript's safe integer
+range are refused by this adapter; Phase 2's decimal-string intent storage does not imply live
+support for those IDs. No rounded provider identity is accepted as an equivalent ID.
+
+Due publications are selected by tenant lanes with a 20-item bound. Unchanged projections poll
+after five seconds; real scan state changes wake the poll, while failed HTTP retains its backoff.
+The combined scan worker runs one global publication per pass and propagates shutdown cancellation;
+this bounds work per pass but does not establish production latency/throughput/fairness guarantees.
+
+| Durable result                                 | GitHub conclusion |
+| ---------------------------------------------- | ----------------- |
+| Valid complete evidence, all ALLOW/no findings | success           |
+| Incomplete/invalid/missing evidence            | action_required   |
+| WARN                                           | neutral           |
+| REQUIRE_APPROVAL                               | action_required   |
+| BLOCK                                          | failure           |
+| Cancelled                                      | cancelled         |
+| Exhausted execution/infrastructure failure     | failure           |
 
 Output is bounded summary counts, highest severity, policy version and scan ID. No evidence snippets,
 raw secret values or provider bodies are included. No public dashboard report URL is invented.
@@ -178,8 +201,14 @@ policy decision, Check ID and timestamps. The existing evidence/receipt/SARIF re
    Redeliver the event and confirm one scan/job and the same Check. Move the branch after acceptance
    and confirm the accepted scan's original SHA is retained.
 6. Run `pnpm github:operator verify-live <organization-id> <delivery-id>` from the configured backend.
-   It verifies database lineage and the actual Check using installation auth and prints safe IDs and
-   conclusion only. The normal CI simulator does not invoke this command or count as live proof.
+   It performs the same read-only helper exercised by the normal HTTP/PostgreSQL simulator,
+   using a repository-ID-scoped Checks-read token. It requires current owned/selected active
+   lineage, COMPLETE/OBSERVED publication, a valid-hash complete receipt, exact safe Check ID,
+   SHA/external ID/status and conservative expected conclusion. It rechecks local context after
+   HTTP. PASS is limited to GITHUB_CHECK_OBSERVATION, with hash VERIFIED and signature
+   UNSIGNED or NOT_VERIFIED; no signing key is requested. A legacy receipt without coverage
+   remains readable but cannot qualify this diagnostic. The helper persists no data and
+   performs no Check write. Synthetic qualification is not live GitHub evidence.
 7. After fixing stopped publication: `pnpm github:operator retry-check <organization-id> <scan-id>`.
    This schedules publication only; keep the worker running.
 
@@ -229,3 +258,14 @@ preserved; runtime code-scanning publication is not required.
 - [Downloaded App private keys](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps)
 - [Repository archives](https://docs.github.com/en/rest/repos/contents#download-a-repository-archive-tar)
 - [Checks API](https://docs.github.com/en/rest/checks/runs)
+
+Read-only observation limits: the provider or local state can change after the
+observation. A post-HTTP local recheck does not provide a globally atomic snapshot
+or detect every change-and-restore ABA sequence, and a matching provider response is
+not independent signature verification, complete capture or action authorization.
+No private signing credential is used. Two short repeatable-read local snapshots
+surround HTTP; a tagged PostgreSQL activity probe verifies no transaction remains
+open while the provider response is paused. A malformed/partial/missing receipt,
+foreign tenant, invalid ID, revoked selection, suspended installation, UNKNOWN
+publication or changed Check identity/conclusion fails qualification. Present
+signature metadata is explicitly NOT_VERIFIED, never promoted to signed acceptance.

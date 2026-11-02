@@ -10,6 +10,7 @@ import {
 } from "@agentshield/schemas";
 import { createHash } from "node:crypto";
 
+import { evaluateCondition } from "./evaluator.js";
 import { canonicalJson, riskScoreForDecisions } from "./controlPlane.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -30,64 +31,13 @@ function jsonValue(value: unknown): JsonValue | undefined {
   return JSON.parse(JSON.stringify(value)) as JsonValue;
 }
 
-function compare(left: unknown, right: unknown): number | undefined {
-  const severity = { LOW: 1, MEDIUM: 2, HIGH: 3, CRITICAL: 4 } as const;
-  if (typeof left === "number" && typeof right === "number") return left - right;
-  if (typeof left === "string" && typeof right === "string") {
-    const leftRank = severity[left as keyof typeof severity];
-    const rightRank = severity[right as keyof typeof severity];
-    if (leftRank != null && rightRank != null) return leftRank - rightRank;
-    return left.localeCompare(right);
-  }
-  return undefined;
-}
-
 function traceCondition(
   finding: Finding,
   condition: PolicyRule["conditions"][number],
 ): ConditionTrace {
   const actual = fieldValue(finding, condition.field);
   const expected = condition.value;
-  let matched = false;
-  switch (condition.operator) {
-    case "EQUALS":
-      matched = canonicalJson(actual) === canonicalJson(expected);
-      break;
-    case "NOT_EQUALS":
-      matched = canonicalJson(actual) !== canonicalJson(expected);
-      break;
-    case "IN":
-      matched =
-        Array.isArray(expected) &&
-        expected.some((item) => canonicalJson(actual) === canonicalJson(item));
-      break;
-    case "NOT_IN":
-      matched =
-        !Array.isArray(expected) ||
-        expected.every((item) => canonicalJson(actual) !== canonicalJson(item));
-      break;
-    case "GREATER_THAN":
-      matched = (compare(actual, expected) ?? 0) > 0;
-      break;
-    case "GREATER_THAN_OR_EQUAL":
-      matched = (compare(actual, expected) ?? -1) >= 0;
-      break;
-    case "LESS_THAN":
-      matched = (compare(actual, expected) ?? 0) < 0;
-      break;
-    case "LESS_THAN_OR_EQUAL":
-      matched = (compare(actual, expected) ?? 1) <= 0;
-      break;
-    case "MATCHES_REGEX":
-      matched =
-        typeof actual === "string" &&
-        typeof expected === "string" &&
-        new RegExp(expected, "i").test(actual);
-      break;
-    case "EXISTS":
-      matched = actual != null;
-      break;
-  }
+  const matched = evaluateCondition(finding, condition);
   return {
     field: condition.field,
     operator: condition.operator,

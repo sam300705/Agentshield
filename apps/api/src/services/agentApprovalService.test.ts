@@ -4,6 +4,7 @@ import type { AgentApproval, AgentAuthorizationRequest } from "@agentshield/sche
 
 type AsyncMock<T> = Mock<() => Promise<T>>;
 type ApprovalMocks = {
+  $executeRaw: Mock;
   agentApproval: {
     findUnique: AsyncMock<AgentApproval | null>;
     findUniqueOrThrow: AsyncMock<AgentApproval>;
@@ -18,6 +19,7 @@ type ApprovalMocks = {
 
 const prismaMock = vi.hoisted(() => {
   const mock: ApprovalMocks = {
+    $executeRaw: vi.fn(),
     agentApproval: {
       findUnique: vi.fn(),
       findUniqueOrThrow: vi.fn(),
@@ -35,7 +37,7 @@ const prismaMock = vi.hoisted(() => {
 
 vi.mock("../db/prisma.js", () => ({ prisma: prismaMock }));
 
-const { createAgentActionDigest, ensureAgentApproval, reviewAgentApproval } =
+const { createAgentActionDigest, ensureAgentApproval, reviewAgentApproval, getAgentApproval } =
   await import("./agentApprovalService.js");
 
 const input: AgentAuthorizationRequest = {
@@ -71,12 +73,67 @@ function approval(overrides: Partial<AgentApproval> = {}): AgentApproval {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  prismaMock.agentApproval.findUnique.mockResolvedValue(null);
+  prismaMock.agentApproval.findFirst.mockResolvedValue(null);
   prismaMock.agentSession.findFirst.mockResolvedValue({ id: input.sessionId });
   prismaMock.auditEvent.create.mockResolvedValue({});
 });
 
 describe("AgentApproval service", () => {
+  it("binds command evidence with deterministic key ordering and no transport metadata", async () => {
+    const command = { ...input, evidence: { command: "echo safe", directory: "src" } };
+    const digest = createAgentActionDigest(command);
+    expect(
+      createAgentActionDigest({
+        ...command,
+        evidence: { directory: "src", command: "echo safe" },
+        correlationId: "different",
+      }),
+    ).toBe(digest);
+    const stored = approval({ actionDigest: digest, status: "APPROVED" });
+    prismaMock.agentApproval.findFirst.mockResolvedValue(stored);
+    await expect(ensureAgentApproval(command, "corr")).resolves.toEqual({
+      kind: "EXISTING",
+      approval: stored,
+    });
+    await expect(
+      ensureAgentApproval(
+        { ...command, evidence: { command: "rm -rf src", directory: "src" } },
+        "corr",
+      ),
+    ).resolves.toEqual({ kind: "IDEMPOTENCY_CONFLICT" });
+    expect(prismaMock.agentApproval.create).not.toHaveBeenCalled();
+  });
+  it.each(["fresh", "replay"])(
+    "rejects another session actor before %s or any writes",
+    async (kind) => {
+      prismaMock.agentSession.findFirst.mockResolvedValue(null);
+      if (kind === "replay") prismaMock.agentApproval.findFirst.mockResolvedValue(approval());
+      await expect(ensureAgentApproval(input, "corr")).resolves.toEqual({
+        kind: "SESSION_NOT_FOUND",
+      });
+      expect(prismaMock.agentSession.findFirst).toHaveBeenCalledWith({
+        where: {
+          id: input.sessionId,
+          organizationId: input.organizationId,
+          actor: input.actor,
+          status: "ACTIVE",
+        },
+        select: { id: true },
+      });
+      expect(prismaMock.agentApproval.findFirst).not.toHaveBeenCalled();
+      expect(prismaMock.agentApproval.create).not.toHaveBeenCalled();
+    },
+  );
+  it("rechecks session ownership inside the creation transaction", async () => {
+    prismaMock.agentSession.findFirst
+      .mockResolvedValueOnce({ id: input.sessionId })
+      .mockResolvedValueOnce(null);
+    await expect(ensureAgentApproval(input, "corr")).resolves.toEqual({
+      kind: "SESSION_NOT_FOUND",
+    });
+    expect(prismaMock.agentApproval.create).not.toHaveBeenCalled();
+    expect(prismaMock.auditEvent.create).not.toHaveBeenCalled();
+  });
   it("creates one pending approval and an audit event for a protected action", async () => {
     const stored = approval();
     prismaMock.agentApproval.create.mockResolvedValue(stored);
@@ -97,7 +154,7 @@ describe("AgentApproval service", () => {
 
   it("returns the existing approval for an identical idempotent request", async () => {
     const stored = approval();
-    prismaMock.agentApproval.findUnique.mockResolvedValue(stored);
+    prismaMock.agentApproval.findFirst.mockResolvedValue(stored);
 
     const result = await ensureAgentApproval(input, "server-correlation");
 
@@ -106,7 +163,7 @@ describe("AgentApproval service", () => {
   });
 
   it("rejects reuse of an idempotency key for different action content", async () => {
-    prismaMock.agentApproval.findUnique.mockResolvedValue(
+    prismaMock.agentApproval.findFirst.mockResolvedValue(
       approval({ actionType: "ACCESS_SECRET", actionDigest: "0".repeat(64) }),
     );
 
@@ -169,4 +226,73 @@ describe("AgentApproval service", () => {
       ),
     ).resolves.toEqual({ kind: "CONFLICT" });
   });
+});
+
+it.each(["stripe", "url"])(
+  "does not reuse an approval when %s credentials change",
+  async (kind) => {
+    const command = (letter: string) =>
+      kind === "stripe"
+        ? `deploy ${["sk", "live", letter.repeat(30)].join("_")}`
+        : `curl https://example.test/?token=${letter.repeat(30)}`;
+    const first = { ...input, evidence: { command: command("a") } };
+    const second = { ...input, evidence: { command: command("b") } };
+    expect(createAgentActionDigest(first)).not.toBe(createAgentActionDigest(second));
+    prismaMock.agentApproval.findFirst.mockResolvedValue(
+      approval({ actionDigest: createAgentActionDigest(first), status: "APPROVED" }),
+    );
+    await expect(ensureAgentApproval(second, "corr")).resolves.toEqual({
+      kind: "IDEMPOTENCY_CONFLICT",
+    });
+  },
+);
+it("refuses review if the displayed digest differs from the pending action", async () => {
+  prismaMock.agentApproval.findFirst.mockResolvedValue(approval());
+  await expect(
+    reviewAgentApproval(
+      input.organizationId,
+      "approval-test",
+      "APPROVED",
+      "independent-reviewer",
+      "reviewed",
+      "corr",
+      "f".repeat(64),
+    ),
+  ).resolves.toEqual({ kind: "CONFLICT" });
+  expect(prismaMock.agentApproval.updateMany).not.toHaveBeenCalled();
+});
+
+it("sanitizes historical approval resources before direct reads", async () => {
+  const token = "sk_live_" + "x".repeat(30);
+  prismaMock.agentApproval.findFirst.mockResolvedValue(
+    approval({
+      resource: `https://example.test/?token=${token}`,
+    }),
+  );
+  const record = await getAgentApproval("org-test", "approval-test");
+  expect(JSON.stringify(record)).not.toContain(token);
+});
+
+it("sanitizes new approval resources before persistence without changing raw digest identity", async () => {
+  const token = "sk_live_" + "y".repeat(30);
+  const sensitive = { ...input, resource: `https://example.test/?token=${token}` };
+  prismaMock.agentApproval.create.mockResolvedValue(
+    approval({
+      resource: "[REDACTED]",
+      actionDigest: createAgentActionDigest(sensitive),
+    }),
+  );
+  const result = await ensureAgentApproval(sensitive, "corr");
+  expect(result.kind).toBe("CREATED");
+  const call = (prismaMock.agentApproval.create.mock.calls as unknown as unknown[][])[0]?.[0] as
+    | { data?: { resource?: string } }
+    | undefined;
+  expect(call?.data?.resource).not.toContain(token);
+  expect(call?.data?.resource).toContain("REDACTED");
+});
+
+it("rejects a redacted resource that expands past the schema limit before writing", async () => {
+  const resource = Array.from({ length: 200 }, () => "token=12345678").join(" ");
+  await expect(ensureAgentApproval({ ...input, resource }, "corr")).rejects.toThrow();
+  expect(prismaMock.agentApproval.create).not.toHaveBeenCalled();
 });

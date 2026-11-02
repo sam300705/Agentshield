@@ -1,5 +1,7 @@
 import type {
   Approval,
+  AgentApproval,
+  JsonValue,
   AuditEvent,
   Dependency,
   Finding,
@@ -10,9 +12,7 @@ import type {
 
 import { getApiAccessToken, notifyApiAuthFailure } from "./auth";
 
-const API_BASE_URL =
-  (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ||
-  "http://localhost:3001";
+import { resolveApiBaseUrl } from "./apiOrigin";
 
 export interface PaginatedResponse<T> {
   page: number;
@@ -46,6 +46,14 @@ export interface ApprovalWithFinding extends Approval {
   finding: FindingWithRelations;
 }
 
+export interface AgentApprovalReviewItem extends AgentApproval {
+  evidence: JsonValue;
+  evidenceAvailable: boolean;
+}
+export interface ApprovalQueueResponse extends PaginatedResponse<ApprovalWithFinding> {
+  agentApprovals?: PaginatedResponse<AgentApprovalReviewItem>;
+}
+
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string | null;
@@ -59,6 +67,7 @@ export class ApiError extends Error {
 }
 
 export interface DashboardSummary {
+  platformRiskScore: "A" | "B" | "C" | "F";
   totalScans: number;
   totalFindings: number;
   pendingApprovalsCount: number;
@@ -88,15 +97,17 @@ export interface DashboardSummary {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const apiBaseUrl = resolveApiBaseUrl(import.meta.env);
   const headers = new Headers(init?.headers);
   headers.set("Content-Type", "application/json");
   const accessToken = await getApiAccessToken();
   if (accessToken != null) headers.set("Authorization", `Bearer ${accessToken}`);
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetch(`${apiBaseUrl}${path}`, {
     ...init,
     headers,
     credentials: "omit",
+    redirect: "error",
   });
 
   if (!response.ok) {
@@ -138,6 +149,11 @@ export const api = {
       `/api/v1/scans/${encodeURIComponent(scanId)}/findings?limit=${limit}&page=${page}`,
     );
   },
+  getFinding(scanId: string, findingId: string) {
+    return request<{ data: FindingWithRelations }>(
+      `/api/v1/scans/${encodeURIComponent(scanId)}/findings/${encodeURIComponent(findingId)}`,
+    );
+  },
   getSbom(scanId: string, limit = 100, page = 1) {
     return request<PaginatedResponse<Dependency>>(
       `/api/v1/scans/${encodeURIComponent(scanId)}/sbom?limit=${limit}&page=${page}`,
@@ -167,8 +183,20 @@ export const api = {
     return request<{ data: unknown }>(`/api/v1/receipts/${encodeURIComponent(scanId)}`);
   },
   listApprovals(limit = 50, page = 1) {
-    return request<PaginatedResponse<ApprovalWithFinding>>(
-      `/api/approvals?limit=${limit}&page=${page}`,
+    return request<ApprovalQueueResponse>(`/api/approvals?limit=${limit}&page=${page}`);
+  },
+  reviewAgentApproval(
+    approvalId: string,
+    action: "approve" | "reject",
+    reason: string,
+    expectedActionDigest: string,
+  ) {
+    return request<{ data: AgentApproval }>(
+      `/api/v1/agent/approvals/${encodeURIComponent(approvalId)}/${action}`,
+      {
+        method: "POST",
+        body: JSON.stringify({ reason, expectedActionDigest }),
+      },
     );
   },
   approve(approvalId: string, reason: string) {

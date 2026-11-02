@@ -1,4 +1,12 @@
 import assert from "node:assert/strict";
+import { POLICY_RULE_VERSION } from "@agentshield/policy-engine";
+import { assertSafeSeedTarget } from "../services/seedSafety.js";
+assertSafeSeedTarget(process.env.NODE_ENV, process.env.DATABASE_URL ?? "");
+assert.equal(
+  process.env.AGENTSHIELD_DISPOSABLE_DATABASE,
+  "true",
+  "Explicit disposable database opt-in required.",
+);
 import { randomUUID } from "node:crypto";
 import type { Server } from "node:http";
 import { PrismaClient } from "@prisma/client";
@@ -58,7 +66,7 @@ async function close(server: Server | undefined) {
 const request = {
   repositoryId: repoA,
   ref: "main",
-  policyBundleVersion: "test",
+  policyBundleVersion: POLICY_RULE_VERSION,
   options: scanOptionsSchema.parse({}),
 };
 async function queue(key: string) {
@@ -117,6 +125,7 @@ async function main() {
     DEMO_AUTH_ENABLED: "false",
     OIDC_ISSUER: issuer,
     OIDC_AUDIENCE: "backend-security",
+    OIDC_ROLE_CLAIM: "role",
     OIDC_JWKS_URL: `${issuer}/jwks`,
     RATE_LIMIT_ENABLED: "false",
     GITHUB_WEBHOOK_ENABLED: "false",
@@ -181,7 +190,7 @@ async function main() {
   );
   assert.equal(
     (await call("/api/v1/scans", { method: "POST", body: request, key: "bad" })).status,
-    400,
+    503,
   );
   assert.equal((await call("/api/v1/scans?limit=101")).status, 400);
   assert.equal((await call("/api/v1/scans?page=9007199254740991")).status, 400);
@@ -284,13 +293,13 @@ async function main() {
         correlationId,
         triggeredBy: actor,
         labels: [],
-        policyBundleVersion: "test",
+        policyBundleVersion: POLICY_RULE_VERSION,
         options: request.options,
       },
       job.scanId,
     ),
   );
-  assert.equal(await requestJobCancellation(job.id, orgA, actor, correlationId), false);
+  assert.equal(await requestJobCancellation(job.id, orgA, { actor, correlationId }), false);
   pass("two-worker single claim, complete evidence/receipt, terminal transition guard");
 
   for (const path of [
@@ -308,7 +317,7 @@ async function main() {
   );
   assert.equal(
     (await call("/api/v1/scans", { org: orgB, method: "POST", body: request })).status,
-    404,
+    503,
   );
   const repos = (await call("/api/v1/repositories", { org: orgB })).body.data! as { id: string }[];
   assert(repos.every((r) => r.id !== repoA));
@@ -491,7 +500,7 @@ async function main() {
   pass("agent approval race, tenant isolation, event impersonation");
 
   const cancelled = await queue("cancelled");
-  assert(await requestJobCancellation(cancelled.id, orgA, actor, correlationId));
+  assert(await requestJobCancellation(cancelled.id, orgA, { actor, correlationId }));
   assert.equal((await state(cancelled.id)).scan.status, "CANCELLED");
   assert.equal(await processNextScanJob("cancel-check", counting), false);
   const failing = await queue("retry");
@@ -568,7 +577,7 @@ async function main() {
       };
     },
   });
-  const oldWorker = processNextScanJob("old-fenced", stalled);
+  const oldWorker = processNextScanJob("reused-worker-name", stalled);
   await enteredPromise;
   const oldState = await state(fenced.id);
   assert(oldState.lockedBy);
@@ -576,17 +585,47 @@ async function main() {
   assert.equal(await recoverAbandonedJobs(), 0);
   await prisma.scanJob.update({ where: { id: fenced.id }, data: { leaseExpiresAt: new Date(0) } });
   assert.equal(await recoverAbandonedJobs(), 1);
-  await processNextScanJob("new-fenced", counting);
+  let newEntered!: () => void, newRelease!: () => void;
+  const newStarted = new Promise<void>((resolve) => {
+    newEntered = resolve;
+  });
+  const newGate = new Promise<void>((resolve) => {
+    newRelease = resolve;
+  });
+  const newer = new ConfiguredScanJobExecutor({
+    prepare: async () => {
+      newEntered();
+      await newGate;
+      return {
+        path: new URL("../../../../examples/vulnerable-repo", import.meta.url).pathname,
+        cleanup: () => Promise.resolve(),
+      };
+    },
+  });
+  const newWorker = processNextScanJob("reused-worker-name", newer);
+  await newStarted;
+  const newState = await state(fenced.id);
+  assert.notEqual(newState.lockedBy, oldState.lockedBy);
+  assert.equal(await renewScanJobLease(fenced.id, oldState.lockedBy), false);
   release();
   await oldWorker;
+  assert.equal(
+    (await state(fenced.id)).status,
+    "RUNNING",
+    "Stale worker must not fail the newer in-flight claim",
+  );
+  assert.equal((await state(fenced.id)).lockedBy, newState.lockedBy);
+  newRelease();
+  await newWorker;
   assert.equal((await state(fenced.id)).status, "COMPLETED");
   assert.equal((await state(fenced.id)).attempts, 2);
-  assert.equal(await renewScanJobLease(fenced.id, oldState.lockedBy), false);
   assert.equal(
     await prisma.auditEvent.count({ where: { scanId: fenced.scanId, action: "SCAN_COMPLETED" } }),
     1,
   );
-  pass("old worker completion fenced after real overlapping recovery and newer completion");
+  pass(
+    "same-name overlapping workers: expired token cannot renew, publish or fail the newer claim",
+  );
 
   const runningCancel = await queue("running-cancel");
   let runningEntered!: () => void, runningRelease!: () => void;
@@ -608,7 +647,7 @@ async function main() {
   });
   const runningWorker = processNextScanJob("running-cancel", cancellable);
   await runningStart;
-  assert(await requestJobCancellation(runningCancel.id, orgA, actor, correlationId));
+  assert(await requestJobCancellation(runningCancel.id, orgA, { actor, correlationId }));
   runningRelease();
   await runningWorker;
   assert.equal((await state(runningCancel.id)).status, "CANCELLED");
@@ -656,7 +695,7 @@ async function main() {
   );
   assert.equal(await prisma.securityReceipt.count({ where: { scanId: rollback.scanId } }), 0);
   assert.equal((await state(rollback.id)).status, "FAILED");
-  await requestJobCancellation(rollback.id, orgA, actor, correlationId);
+  await requestJobCancellation(rollback.id, orgA, { actor, correlationId });
   pass("evidence+receipt+completion rollback on actual database transaction failure");
 
   const durable = JSON.stringify(

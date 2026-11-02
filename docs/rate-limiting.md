@@ -15,3 +15,7 @@ The default distributed middleware behavior is fail-closed with a sanitized `503
 ## Verification
 
 Synthetic tests cover shared-key isolation, standard headers, Redis command behavior, fail-closed outages, and explicitly configured fail-open behavior. The in-memory fallback remains labeled as per-instance and is not evidence of distributed protection.
+
+## Route budgets
+
+The per-instance limiter uses finite method and route-family identities before Express routing. Dynamic IDs and queries cannot create separate scan budgets; `/api` and `/api/v1` aliases share a family. Unknown routes share an `other` family. Exhaustion and bucket-cap responses use the shared error envelope and request correlation ID. This remains per-instance protection.

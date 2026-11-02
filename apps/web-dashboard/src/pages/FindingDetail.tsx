@@ -29,10 +29,9 @@ export function FindingDetail() {
     }
 
     void api
-      .getFindings(scanId, 100)
+      .getFinding(scanId, findingId)
       .then((response) => {
-        const selectedFinding = response.data.find((item) => item.id === findingId) ?? null;
-        setFinding(selectedFinding);
+        setFinding(response.data);
       })
       .catch(() => setError("Unable to load finding details. Confirm the API is running."))
       .finally(() => setIsLoading(false));

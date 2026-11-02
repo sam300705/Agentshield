@@ -2,6 +2,8 @@ import type { NextFunction, Request, RequestHandler, Response } from "express";
 import { randomUUID } from "node:crypto";
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 
+import { assertOidcKeyTransport } from "../config.js";
+
 export const roles = [
   "VIEWER",
   "DEVELOPER",
@@ -81,10 +83,12 @@ function toClaimValues(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [value];
 }
 
-function mapRole(claims: AuthClaims): Role | null {
+export function mapRole(claims: AuthClaims): Role | null {
   const configuredClaim = process.env.OIDC_ROLE_CLAIM?.trim();
   const configuredValue = configuredClaim == null ? undefined : claims[configuredClaim];
-  const values = [configuredValue, claims.role, claims.roles].flatMap(toClaimValues);
+  const values = (configuredClaim ? [configuredValue] : [claims.role, claims.roles]).flatMap(
+    toClaimValues,
+  );
   const role = values.find(
     (value): value is string => typeof value === "string" && recognizedRoleClaims.has(value),
   );
@@ -92,7 +96,10 @@ function mapRole(claims: AuthClaims): Role | null {
 }
 
 function mapOrganizationId(claims: AuthClaims): string | null {
-  const candidates = [claims.organization_id, claims.organizationId, claims.org_id];
+  const configuredClaim = process.env.OIDC_TENANT_CLAIM?.trim();
+  const candidates = configuredClaim
+    ? [claims[configuredClaim]]
+    : [claims.organization_id, claims.organizationId, claims.org_id];
   const organizationId = candidates.find(
     (value): value is string => typeof value === "string" && /^[A-Za-z0-9._:-]{1,128}$/.test(value),
   );
@@ -116,6 +123,7 @@ async function verifyOidcToken(token: string): Promise<RequestActor> {
     throw new Error("OIDC authentication is not configured.");
   }
 
+  assertOidcKeyTransport(jwksUrl, isProduction());
   const verified = await jwtVerify(token, getJwks(jwksUrl), { issuer, audience });
   const claims = verified.payload as AuthClaims;
   const subject = typeof claims.sub === "string" ? claims.sub : null;

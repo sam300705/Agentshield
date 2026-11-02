@@ -1,5 +1,8 @@
+import type { ScanCoverage } from "@agentshield/schemas";
 import {
   createSecurityReceipt,
+  canonicalJson,
+  POLICY_RULE_VERSION,
   evaluateFindings,
   signSecurityReceipt,
 } from "@agentshield/policy-engine";
@@ -16,11 +19,13 @@ import {
   type Remediation,
   type ScanOptions,
 } from "@agentshield/schemas";
-import { AuditAction, Prisma, ScanStatus, type PrismaClient } from "@prisma/client";
+import { AuditAction, Prisma, type PrismaClient } from "@prisma/client";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { prisma } from "../db/prisma.js";
+import { receiptSigningSettings } from "../security/receiptSigningConfig.js";
+export { receiptSigningSettings } from "../security/receiptSigningConfig.js";
 
 const SYSTEM_ACTOR = "System";
 const DEMO_TARGET_PATH = "../../examples/vulnerable-repo";
@@ -108,25 +113,27 @@ function createScanMetadata(input: {
   advisoryCount: number;
   advisoryStatus: "DISABLED" | "ENRICHED" | "UNAVAILABLE";
   advisoryDiagnostic?: string;
+  advisoryInventoryDiagnostics?: JsonValue;
   policyBundleVersion: string;
-}): Prisma.InputJsonValue {
-  return toInputJson({
+}): Prisma.InputJsonObject {
+  return {
     source: input.source,
     targetPath: input.targetPath,
     triggeredBy: input.triggeredBy,
     labels: input.labels,
     aggregateCounts: {
-      findings: input.findingCounts,
+      findings: { ...input.findingCounts },
       policyDecisions: input.decisionCounts,
       dependencies: input.dependencyCount,
       remediations: input.remediationCount,
       approvals: input.approvalCount,
       advisories: input.advisoryCount,
       advisoryStatus: input.advisoryStatus,
+      advisoryInventoryDiagnostics: input.advisoryInventoryDiagnostics ?? [],
       ...(input.advisoryDiagnostic == null ? {} : { advisoryDiagnostic: input.advisoryDiagnostic }),
     },
     policyBundleVersion: input.policyBundleVersion,
-  });
+  };
 }
 
 function createScannerEvidence(finding: Finding): Prisma.InputJsonValue {
@@ -167,6 +174,7 @@ type AdvisoryEnrichment = {
 async function runAdvisoryEnrichment(
   dependencies: Dependency[],
   enabled: boolean,
+  signal?: AbortSignal,
 ): Promise<AdvisoryEnrichment> {
   if (!enabled) return { results: [], status: "DISABLED" };
   try {
@@ -178,6 +186,7 @@ async function runAdvisoryEnrichment(
         ...(dependency.purl == null ? {} : { purl: dependency.purl }),
       })),
       {
+        ...(signal == null ? {} : { signal }),
         ...(process.env.OSV_API_BASE_URL == null ? {} : { baseUrl: process.env.OSV_API_BASE_URL }),
         ...(process.env.OSV_REQUEST_TIMEOUT_MS == null
           ? {}
@@ -186,6 +195,7 @@ async function runAdvisoryEnrichment(
     );
     return { results, status: "ENRICHED" };
   } catch (error) {
+    signal?.throwIfAborted();
     console.warn(
       JSON.stringify({
         level: "warn",
@@ -202,6 +212,75 @@ async function runAdvisoryEnrichment(
   }
 }
 
+// Consolidate only public, redacted identity; no secret-derived hash/discriminator.
+// A production occurrence dominates weaker scopes; differing nonproduction scopes
+// become UNKNOWN. Advisory lookup uses this same persisted public identity.
+export function consolidateDependencies(dependencies: Dependency[]): Dependency[] {
+  const groups = new Map<string, Dependency[]>();
+  for (const raw of dependencies) {
+    const dependency = {
+      ...raw,
+      packageName: sanitizeText(raw.packageName),
+      version: sanitizeText(raw.version),
+      manifestPath: sanitizeText(raw.manifestPath),
+      purl: raw.purl == null ? null : sanitizeText(raw.purl),
+      license: raw.license == null ? null : sanitizeText(raw.license),
+      supplier: raw.supplier == null ? null : sanitizeText(raw.supplier),
+      metadata: sanitizeEvidence(raw.metadata) as Dependency["metadata"],
+    };
+    const key = JSON.stringify([
+      dependency.scanId,
+      dependency.packageName,
+      dependency.version,
+      dependency.manifestPath,
+    ]);
+    const group = groups.get(key) ?? [];
+    group.push(dependency);
+    groups.set(key, group);
+  }
+  return [...groups.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([, group]) => {
+      const sourceKey = (d: Dependency) =>
+        canonicalJson({
+          scope: d.scope,
+          packageManager: d.packageManager,
+          metadata: d.metadata,
+          purl: d.purl ?? null,
+          license: d.license ?? null,
+          supplier: d.supplier ?? null,
+        });
+      group.sort(
+        (a, b) =>
+          Number(b.scope === "PRODUCTION") - Number(a.scope === "PRODUCTION") ||
+          sourceKey(a).localeCompare(sourceKey(b)) ||
+          a.id.localeCompare(b.id),
+      );
+      const first = group[0]!;
+      const scopes = [...new Set(group.map((d) => d.scope))].sort();
+      return {
+        ...first,
+        scope: scopes.includes("PRODUCTION")
+          ? "PRODUCTION"
+          : scopes.length === 1
+            ? first.scope
+            : "UNKNOWN",
+        metadata: {
+          ...first.metadata,
+          consolidatedOccurrences: group.length,
+          observedScopes: scopes,
+          dependencyFields: [
+            ...new Set(
+              group
+                .map((d) => d.metadata.dependencyField)
+                .filter((field): field is string => typeof field === "string"),
+            ),
+          ].sort(),
+        },
+      };
+    });
+}
+
 async function persistDependency(
   tx: Prisma.TransactionClient,
   dependency: Dependency,
@@ -210,15 +289,15 @@ async function persistDependency(
     data: {
       id: dependency.id,
       scanId: dependency.scanId,
-      packageName: dependency.packageName,
-      version: dependency.version,
+      packageName: sanitizeText(dependency.packageName),
+      version: sanitizeText(dependency.version),
       packageManager: dependency.packageManager,
       scope: dependency.scope,
-      manifestPath: dependency.manifestPath,
-      purl: dependency.purl ?? null,
-      license: dependency.license ?? null,
-      supplier: dependency.supplier ?? null,
-      metadata: toInputJson(dependency.metadata),
+      manifestPath: sanitizeText(dependency.manifestPath),
+      purl: dependency.purl == null ? null : sanitizeText(dependency.purl),
+      license: dependency.license == null ? null : sanitizeText(dependency.license),
+      supplier: dependency.supplier == null ? null : sanitizeText(dependency.supplier),
+      metadata: toInputJson(sanitizeEvidence(dependency.metadata)),
       createdAt: dependency.createdAt,
     },
   });
@@ -283,7 +362,46 @@ async function persistRemediation(
   });
 }
 
-async function persistAdvisories(
+export function partitionAdvisoryResults(results: DependencyAdvisoryResult[]) {
+  return {
+    confirmed: results.map((result) => ({
+      ...result,
+      advisories: result.advisories.filter((advisory) => advisory.match === "CONFIRMED"),
+    })),
+    diagnostics: sanitizeEvidence(
+      results.flatMap((result) =>
+        result.advisories
+          .filter((advisory) => advisory.match !== "CONFIRMED")
+          .map((advisory) => ({
+            packageName: sanitizeText(result.packageName),
+            version: sanitizeText(result.version),
+            match: advisory.match,
+            matchReason: advisory.matchReason,
+          })),
+      ),
+    ),
+  };
+}
+
+function advisoryObservationKey(result: DependencyAdvisoryResult, advisoryId: string): string {
+  return JSON.stringify([
+    ecosystemForPackageManager(result.packageManager),
+    sanitizeText(result.packageName),
+    sanitizeText(result.version),
+    sanitizeText(advisoryId),
+  ]);
+}
+function persistedAdvisoryCount(results: DependencyAdvisoryResult[]): number {
+  return new Set(
+    results.flatMap((result) =>
+      result.advisories
+        .filter((a) => a.match === "CONFIRMED")
+        .map((a) => advisoryObservationKey(result, a.advisoryId)),
+    ),
+  ).size;
+}
+
+export async function persistAdvisories(
   tx: Prisma.TransactionClient,
   organizationId: string,
   scanId: string,
@@ -292,39 +410,51 @@ async function persistAdvisories(
 ): Promise<number> {
   const dependencyIds = new Map(
     dependencies.map((dependency) => [
-      `${dependency.packageName}:${dependency.version}:${dependency.packageManager}`,
+      JSON.stringify([dependency.packageName, dependency.version, dependency.packageManager]),
       dependency.id,
     ]),
   );
   let count = 0;
+  const seen = new Set<string>();
   for (const result of results) {
     for (const advisory of result.advisories) {
+      if (advisory.match !== "CONFIRMED") continue;
+      const observation = advisoryObservationKey(result, advisory.advisoryId);
+      if (seen.has(observation)) continue;
+      seen.add(observation);
       const dependencyId = dependencyIds.get(
-        `${result.packageName}:${result.version}:${result.packageManager}`,
+        JSON.stringify([
+          sanitizeText(result.packageName),
+          sanitizeText(result.version),
+          result.packageManager,
+        ]),
       );
       const data = {
         organizationId,
         scanId,
         ...(dependencyId == null ? {} : { dependencyId }),
-        packageName: result.packageName,
-        version: result.version,
+        packageName: sanitizeText(result.packageName),
+        version: sanitizeText(result.version),
         ecosystem: ecosystemForPackageManager(result.packageManager),
-        advisoryId: advisory.advisoryId,
-        aliases: toInputJson(advisory.aliases),
+        advisoryId: sanitizeText(advisory.advisoryId),
+        aliases: toInputJson(sanitizeEvidence(advisory.aliases)),
         severity: advisory.severity,
-        fixedVersion: advisory.fixedVersions[0] ?? null,
+        fixedVersion:
+          advisory.fixedVersions[0] == null ? null : sanitizeText(advisory.fixedVersions[0]),
         lastSeen: new Date(),
       };
       await tx.advisory.upsert({
         where: {
-          organizationId_advisoryId_packageName_version: {
+          organizationId_scanId_ecosystem_advisoryId_packageName_version: {
             organizationId,
-            advisoryId: advisory.advisoryId,
-            packageName: result.packageName,
-            version: result.version,
+            scanId,
+            ecosystem: ecosystemForPackageManager(result.packageManager),
+            advisoryId: sanitizeText(advisory.advisoryId),
+            packageName: sanitizeText(result.packageName),
+            version: sanitizeText(result.version),
           },
         },
-        update: data,
+        update: {},
         create: data,
       });
       count += 1;
@@ -344,8 +474,10 @@ async function persistSecurityReceipt(
   decisionCounts: Record<PolicyDecisionType, number>,
   decisions: PolicyDecision[],
   approvalCount: number,
+  coverage?: ScanCoverage,
 ): Promise<void> {
   const receipt = createSecurityReceipt({
+    ...(coverage == null ? {} : { coverage }),
     id: `receipt:${scanId}`,
     scanId,
     repository: options.repositoryName,
@@ -365,11 +497,7 @@ async function persistSecurityReceipt(
     completedAt,
     gateResult: gateResultForDecisions(decisions),
   });
-  const privateKey = process.env.RECEIPT_SIGNING_PRIVATE_KEY?.trim() || undefined;
-  const keyId = process.env.RECEIPT_SIGNING_KEY_ID?.trim() || undefined;
-  if ((privateKey == null) !== (keyId == null)) {
-    throw new Error("Receipt signing requires both private key and key ID.");
-  }
+  const { privateKey, keyId } = receiptSigningSettings(process.env);
   const signed =
     privateKey != null && keyId != null
       ? signSecurityReceipt(receipt, { keyId, privateKey })
@@ -390,7 +518,7 @@ async function persistSecurityReceipt(
       signingAlgorithm: signed?.algorithm ?? null,
       keyId: signed?.keyId ?? null,
       signature: signed?.signature ?? null,
-      signedPayload: signed == null ? Prisma.JsonNull : toInputJson(signed.payload),
+      signedPayload: toInputJson(signed?.payload ?? receipt),
       receiptHash: receipt.receiptHash,
     },
     create: {
@@ -408,10 +536,33 @@ async function persistSecurityReceipt(
       signingAlgorithm: signed?.algorithm ?? null,
       keyId: signed?.keyId ?? null,
       signature: signed?.signature ?? null,
-      signedPayload: signed == null ? Prisma.JsonNull : toInputJson(signed.payload),
+      signedPayload: toInputJson(signed?.payload ?? receipt),
       receiptHash: receipt.receiptHash,
     },
   });
+}
+
+export interface ScanLeaseFence {
+  owner: string;
+  attempt: number;
+}
+
+export async function assertScanLease(
+  tx: Prisma.TransactionClient,
+  scanId: string,
+  lease: ScanLeaseFence,
+): Promise<void> {
+  const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT "id" FROM "ScanJob"
+    WHERE "scanId" = ${scanId}
+      AND "lockedBy" = ${lease.owner}
+      AND "attempts" = ${lease.attempt}
+      AND "status" = 'RUNNING'
+      AND "cancelRequestedAt" IS NULL
+      AND "leaseExpiresAt" > NOW()
+    FOR UPDATE
+  `);
+  if (rows.length !== 1) throw new Error("WORKER_LEASE_LOST");
 }
 
 async function markScanFailed(
@@ -419,6 +570,7 @@ async function markScanFailed(
   scanId: string,
   metadata: ScanRunOptions,
 ): Promise<void> {
+  // Job-backed failures belong to the coordinator, which fences and audits them.
   await client.$transaction(async (tx) => {
     const changed = await tx.scan.updateMany({
       where: {
@@ -464,13 +616,16 @@ export interface ScanRunOptions {
   policyBundleVersion: string;
   options: ScanOptions;
   signal?: AbortSignal;
-  leaseOwner?: string;
+  lease?: ScanLeaseFence;
 }
 
 export async function runConfiguredScan(
   options: ScanRunOptions,
   existingScanId?: string,
 ): Promise<string> {
+  if (options.policyBundleVersion !== POLICY_RULE_VERSION) {
+    throw new Error("Unsupported policy bundle version.");
+  }
   const initialMetadata = {
     source: options.source,
     targetPath: options.targetPathLabel,
@@ -481,31 +636,20 @@ export async function runConfiguredScan(
   };
   const scan = await prisma.$transaction(async (tx) => {
     if (existingScanId != null) {
-      if (options.leaseOwner != null) {
-        const lease = await tx.scanJob.updateMany({
-          where: {
-            scanId: existingScanId,
-            lockedBy: options.leaseOwner,
-            status: "RUNNING",
-            cancelRequestedAt: null,
-            leaseExpiresAt: { gt: new Date() },
-            scan: { organizationId: options.organizationId },
-          },
-          data: { progress: 10 },
-        });
-        if (lease.count !== 1) throw new Error("WORKER_LEASE_LOST");
-      }
+      if (options.lease != null) await assertScanLease(tx, existingScanId, options.lease);
       const changed = await tx.scan.updateMany({
         where: {
           id: existingScanId,
           organizationId: options.organizationId,
-          status: { in: options.leaseOwner == null ? ["QUEUED"] : ["RUNNING"] },
-          ...(options.leaseOwner == null ? { job: { is: null } } : {}),
+          status: options.lease == null ? "QUEUED" : "RUNNING",
+          ...(options.lease == null ? { job: { is: null } } : {}),
         },
         data: {
           status: "RUNNING",
           startedAt: new Date(),
           completedAt: null,
+          branch: options.branch,
+          ...(options.commitSha == null ? {} : { commitSha: options.commitSha }),
           metadata: initialMetadata,
         },
       });
@@ -527,7 +671,7 @@ export async function runConfiguredScan(
         : await tx.scan.findFirstOrThrow({
             where: { id: existingScanId, organizationId: options.organizationId },
           });
-    if (options.leaseOwner == null)
+    if (options.lease == null)
       await tx.auditEvent.create({
         data: {
           actor: options.triggeredBy,
@@ -551,12 +695,15 @@ export async function runConfiguredScan(
       ignorePatterns: options.options.ignorePaths,
       ...(options.signal == null ? {} : { signal: options.signal }),
     });
+    const persistedDependencies = consolidateDependencies(scanResult.dependencies);
     const policyDecisions = evaluateFindings(scanResult.findings, scan.id);
     const advisoryEnrichment = await runAdvisoryEnrichment(
       scanResult.dependencies,
       options.options.includeOsv,
+      options.signal,
     );
-    const advisoryResults = advisoryEnrichment.results;
+    const { confirmed: advisoryResults, diagnostics: advisoryInventoryDiagnostics } =
+      partitionAdvisoryResults(advisoryEnrichment.results);
     const advisoryStatus = advisoryEnrichment.status;
     const decisionsByFindingId = new Map(
       policyDecisions.map((decision) => [decision.findingId, decision]),
@@ -578,38 +725,36 @@ export async function runConfiguredScan(
 
     const findingCounts = createFindingCounts(scanResult.findings);
     const decisionCounts = createDecisionCounts(policyDecisions);
-    const metadata = createScanMetadata({
-      source: options.source,
-      targetPath: options.targetPathLabel,
-      triggeredBy: options.triggeredBy,
-      labels: options.labels,
-      findingCounts,
-      decisionCounts,
-      dependencyCount: scanResult.dependencies.length,
-      remediationCount: remediations.length,
-      approvalCount: approvalFindingIds.length,
-      advisoryCount: advisoryResults.reduce((count, result) => count + result.advisories.length, 0),
-      advisoryStatus,
-      ...(advisoryEnrichment.diagnostic == null
-        ? {}
-        : { advisoryDiagnostic: advisoryEnrichment.diagnostic }),
-      policyBundleVersion: options.policyBundleVersion,
-    });
+    const metadata = {
+      ...createScanMetadata({
+        source: options.source,
+        targetPath: options.targetPathLabel,
+        triggeredBy: options.triggeredBy,
+        labels: options.labels,
+        findingCounts,
+        decisionCounts,
+        dependencyCount: persistedDependencies.length,
+        remediationCount: remediations.length,
+        approvalCount: approvalFindingIds.length,
+        advisoryCount: persistedAdvisoryCount(advisoryResults),
+        advisoryStatus,
+        advisoryInventoryDiagnostics,
+        ...(advisoryEnrichment.diagnostic == null
+          ? {}
+          : { advisoryDiagnostic: advisoryEnrichment.diagnostic }),
+        policyBundleVersion: options.policyBundleVersion,
+      }),
+      coverage: toInputJson(scanResult.coverage ?? { status: "UNAVAILABLE" }),
+    };
     const completedAt = new Date();
 
     await prisma.$transaction(
       async (tx) => {
-        if (options.signal?.aborted === true) throw new Error("CANCEL_REQUESTED");
-        // Lock and fence the job before writing evidence; every writer uses job -> scan order.
-        if (options.leaseOwner != null) {
-          const finished = await tx.scanJob.updateMany({
-            where: {
-              scanId: scan.id,
-              lockedBy: options.leaseOwner,
-              status: "RUNNING",
-              cancelRequestedAt: null,
-              leaseExpiresAt: { gt: new Date() },
-            },
+        if (options.signal?.aborted) throw new Error("CANCEL_REQUESTED");
+        if (options.lease != null) {
+          await assertScanLease(tx, scan.id, options.lease);
+          await tx.scanJob.update({
+            where: { scanId: scan.id },
             data: {
               status: "COMPLETED",
               progress: 100,
@@ -621,19 +766,18 @@ export async function runConfiguredScan(
               failureMessage: null,
             },
           });
-          if (finished.count !== 1) throw new Error("WORKER_LEASE_LOST");
         }
-        const finishedScan = await tx.scan.updateMany({
+        const completed = await tx.scan.updateMany({
           where: { id: scan.id, organizationId: options.organizationId, status: "RUNNING" },
           data: { status: "COMPLETED", completedAt, metadata },
         });
-        if (finishedScan.count !== 1) throw new Error("SCAN_STATE_CONFLICT");
-        for (const dependency of scanResult.dependencies) await persistDependency(tx, dependency);
+        if (completed.count !== 1) throw new Error("SCAN_STATE_CONFLICT");
+        for (const dependency of persistedDependencies) await persistDependency(tx, dependency);
         await persistAdvisories(
           tx,
           options.organizationId,
           scan.id,
-          scanResult.dependencies,
+          persistedDependencies,
           advisoryResults,
         );
         for (const finding of scanResult.findings) await persistFinding(tx, finding, scan.id);
@@ -685,17 +829,14 @@ export async function runConfiguredScan(
           decisionCounts,
           policyDecisions,
           approvalFindingIds.length,
+          scanResult.coverage,
         );
-        await tx.scan.update({
-          where: { id: scan.id },
-          data: { status: ScanStatus.COMPLETED, completedAt, metadata },
-        });
       },
       { timeout: 30_000 },
     );
     return scan.id;
   } catch (error) {
-    if (options.leaseOwner == null) await markScanFailed(prisma, scan.id, options);
+    if (options.lease == null) await markScanFailed(prisma, scan.id, options);
     throw error;
   }
 }
@@ -705,8 +846,8 @@ export async function runDemoScan(
   organizationId = "demo-organization",
   correlationId = "system",
   signal?: AbortSignal,
-  leaseOwner?: string,
-  requester = SYSTEM_ACTOR,
+  triggeredBy = SYSTEM_ACTOR,
+  lease?: ScanLeaseFence,
 ): Promise<string> {
   if (process.env.NODE_ENV === "production") throw new Error("DEMO_DISABLED");
   return runConfiguredScan(
@@ -719,9 +860,9 @@ export async function runDemoScan(
       branch: "main",
       organizationId,
       correlationId,
-      triggeredBy: requester,
+      triggeredBy,
       labels: ["demo", "api-run"],
-      policyBundleVersion: "demo",
+      policyBundleVersion: POLICY_RULE_VERSION,
       options: {
         maxFiles: 10_000,
         maxBytes: 100 * 1024 * 1024,
@@ -730,7 +871,7 @@ export async function runDemoScan(
         includeOsv: false,
       },
       ...(signal == null ? {} : { signal }),
-      ...(leaseOwner == null ? {} : { leaseOwner }),
+      ...(lease == null ? {} : { lease }),
     },
     existingScanId,
   );

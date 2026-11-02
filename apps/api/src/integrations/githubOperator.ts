@@ -2,6 +2,7 @@ import "../env.js";
 import { z } from "zod";
 import { prisma } from "../db/prisma.js";
 import { githubClientFromEnvironment } from "./githubRuntime.js";
+import { verifyGitHubDelivery } from "./githubDeliveryVerifier.js";
 import {
   registerGitHubInstallation,
   synchronizeGitHubRepositories,
@@ -48,59 +49,10 @@ async function main() {
     });
     console.warn("Check publication scheduled; scan evidence retained.");
   } else {
-    const delivery = await prisma.gitHubWebhookDelivery.findUniqueOrThrow({
-      where: {
-        organizationId_deliveryId: {
-          organizationId: input.organizationId,
-          deliveryId: input.identifier,
-        },
-      },
-      include: {
-        scan: {
-          include: {
-            job: true,
-            githubCheck: true,
-            repository: { include: { githubInstallation: true } },
-          },
-        },
-      },
-    });
-    const scan = delivery.scan;
-    if (
-      delivery.status !== "PROCESSED" ||
-      scan?.status !== "COMPLETED" ||
-      scan.job?.status !== "COMPLETED" ||
-      scan.commitSha == null ||
-      scan.githubCheck?.status !== "COMPLETE" ||
-      scan.githubCheck.checkRunId == null ||
-      scan.repository?.githubInstallation == null
-    )
-      throw new Error("LIVE_LIFECYCLE_INCOMPLETE");
-    const installation = scan.repository.githubInstallation;
-    const token = await github.createInstallationToken(installation.installationId);
-    const [owner, repository] = scan.repository.fullName.split("/");
-    if (owner == null || repository == null) throw new Error("LIVE_REPOSITORY_INVALID");
-    const check = await github
-      .withInstallationToken(token.token)
-      .getCheckRun(owner, repository, Number(scan.githubCheck.checkRunId));
-    if (
-      check.head_sha !== scan.commitSha ||
-      check.external_id !== scan.id ||
-      check.status !== "completed"
-    )
-      throw new Error("LIVE_CHECK_MISMATCH");
     console.warn(
-      JSON.stringify({
-        result: "PASS",
-        repository: scan.repository.fullName,
-        repositoryId: scan.repository.externalId,
-        installationId: installation.installationId,
-        deliveryId: delivery.deliveryId,
-        scanId: scan.id,
-        commitSha: scan.commitSha,
-        checkRunId: check.id,
-        conclusion: check.conclusion,
-      }),
+      JSON.stringify(
+        await verifyGitHubDelivery(prisma, github, input.organizationId, input.identifier),
+      ),
     );
   }
 }

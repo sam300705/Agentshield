@@ -56,3 +56,20 @@ docker compose -f deploy/azure/docker-compose.yml logs --tail=200 api worker cad
 ```
 
 If the API is unhealthy, stop the public proxy first, inspect the API and database readiness logs, and restore the last known-good Git commit before retrying. Do not paste environment files, OIDC secrets, Neon URLs, or OpenRouter keys into GitHub issues or chat.
+
+### Proxy identity and request admission
+
+The Compose ingress network assigns Caddy `172.30.83.2` and the API trusts only
+`172.30.83.2/32`. The API has no published host port. Caddy supplies the client
+forwarding header; Express walks the chain from the socket and stops at the first
+untrusted address, preventing a caller's leftmost header from selecting a bucket.
+If the subnet conflicts with existing networks, change both static addresses, the
+subnet and the API's trust CIDR together. Other deployment topologies must set
+`TRUSTED_PROXY_CIDRS` to their actual controlled proxy addresses; never use blanket
+trust or an arbitrary hop count. Leaving it empty ignores forwarded headers.
+
+An aggregate client-IP limit runs before OIDC/JWKS verification, and the existing
+actor/route limit runs afterward. Both use the configured window and maximum.
+Clients behind a shared NAT share the admission budget; tune the limit using
+observed traffic. This Phase 1 limiter is process-local; fleet-wide enforcement
+remains a later production-phase concern.

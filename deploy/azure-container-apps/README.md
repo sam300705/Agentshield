@@ -139,6 +139,7 @@ az containerapp job create \
   --command node apps/api/dist/worker.js \
   --env-vars \
     NODE_ENV=production \
+    CORS_ORIGIN="$CORS_ORIGIN" \
     WORKER_MODE=once \
     DATABASE_URL=secretref:database-url \
     DATABASE_URL_UNPOOLED=secretref:database-url-unpooled \

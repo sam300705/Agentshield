@@ -1,9 +1,9 @@
 import { createServer, type Server } from "node:http";
 
 import express from "express";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createRateLimiter } from "./rateLimit.js";
+import { createRateLimiter, rateLimitRouteIdentity } from "./rateLimit.js";
 
 const servers: Server[] = [];
 
@@ -56,4 +56,65 @@ describe("rate limiter", () => {
 
     expect(responses.map((response) => response.status)).toEqual([200, 200]);
   });
+});
+
+it("bounds active bucket cardinality without evicting existing limits", () => {
+  const limiter = createRateLimiter({
+    enabled: true,
+    max: 1,
+    windowMs: 60_000,
+    keyForRequest: (request) => request.ip ?? "unknown",
+  });
+  const res = {
+    locals: {},
+    getHeader: vi.fn(),
+    setHeader: vi.fn(),
+    status: vi.fn(),
+    json: vi.fn(),
+  };
+  res.status.mockReturnValue(res);
+  const next = vi.fn();
+  for (let index = 0; index < 10000; index++)
+    limiter(
+      { ip: `identity-${index}`, method: "GET", path: "/" } as unknown as express.Request,
+      res as unknown as express.Response,
+      next,
+    );
+  expect(next).toHaveBeenCalledTimes(10000);
+  limiter(
+    { ip: "overflow", method: "GET", path: "/" } as unknown as express.Request,
+    res as unknown as express.Response,
+    next,
+  );
+  expect(res.status).toHaveBeenLastCalledWith(429);
+  expect(res.json).toHaveBeenLastCalledWith({
+    error: {
+      code: "RATE_LIMITED",
+      message: "Too many active request identities. Try again later.",
+      correlationId: "unknown",
+    },
+  });
+  limiter(
+    { ip: "identity-0", method: "GET", path: "/" } as unknown as express.Request,
+    res as unknown as express.Response,
+    next,
+  );
+  expect(next).toHaveBeenCalledTimes(10000);
+  expect(res.status).toHaveBeenLastCalledWith(429);
+  expect(res.json).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      error: expect.objectContaining({ correlationId: "unknown" }) as unknown,
+    }),
+  );
+});
+
+it("shares the admission budget across random IDs and versioned aliases before routing", async () => {
+  const app = express();
+  app.use(createRateLimiter({ enabled: true, max: 1, windowMs: 60_000 }));
+  app.get("/api/v1/scans/:id", (_req, res) => res.json({ ok: true }));
+  app.get("/api/scans/:id", (_req, res) => res.json({ ok: true }));
+  const { origin } = await start(app);
+  expect((await fetch(`${origin}/api/v1/scans/a`)).status).toBe(200);
+  expect((await fetch(`${origin}/api/scans/b`)).status).toBe(429);
+  expect(rateLimitRouteIdentity({ method: "GET", path: "/not/a/known/route" })).toBe("GET:other");
 });

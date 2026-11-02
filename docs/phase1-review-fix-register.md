@@ -1,0 +1,143 @@
+# Phase 1 review failure/fix and threat-to-regression register
+
+Review baseline: PR #16 head `d0247207641e5db8e2ab4f14a0036921aac594ec`.
+Date: 2026-10-15. This assistant also implemented earlier follow-up code;
+neither the review nor the fixes constitute independent human/organizational acceptance.
+Current publication identity/checks are in PR #16. Threads remain open.
+
+## Reproduced failures and candidate fixes
+
+| ID / severity | Prerequisites and failure at baseline                                                                                                                                                     | Candidate correction / regression                                                                                                                                                                                                                                            |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| F1 HIGH       | Untrusted evidence/dependency value contains `API_KEY=<private>[REDACTED:FORGED]`; shared evidenceRedaction.ts:94 trusted any marker substring and persisted/exported the private prefix. | Exact whole-placeholder exemption only. Schema fixtures include forged and canonical markers appended/prepended to private text; actual CLI JSON/JSONL/SARIF and scanner → PostgreSQL canaries.                                                                              |
+| F2 HIGH       | Nested URL `?next=https://inner.test?%74oken=<private>` or short password; outer query match consumed the inner credential.                                                               | Bounded recursive value inspection plus decoded key classification; nested encoded PURL fixtures, real CLI and actual persistence. Existing safe query/fragment/authority regressions retained.                                                                              |
+| F3 MEDIUM     | Worker A reads queued attempt 0; B claims then shuts down and restores queued attempt 0 with a failure; A claims from stale candidate and erases history.                                 | Row lock and actual-state reread, atomic archive/claim, due-time revalidation. Real PostgreSQL scheduling barrier forces this ABA; injected audit failure still rolls back. No provider HTTP in transaction.                                                                 |
+| F4 MEDIUM     | Ambient URL passes seed guard but exported seed helper receives a PrismaClient for another destination.                                                                                   | Public helper accepts validated URL, constructs writer internally and disconnects. Forbidden database/schema rejection; import safety, real rollback, concurrency and customer-record preservation retained. Programmatic/configuration prerequisite, not an HTTP exploit.   |
+| F5 MEDIUM     | Invalid/multidocument/templated YAML receives secret checks but structural check cannot parse; coverage nevertheless says COMPLETE and enters receipt.                                    | Optional incompleteChecks; parser errors/warnings/conversion failure/unrendered templates produce PARTIAL without source diagnostics. Real scanner, all CLI coverage formats, stored receipt/hash and UI assertions. No comprehensive YAML/Kubernetes correctness guarantee. |
+| F6 MEDIUM     | Valid official npm PURL has `vcs_url=git:%2F%2F...`; blanket colon guard erases it. Surrounding preexisting emitter also encodes scope slash and labels pnpm/yarn as ecosystems.          | Pinned upstream parser; identity guard no longer rejects safe qualifier colons. Official example and scoped npm fixtures under all three installation tools. Preserve bounded component sanitization.                                                                        |
+
+The original exact reproductions were observed in local export and disposable
+PostgreSQL, not inferred solely from mocks. Newly added tests retain those execution
+boundaries. Fixtures do not establish absence of every secret syntax or prompt attack.
+
+## Original review threads
+
+| Thread                         | Baseline disposition                                                      | Candidate evidence / independent status                                                                                     |
+| ------------------------------ | ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| 4272394287 PURL decoding       | FIX VERIFIED for the original decode-whole case; F6 was a separate defect | Original scoped/encoded/nested fixtures retained and valid VCS qualifier added; independent current-head acceptance pending |
+| 4272394303 authority regex     | FIX VERIFIED for original authority delimiter case; F2 was separate       | Safe query email/fragment and userinfo boundaries retained; nested query canaries added; acceptance pending                 |
+| 4272394296 failure history     | STILL PRESENT through shutdown ABA                                        | Locked actual-state archive and deterministic real DB ABA now pass locally; acceptance pending                              |
+| 4272394313 redaction collision | FIX VERIFIED for original collision case                                  | Actual consolidated PROD row, advisory foreign key and persisted count checks retained; acceptance pending                  |
+
+Outdated GitHub line positions are not resolutions. No thread is resolved by this work.
+
+## Threat-to-regression matrix
+
+| Threat / attacker capability                              | Boundary and present evidence                                                                                            | Remaining limitation/gate                                                                                    |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| Tenant escape / authenticated foreign tenant              | Existing owned controllers and actual PostgreSQL lifecycle tests reject foreign actor/tenant session reads and mutations | Full later-phase resource ownership integration pending                                                      |
+| Actor impersonation / forged request fields               | Strict shared contracts and server identity; HTTP and controller regressions                                             | Live OIDC issuer/provider behavior unverified                                                                |
+| Reviewer independence bypass / requester reviews          | Existing service checks and gateway regressions                                                                          | Exact action-bound approval authority requires Phase 2                                                       |
+| Approval replay or stale commit/evidence/policy           | Proposed digest/admission contract                                                                                       | NOT IMPLEMENTED by this package; Phase 2 race/rollback gates                                                 |
+| Direct credential bypass / agent owns provider credential | Cooperative SDK limitation documented                                                                                    | No enforced provider adapter yet; do not claim isolation                                                     |
+| Duplicate external effect / timeout after success         | Proposed UNKNOWN/reconciliation/fencing contract                                                                         | Live provider execution NOT RUN; no exactly-once claim                                                       |
+| Worker crash/stale state / overlapping workers            | Existing lease tests; real ABA and archive rollback regression                                                           | Scan claim evidence does not qualify later provider finalization                                             |
+| Receipt tampering / altered coverage                      | Existing canonical hash/signature tests, stored unsigned coverage receipt verification                                   | Trusted keys/custody and privileged DB remain residual trust                                                 |
+| Secret leakage / repository controls evidence             | Real CLI export and PostgreSQL dependency canaries; bounded nested decoding                                              | Pattern-based sanitization is not universal secret detection; historical exports need separate investigation |
+| Migration/restore inconsistency / populated database      | Existing populated baseline/incremental upgrade and drift-refusal regression; no SQL changed                             | Real backup restoration/RPO/RTO belong to Phase 4                                                            |
+| Resource exhaustion / hostile repository                  | Existing file/byte/deadline/symlink tests and bounded redaction nesting                                                  | Operating workload, fairness and memory limits not measured here                                             |
+| Seed overwrite / mismatched caller configuration          | Writer constructed from validated target; rollback/concurrency/customer fixture preservation                             | Authorized isolated local seeding only; not a production recovery mechanism                                  |
+| False completeness / malformed evidence                   | Partial YAML diagnostics propagated into canonical receipt and console                                                   | Heuristic static checks and secret regex remain explicitly limited                                           |
+
+## Failures encountered while fixing
+
+Pinned pnpm initially tried an unavailable home data directory; explicit disposable
+XDG data/store paths restored the repository toolchain. No verification disabled.
+The first parser regression exposed that YAML accepts Helm braces without a syntax
+error; template detection now explicitly reports partial coverage. The PURL library
+accepts some raw URL structures, so AgentShield retains its stricter raw-URL guard.
+An upstream annotated-tag object produced a raw-source 404; fetching its commit
+resolved the source review. These are recorded causes, not ignored failed checks.
+
+Local verification: 391 workspace tests; strict types, lint, build, frozen install,
+format/docs checks, real PostgreSQL completion and populated upgrade checks PASS.
+All six browser tests, integration, lease takeover, round-2 database, gateway and
+synthetic GitHub lifecycle checks PASS. Source SARIF gate and fixture BLOCK exit 3
+plus SARIF validation PASS with unchanged exclusions. Published-head results belong
+in the PR publication record after execution.
+No live-provider, independent acceptance or production deployment claim follows.
+
+A final surrounding-code check found that YAML object conversion could emit raw
+collection keys through process warnings. Conversion now retains Map keys instead
+of coercing them into object strings; an actual scanner regression spies on
+process.emitWarning and verifies private key material never enters scan output.
+This is additional Phase 1 evidence hardening, not provider qualification.
+
+## Current-head automated review remediation (P1-R2)
+
+Inspected head: `df952b915ad10367457323e697432225cc6f1c1a`. Review state was
+COMMENTED, not independent acceptance. Four reports were confirmed and addressed:
+
+| Review reference           | Failure / candidate correction                                                                                                                                                                                | Boundary regression                                                                                                                                                                                                           |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 4286933600 / HIGH          | File-wide template detection suppressed valid Kubernetes documents beside templates. Detect incompleteness per document and inspect only independently valid document ranges, preserving global line numbers. | LF/CRLF mixed ConfigMap/privileged-Pod scanner fixtures; actual CLI reports BLOCK and PARTIAL, not an empty passing gate.                                                                                                     |
+| 4286933611 / MEDIUM        | Shutdown restored retry budget to zero before later archival, misnumbering the executed claim. Add monotonic claimSequence; preserve retry-budget counters separately and label historical uncertainty.       | Real PostgreSQL ABA archive is claim 1; two consecutive shutdowns archive claims 1 and 2, followed by claim 3; existing audit-injection rollback retained.                                                                    |
+| 4286933624 / MEDIUM        | Random occurrence UUID chose metadata, including devDependencies on a production row. Prefer production and canonical sanitized source semantics; aggregate dependencyFields.                                 | Deliberately reverse both UUID ordering and source ordering; actual persisted collision retains production metadata and both source sections.                                                                                 |
+| Review 5538214770 / MEDIUM | Decision transaction committed before required approval, permitting a close to split the operation. Reuse a transaction-aware approval helper under the same lock and transaction.                            | Real DB scheduler pauses after the gateway's first transaction commits, closes the session and verifies a complete successful decision/approval pair; both approval-audit and decision-audit injection roll back all records. |
+
+Implementation evidence is not independent acceptance; no thread is resolved.
+The narrow work package and additive migration impact are recorded in the plan
+and database upgrade guide. Local workspace tests: 396 PASS; six browser tests,
+types/lint/build, real PostgreSQL completion/upgrade/gateway/lease/round-2/GitHub
+regressions PASS. Final published-head CI still needs its own publication evidence.
+
+Failure investigation: the baseline rehearsal helper splits migration SQL on
+semicolons, including comments. A semicolon in the new unpublished migration's
+comment caused drift-rehearsal syntax failure. Rewording that comment preserved
+the unchanged SQL operation and restored populated-upgrade/drift-refusal checks.
+The disposable database was recreated to retest the final migration bytes.
+
+### CI-discovered archive admission correction
+
+At candidate `eec88d38bfb6fa0fcb46402aa56b1824505ebe80`, push CI 38789534936
+failed the existing file-count archive test during fixture cleanup (ENOTEMPTY);
+PR CI 38789540232 passed. Investigation of installed/locked tar 7.5.22 source and
+README showed that onentry observation does not reject an entry before Unpack
+schedules filesystem work. This affects actual limit/link admission, not just CI.
+
+The existing validation now runs in tar's documented filter hook and returns false
+for forbidden paths/types/budgets before extraction. Regression probes verify
+oversized files, symlinks and hardlinks never call filesystem stat/lstat/mkdir/open;
+a real temporary-workspace regression retains cleanup after a later entry fails.
+Fixtures use bounded cleanup retries, matching the existing production strategy;
+archive-bound assertions are unchanged. No check was disabled or rerun unchanged.
+Repeated isolated archive tests exercise the observed cleanup race. These fixtures
+do not qualify arbitrary delayed I/O, every cancellation case or live provider
+behavior; Phase 3 qualification and disabled admission remain unchanged.
+
+Corrected archive checkpoint: 400 workspace tests PASS, plus 12 fresh-process runs
+of the 20-test archive suite (240 stress executions, not additional unique tests).
+Lint, strict types and API/dependency builds PASS. The first parameterized test
+fixture accidentally attached a link target to a regular file, so tar correctly
+rejected it before the size check; only link entries now carry that fixture field.
+All production rejections and filesystem probes remain enforced. Publication CI
+must qualify this corrected head separately from the earlier mixed CI result.
+
+## P1-R3: stale selection versus actual claimed executor fence
+
+Automated finding 4291537679 on `b4060d1b5ef3a6feae3070157876ac99ef9ad97e`
+is confirmed (MEDIUM). Worker A can select queued attempt 0, pause, then reclaim
+the row after worker B fails attempt 1. The locked claim correctly increments the
+database to attempt 2, but the old executor argument still used A's selected 0+1.
+The real scan lease check therefore rejected valid ownership and could dead-letter
+the job when this consumed its last retry.
+
+The successful claim now returns its actual attempt; the executor fence uses that
+value. Failed/lost claims return no admission. No schema, provider or phase change.
+The new disposable-PostgreSQL regression pauses a genuine selection, runs a failing
+worker, makes the row due and reclaims at maxAttempts=2 with the real configured
+scanner/executor. Reinstating the old expression makes this regression fail;
+restoring the correction makes the job and scan COMPLETED at attempt 2, claim 2,
+with no dead-letter. This is execution-boundary evidence, not a mocked lease check.
+Existing failure-history, claim rollback, cancellation and seed regressions remain.
+Independent acceptance and exact corrected-head publication checks remain separate.

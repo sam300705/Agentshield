@@ -282,8 +282,46 @@ async function main(): Promise<void> {
     );
     assert((await countJobs()) === 1, "tenant-isolation attempt changed job count");
 
+    const retryStores = [
+      new PrismaGitHubDeliveryStore(prisma),
+      new PrismaGitHubDeliveryStore(prisma),
+    ];
+    const retryClaim = {
+      organizationId,
+      webhook: queueFailure,
+      rawPayload: signedPayload("push", queueFailure.deliveryId, pushPayload()).raw,
+      correlationId: `corr-${suffix}-retry`,
+    };
+    const claims = await Promise.all(retryStores.map((retryStore) => retryStore.claim(retryClaim)));
+    assert(claims.filter(Boolean).length === 1, "retry claim was not exclusive");
+    const winner = retryStores[claims.findIndex(Boolean)];
+    assert(winner != null, "retry claim owner is missing");
+    const recovered = await processGitHubWebhookDelivery(
+      organizationId,
+      queueFailure,
+      retryClaim.correlationId,
+      {
+        client: prisma,
+        deliveryStore: winner,
+        scanLifecycleEnabled: true,
+        policyBundleVersion: "synthetic-policy",
+        enqueueScan: enqueueRepositoryScan,
+      },
+    );
+    assert(recovered.status === "QUEUED", "failed delivery did not recover on retry");
+    assert((await countJobs()) === 2, "retry did not create exactly one additional job");
+    await store.markFailed(organizationId, queueFailure.deliveryId, "STALE_PROCESSOR");
+    const retriedDelivery = await prisma.gitHubWebhookDelivery.findUniqueOrThrow({
+      where: { organizationId_deliveryId: { organizationId, deliveryId: queueFailure.deliveryId } },
+    });
+    assert(retriedDelivery.status === "QUEUED", "stale processor overwrote recovered delivery");
+    assert(
+      !(await new PrismaGitHubDeliveryStore(prisma).claim(retryClaim)),
+      "queued delivery was replayed",
+    );
+
     console.warn(
-      "GitHub lifecycle database verification passed: signed delivery, tenant mapping, commit pinning, dedupe, ignored states, queue failure, and isolation.",
+      "GitHub lifecycle database verification passed: signed delivery, tenant mapping, commit pinning, dedupe, ignored states, queue failure, exclusive retry recovery, stale-processor fencing, and isolation.",
     );
   } finally {
     if (organizationCreated) {

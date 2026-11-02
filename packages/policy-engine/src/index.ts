@@ -1,4 +1,9 @@
-export { evaluateAgentAction } from "./agentGateway.js";
+export {
+  evaluateAgentAction,
+  evaluateAgentAuthorization,
+  AGENT_ACTION_RULES,
+  AGENT_POLICY_VERSION,
+} from "./agentGateway.js";
 export {
   decisionRequiresHumanApproval,
   evaluateFindings,
@@ -26,6 +31,7 @@ export {
 export { simulatePolicyBundle } from "./simulation.js";
 export {
   canonicalReceiptPayload,
+  verifyReceiptHash,
   generateEd25519KeyPair,
   signSecurityReceipt,
   verifySignedSecurityReceipt,
@@ -35,3 +41,4 @@ export {
   type ReceiptSigningKey,
   type SignedSecurityReceipt,
 } from "./signedReceipt.js";
+export { ACTION_AUTHORITY_POLICY_VERSION, evaluateAuthorityPolicy } from "./actionAuthority.js";

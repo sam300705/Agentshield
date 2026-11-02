@@ -1,4 +1,6 @@
+import type { ScanCoverage } from "@agentshield/schemas";
 import {
+  sanitizeEvidence,
   agentEventSchema,
   agentFingerprintSchema,
   attackGraphSchema,
@@ -17,6 +19,7 @@ const REDACTED = "[REDACTED]";
 const SENSITIVE_KEY =
   /(secret|password|passwd|token|api[-_]?key|authorization|private[-_]?key|credential)/i;
 const SENSITIVE_VALUE_PATTERNS = [
+  /\b(?:gh[pousr]_[A-Za-z0-9]{12,}|github_pat_[A-Za-z0-9_]{12,})\b/g,
   /\bAKIA[0-9A-Z]{16}\b/g,
   /\b(?:ghp|github_pat|sk)-[A-Za-z0-9_-]{12,}\b/g,
   /Bearer\s+[A-Za-z0-9._~+/-]+=*/gi,
@@ -36,6 +39,7 @@ export type AgentEventInput = Omit<AgentEvent, "evidence" | "integrity"> & {
 };
 
 export interface ReceiptInput {
+  coverage?: ScanCoverage;
   id: string;
   scanId: string;
   repository: string;
@@ -62,7 +66,7 @@ function stableValue(value: unknown): unknown {
   if (value != null && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>)
-        .sort(([left], [right]) => left.localeCompare(right))
+        .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
         .map(([key, nested]) => [key, stableValue(nested)]),
     );
   }
@@ -80,21 +84,26 @@ function redactString(value: string): string {
   );
 }
 
-export function redactEvidence(value: unknown, key = ""): JsonValue {
+function redactLegacyEvidence(value: unknown, key = ""): JsonValue {
   if (SENSITIVE_KEY.test(key)) return REDACTED;
   if (value == null) return null;
   if (typeof value === "boolean" || typeof value === "number") return value;
   if (typeof value === "string") return redactString(value);
-  if (Array.isArray(value)) return value.map((item) => redactEvidence(item));
+  if (Array.isArray(value)) return value.map((item) => redactLegacyEvidence(item));
   if (typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>).map(([nestedKey, nestedValue]) => [
         nestedKey,
-        redactEvidence(nestedValue, nestedKey),
+        redactLegacyEvidence(nestedValue, nestedKey),
       ]),
     );
   }
   return typeof value === "bigint" ? value.toString() : null;
+}
+
+export function redactEvidence(value: unknown, key = ""): JsonValue {
+  // Retain sensitive-key/legacy redaction and share all scanner-recognized patterns.
+  return sanitizeEvidence(redactLegacyEvidence(value, key));
 }
 
 export function createIntegrityChain(
@@ -185,9 +194,11 @@ export function buildAttackGraph(events: AgentEvent[]): AttackGraph {
     }
   }
 
-  const highestRiskEvents = ordered
-    .filter((event) => event.riskLevel === "HIGH" || event.riskLevel === "CRITICAL")
-    .map((event) => `event:${event.id}`);
+  let lastRiskIndex = -1;
+  ordered.forEach((event, index) => {
+    if (event.riskLevel === "HIGH" || event.riskLevel === "CRITICAL") lastRiskIndex = index;
+  });
+  const highestRiskEvents = ordered.slice(0, lastRiskIndex + 1).map((event) => `event:${event.id}`);
   const riskTotal = ordered.reduce((sum, event) => sum + RISK_WEIGHT[event.riskLevel], 0);
   const blastRadiusScore = Math.min(100, riskTotal + resourceIds.size * 8);
 
@@ -214,6 +225,7 @@ export function createSecurityReceipt(input: ReceiptInput): SecurityReceipt {
     decisionCounts: input.decisionCounts,
     approvalState: input.approvalState,
     evidenceDigest,
+    ...(input.coverage == null ? {} : { coverage: input.coverage }),
     startedAt: input.startedAt,
     completedAt: input.completedAt,
     gateResult: input.gateResult,
@@ -289,7 +301,7 @@ export function calculateAgentFingerprint(
     highRiskShellCommands: metrics.highRiskShellCommands,
     dependencyChanges: countType(events, "DEPENDENCY_INSTALLATION"),
     infrastructureChanges: metrics.infrastructureChanges,
-    approvalFrequency: policyEvents === 0 ? 0 : approvalEvents / policyEvents,
+    approvalFrequency: eventCount === 0 ? 0 : approvalEvents / eventCount,
     blockFrequency: policyEvents === 0 ? 0 : blockEvents / policyEvents,
     drift,
   });

@@ -80,6 +80,9 @@
         "webhook secret",
         "App private key",
         "tenant installation mapping"
+      ],
+      "limitations": [
+        "Phase 1 repository scan admission is disabled; API returns REPOSITORY_SCANS_UNAVAILABLE and startup rejects lifecycle/materialization flags until Phase 3 worker qualification."
       ]
     },
     "osv_vulnerability_enrichment": {
@@ -115,7 +118,8 @@
     },
     "bounded_repository_scan_configuration": {
       "status": "implemented_and_verified",
-      "evidence": ".agentshield.yml/.agentshieldignore data-only loader with size, field, and entry bounds plus scanner tests"
+      "evidence": ".agentshield.yml/.agentshieldignore data-only loader with size, field, and entry bounds plus scanner tests",
+      "scope": "Data-only parsing utility; automatic scans ignore repository-supplied exclusions. Only explicit trusted caller exclusions affect scan scope."
     },
     "agent_gateway_sdk": {
       "status": "implemented_and_verified",
@@ -136,6 +140,7 @@
     "Secret scanning uses high-confidence patterns and does not provide entropy analysis.",
     "The PostgreSQL polling queue is not a benchmarked high-throughput distributed queue.",
     "The gateway creates dedicated AgentApproval rows for REQUIRE_APPROVAL actions; live identity/provider deployment and operational review remain unconfigured.",
-    "The API scan lifecycle now persists advisory summaries and receipt digests, but live external-provider, signing-custody, and deployed-worker evidence is absent."
+    "The API scan lifecycle now persists advisory summaries and receipt digests, but live external-provider, signing-custody, and deployed-worker evidence is absent.",
+    "Phase 1 repository scan admission is gated pending Phase 3; synthetic lifecycle tests explicitly inject queue adapters and do not qualify a live worker."
   ]
 }

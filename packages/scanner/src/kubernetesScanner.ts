@@ -8,6 +8,7 @@ export interface KubernetesScannerInput {
   scanId: string;
   targetRoot: string;
   filePath: string;
+  onIncomplete?: () => void;
 }
 
 interface KubernetesFindingInput {
@@ -25,12 +26,12 @@ function toRelativePath(targetRoot: string, filePath: string): string {
   return path.relative(targetRoot, filePath) || path.basename(filePath);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function isKubernetesDocument(value: unknown): boolean {
-  return isRecord(value) && typeof value.apiVersion === "string" && typeof value.kind === "string";
+  return (
+    value instanceof Map &&
+    typeof value.get("apiVersion") === "string" &&
+    typeof value.get("kind") === "string"
+  );
 }
 
 function createFingerprint(
@@ -76,22 +77,47 @@ export async function scanKubernetesManifest(input: KubernetesScannerInput): Pro
   const content = await readFile(input.filePath, "utf8");
   const relativePath = toRelativePath(input.targetRoot, input.filePath);
   const documents = parseAllDocuments(content);
-  const containsKubernetesManifest = documents.some((document) => {
-    if (document.errors.length > 0) {
-      return false;
+  // Keep independently valid documents even when another document is incomplete.
+  // Never emit parser messages or object-key coercion warnings from untrusted text.
+  let incomplete = false;
+  const markIncomplete = () => {
+    if (!incomplete) input.onIncomplete?.();
+    incomplete = true;
+  };
+  const ranges: Array<readonly [number, number]> = [];
+  for (const document of documents) {
+    const range = document.range;
+    if (range == null) {
+      markIncomplete();
+      continue;
     }
-
-    return isKubernetesDocument(document.toJSON());
-  });
-
-  if (!containsKubernetesManifest) {
-    return [];
+    const source = content.slice(range[0], range[1]);
+    if (document.errors.length > 0) {
+      markIncomplete();
+      continue;
+    }
+    // Partial rendering must not hide static fields in otherwise parseable YAML.
+    if (document.warnings.length > 0 || /{{|{%/.test(source)) markIncomplete();
+    try {
+      if (isKubernetesDocument(document.toJS({ mapAsMap: true })))
+        ranges.push([range[0], range[1]]);
+    } catch {
+      markIncomplete();
+    }
   }
+  if (ranges.length === 0) return [];
 
   const findings: Finding[] = [];
   const lines = content.split(/\r?\n/);
 
+  let offset = 0;
+  let rangeIndex = 0;
   for (const [lineIndex, rawLine] of lines.entries()) {
+    const lineStartOffset = offset;
+    offset += rawLine.length + (content[offset + rawLine.length] === "\r" ? 2 : 1);
+    while (ranges[rangeIndex] != null && ranges[rangeIndex]![1] <= lineStartOffset) rangeIndex += 1;
+    const range = ranges[rangeIndex];
+    if (range == null || lineStartOffset + rawLine.length < range[0]) continue;
     const lineNumber = lineIndex + 1;
     const line = rawLine.trim();
 

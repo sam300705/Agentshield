@@ -2,6 +2,7 @@
 /* eslint-disable no-console -- CLI output is the intended public interface. */
 import { createSecurityReceipt } from "@agentshield/policy-engine";
 import { evaluateFindings, POLICY_RULE_VERSION } from "@agentshield/policy-engine";
+import { findingSchema, sanitizeEvidence, sanitizeText } from "@agentshield/schemas";
 import type { Finding, PolicyDecision, PolicyDecisionType } from "@agentshield/schemas";
 import { createHash } from "node:crypto";
 import path from "node:path";
@@ -9,6 +10,7 @@ import { parseArgs } from "node:util";
 
 import { enrichDependencies } from "./vulnerabilityEnricher.js";
 import { runScan } from "./scanRunner.js";
+import { parsePositiveLimit } from "./limits.js";
 import { gateResult } from "./cliGate.js";
 
 const CLI_VERSION = "0.2.0";
@@ -20,13 +22,14 @@ const EXIT_CODES: Record<PolicyDecisionType | "INTERNAL_FAILURE", number> = {
   INTERNAL_FAILURE: 4,
 };
 
-function sarif(findings: Finding[], decisions: PolicyDecision[]) {
+function sarif(findings: Finding[], decisions: PolicyDecision[], coverage: unknown) {
   const decisionByFinding = new Map(decisions.map((decision) => [decision.findingId, decision]));
   return {
     version: "2.1.0",
     $schema: "https://json.schemastore.org/sarif-2.1.0.json",
     runs: [
       {
+        properties: { coverage },
         tool: {
           driver: {
             name: "AgentShield",
@@ -80,6 +83,7 @@ function printHuman(
   gate: PolicyDecisionType,
   receiptHash: string,
   advisoryCount = 0,
+  unresolvedCount = 0,
 ): void {
   console.log(
     `AgentShield ${CLI_VERSION}\nTarget: ${target}\nGate: ${gate}\nFindings: ${findings.length}`,
@@ -91,6 +95,7 @@ function printHuman(
     );
   console.log(`Receipt: ${receiptHash}`);
   if (advisoryCount > 0) console.log(`OSV advisories: ${advisoryCount}`);
+  if (unresolvedCount > 0) console.log(`Unresolved dependency versions: ${unresolvedCount}`);
 }
 
 async function main(): Promise<void> {
@@ -117,6 +122,14 @@ async function main(): Promise<void> {
   const format = values.format;
   if (!new Set(["human", "json", "jsonl", "sarif"]).has(format))
     throw new Error(`Unsupported format: ${format}`);
+  for (const name of ["max-files", "max-bytes", "timeout"] as const) {
+    parsePositiveLimit(
+      values[name],
+      name,
+      name === "timeout" ? 2_147_483_647 : Number.MAX_SAFE_INTEGER,
+    );
+  }
+  if (values.policy !== POLICY_RULE_VERSION) throw new Error("Unsupported policy bundle version.");
   const target = path.resolve(values.path);
   const scanId = `cli-${createHash("sha256").update(`${target}:${CLI_VERSION}`).digest("hex").slice(0, 20)}`;
   const controller = new AbortController();
@@ -127,6 +140,7 @@ async function main(): Promise<void> {
       ignorePatterns: values.ignore,
       maxFiles: Number(values["max-files"]),
       maxTotalBytes: Number(values["max-bytes"]),
+      maxFileSizeBytes: Number(values["max-bytes"]),
       signal: controller.signal,
     });
     const decisions = evaluateFindings(result.findings, scanId);
@@ -143,13 +157,32 @@ async function main(): Promise<void> {
             ...(process.env.OSV_API_BASE_URL == null
               ? {}
               : { baseUrl: process.env.OSV_API_BASE_URL }),
+            signal: controller.signal,
             timeoutMs: Number(process.env.OSV_REQUEST_TIMEOUT_MS ?? 5_000),
             maxRetries: Number(process.env.OSV_MAX_RETRIES ?? 2),
           },
         )
       : undefined;
     const advisoryCount =
-      advisories?.reduce((count, item) => count + item.advisories.length, 0) ?? 0;
+      advisories?.reduce(
+        (count, item) =>
+          count + item.advisories.filter((advisory) => advisory.match === "CONFIRMED").length,
+        0,
+      ) ?? 0;
+    const unresolvedCount =
+      advisories?.filter((item) =>
+        item.advisories.some((advisory) => advisory.match === "UNCERTAIN"),
+      ).length ?? 0;
+    // Every public output format crosses the same evidence-redaction boundary.
+    result.findings = result.findings.map((finding) =>
+      findingSchema.parse({
+        ...finding,
+        title: sanitizeText(finding.title),
+        description: sanitizeText(finding.description),
+        evidence: sanitizeEvidence(finding.evidence),
+      }),
+    );
+    controller.signal.throwIfAborted();
     const completedAt = new Date();
     const findingCounts = Object.fromEntries(
       ["LOW", "MEDIUM", "HIGH", "CRITICAL"].map((severity) => [
@@ -172,17 +205,33 @@ async function main(): Promise<void> {
       scannerVersion: CLI_VERSION,
       policyBundleVersion: values.policy,
       findingCounts,
+      ...(result.coverage == null ? {} : { coverage: result.coverage }),
       decisionCounts,
-      approvalState: gate === "REQUIRE_APPROVAL" ? "PENDING" : "NOT_REQUIRED",
+      approvalState: decisions.some((item) => item.decision === "REQUIRE_APPROVAL")
+        ? "PENDING"
+        : "NOT_REQUIRED",
       evidence: result.findings.map((finding) => finding.fingerprint),
       startedAt,
       completedAt,
       gateResult: gate,
     });
-    if (format === "human")
-      printHuman(target, result.findings, decisions, gate, receipt.receiptHash, advisoryCount);
-    else if (format === "sarif")
-      console.log(JSON.stringify(sarif(result.findings, decisions), null, 2));
+    if (format === "human") {
+      console.log(
+        `Coverage: ${result.coverage?.status ?? "UNAVAILABLE"} ${JSON.stringify(result.coverage ?? null)}`,
+      );
+      printHuman(
+        target,
+        result.findings,
+        decisions,
+        gate,
+        receipt.receiptHash,
+        advisoryCount,
+        unresolvedCount,
+      );
+    } else if (format === "sarif")
+      console.log(
+        JSON.stringify(sarif(result.findings, decisions, result.coverage ?? null), null, 2),
+      );
     else if (format === "jsonl") {
       for (const finding of result.findings)
         console.log(
@@ -195,9 +244,12 @@ async function main(): Promise<void> {
       console.log(
         JSON.stringify({
           type: "summary",
+          coverage: result.coverage ?? null,
+          advisoryCount,
+          unresolvedCount,
           gate,
           receipt,
-          ...(advisories === undefined ? {} : { advisories }),
+          ...(advisories === undefined ? {} : { advisories: sanitizeEvidence(advisories) }),
         }),
       );
     } else
@@ -206,10 +258,13 @@ async function main(): Promise<void> {
           {
             scanId,
             target,
+            coverage: result.coverage ?? null,
+            advisoryCount,
+            unresolvedCount,
             findings: result.findings,
             decisions,
-            dependencies: result.dependencies,
-            ...(advisories === undefined ? {} : { advisories }),
+            dependencies: sanitizeEvidence(result.dependencies),
+            ...(advisories === undefined ? {} : { advisories: sanitizeEvidence(advisories) }),
             gate,
             receipt,
           },

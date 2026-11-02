@@ -1,11 +1,13 @@
 import { ApprovalStatus, Prisma } from "@prisma/client";
 import { createHash } from "node:crypto";
 
-import { canonicalJson, evaluateAgentAction } from "@agentshield/policy-engine";
+import { evaluateAgentAuthorization } from "@agentshield/policy-engine";
 import {
-  sanitizeText,
   agentApprovalSchema,
   agentAuthorizationRequestSchema,
+  canonicalAgentActionIdentity,
+  sanitizeEvidence,
+  sanitizeText,
   type AgentApproval,
   type AgentAuthorizationRequest,
 } from "@agentshield/schemas";
@@ -19,18 +21,17 @@ export type AgentApprovalResult =
   | { kind: "SESSION_NOT_FOUND" };
 
 export function createAgentActionDigest(input: AgentAuthorizationRequest): string {
-  const normalized = {
-    organizationId: input.organizationId,
-    sessionId: input.sessionId,
-    actor: input.actor,
-    actionType: input.action,
-    resource: input.resource.trim(),
-  };
-  return createHash("sha256").update(canonicalJson(normalized)).digest("hex");
+  return createHash("sha256").update(canonicalAgentActionIdentity(input)).digest("hex");
 }
 
 function toAgentApproval(value: unknown): AgentApproval {
-  return agentApprovalSchema.parse(value);
+  // Legacy records may still contain raw resources; no API/SDK consumer sees them.
+  const approval = value as { resource?: string | null; reason?: string | null };
+  return agentApprovalSchema.parse({
+    ...approval,
+    resource: approval.resource == null ? null : sanitizeText(approval.resource).slice(0, 4_000),
+    reason: approval.reason == null ? null : sanitizeText(approval.reason).slice(0, 4_000),
+  });
 }
 
 function isConcurrencyConflict(error: unknown): boolean {
@@ -55,17 +56,82 @@ function sameAction(
   );
 }
 
-async function findExisting(input: AgentAuthorizationRequest): Promise<AgentApproval | null> {
-  const existing = await prisma.agentApproval.findUnique({
+async function findExisting(
+  input: AgentAuthorizationRequest,
+  client: Prisma.TransactionClient = prisma,
+): Promise<AgentApproval | null> {
+  const existing = await client.agentApproval.findFirst({
     where: {
-      organizationId_sessionId_idempotencyKey: {
-        organizationId: input.organizationId,
-        sessionId: input.sessionId,
-        idempotencyKey: input.idempotencyKey,
-      },
+      organizationId: input.organizationId,
+      sessionId: input.sessionId,
+      idempotencyKey: input.idempotencyKey,
+      session: { actor: input.actor, organizationId: input.organizationId, status: "ACTIVE" },
     },
   });
   return existing == null ? null : toAgentApproval(existing);
+}
+
+// The caller's transaction owns the session lock until decision/approval/audits commit.
+export async function ensureAgentApprovalInTransaction(
+  tx: Prisma.TransactionClient,
+  rawInput: AgentAuthorizationRequest,
+  correlationId: string,
+): Promise<AgentApprovalResult> {
+  const input = agentAuthorizationRequestSchema.parse(rawInput);
+  if (evaluateAgentAuthorization(input).decision !== "REQUIRE_APPROVAL") {
+    throw new Error("Agent approval can only be created for REQUIRE_APPROVAL actions.");
+  }
+  const digest = createAgentActionDigest(input);
+  const sanitizedResource = sanitizeText(input.resource.trim());
+  agentApprovalSchema.shape.resource.parse(sanitizedResource);
+  await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${input.sessionId}))`);
+  const session = await tx.agentSession.findFirst({
+    where: {
+      id: input.sessionId,
+      organizationId: input.organizationId,
+      actor: input.actor,
+      status: "ACTIVE",
+    },
+    select: { id: true },
+  });
+  if (session == null) return { kind: "SESSION_NOT_FOUND" };
+  const existing = await findExisting(input, tx);
+  if (existing != null)
+    return sameAction(existing, input, digest)
+      ? { kind: "EXISTING", approval: existing }
+      : { kind: "IDEMPOTENCY_CONFLICT" };
+  const approval = await tx.agentApproval.create({
+    data: {
+      organizationId: input.organizationId,
+      sessionId: input.sessionId,
+      actor: input.actor,
+      actionType: input.action,
+      ...(sanitizedResource.length === 0 ? {} : { resource: sanitizedResource }),
+      actionDigest: digest,
+      status: ApprovalStatus.PENDING,
+      requestedBy: input.actor,
+      correlationId,
+      idempotencyKey: input.idempotencyKey,
+    },
+  });
+  await tx.auditEvent.create({
+    data: {
+      actor: input.actor,
+      action: "APPROVAL_REQUESTED",
+      entityType: "AgentApproval",
+      entityId: approval.id,
+      organizationId: input.organizationId,
+      correlationId,
+      metadata: {
+        approvalId: approval.id,
+        sessionId: input.sessionId,
+        actionType: input.action,
+        actionDigest: digest,
+        evidence: sanitizeEvidence(input.evidence ?? null),
+      },
+    },
+  });
+  return { kind: "CREATED", approval: toAgentApproval(approval) };
 }
 
 export async function ensureAgentApproval(
@@ -73,12 +139,25 @@ export async function ensureAgentApproval(
   correlationId: string,
 ): Promise<AgentApprovalResult> {
   const input = agentAuthorizationRequestSchema.parse(rawInput);
-  const decision = evaluateAgentAction(input.action, correlationId);
+  const decision = evaluateAgentAuthorization(input);
   if (decision.decision !== "REQUIRE_APPROVAL") {
     throw new Error("Agent approval can only be created for REQUIRE_APPROVAL actions.");
   }
 
   const digest = createAgentActionDigest(input);
+  const sanitizedResource = sanitizeText(input.resource.trim());
+  // Redaction can expand a string beyond the shared 4,000-character contract.
+  agentApprovalSchema.shape.resource.parse(sanitizedResource);
+  const owner = await prisma.agentSession.findFirst({
+    where: {
+      id: input.sessionId,
+      organizationId: input.organizationId,
+      actor: input.actor,
+      status: "ACTIVE",
+    },
+    select: { id: true },
+  });
+  if (owner == null) return { kind: "SESSION_NOT_FOUND" };
   const existing = await findExisting(input);
   if (existing != null) {
     return sameAction(existing, input, digest)
@@ -86,49 +165,10 @@ export async function ensureAgentApproval(
       : { kind: "IDEMPOTENCY_CONFLICT" };
   }
 
-  const session = await prisma.agentSession.findFirst({
-    where: { id: input.sessionId, organizationId: input.organizationId },
-    select: { id: true },
-  });
-  if (session == null) return { kind: "SESSION_NOT_FOUND" };
-
   try {
-    const created = await prisma.$transaction(async (tx) => {
-      const approval = await tx.agentApproval.create({
-        data: {
-          organizationId: input.organizationId,
-          sessionId: input.sessionId,
-          actor: input.actor,
-          actionType: input.action,
-          ...(input.resource.trim().length === 0
-            ? {}
-            : { resource: sanitizeText(input.resource.trim()) }),
-          actionDigest: digest,
-          status: ApprovalStatus.PENDING,
-          requestedBy: input.actor,
-          correlationId,
-          idempotencyKey: input.idempotencyKey,
-        },
-      });
-      await tx.auditEvent.create({
-        data: {
-          actor: input.actor,
-          action: "APPROVAL_REQUESTED",
-          entityType: "AgentApproval",
-          entityId: approval.id,
-          organizationId: input.organizationId,
-          correlationId,
-          metadata: {
-            approvalId: approval.id,
-            sessionId: input.sessionId,
-            actionType: input.action,
-            actionDigest: digest,
-          },
-        },
-      });
-      return approval;
-    });
-    return { kind: "CREATED", approval: toAgentApproval(created) };
+    return await prisma.$transaction((tx) =>
+      ensureAgentApprovalInTransaction(tx, input, correlationId),
+    );
   } catch (error) {
     if (!isConcurrencyConflict(error)) throw error;
     const concurrent = await findExisting(input);
@@ -156,6 +196,7 @@ export async function reviewAgentApproval(
   reviewerId: string,
   reason: string | undefined,
   correlationId: string,
+  expectedActionDigest?: string,
 ): Promise<
   | { kind: "UPDATED"; approval: AgentApproval }
   | { kind: "NOT_FOUND" }
@@ -166,15 +207,22 @@ export async function reviewAgentApproval(
     where: { id: approvalId, organizationId },
   });
   if (current == null) return { kind: "NOT_FOUND" };
+  if (expectedActionDigest != null && current.actionDigest !== expectedActionDigest)
+    return { kind: "CONFLICT" };
   if (current.requestedBy === reviewerId) return { kind: "SELF_APPROVAL" };
 
   const updated = await prisma.$transaction(async (tx) => {
     const result = await tx.agentApproval.updateMany({
-      where: { id: approvalId, organizationId, status: ApprovalStatus.PENDING },
+      where: {
+        id: approvalId,
+        organizationId,
+        status: ApprovalStatus.PENDING,
+        actionDigest: current.actionDigest,
+      },
       data: {
         status,
         reviewedBy: reviewerId,
-        ...(reason == null ? {} : { reason: sanitizeText(reason) }),
+        ...(reason == null ? {} : { reason: sanitizeText(reason).slice(0, 4_000) }),
         reviewedAt: new Date(),
       },
     });

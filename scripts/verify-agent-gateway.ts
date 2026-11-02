@@ -1,3 +1,6 @@
+import { getDashboardSummaryController } from "../apps/api/src/controllers/dashboardController.js";
+import { listPendingApprovalsController } from "../apps/api/src/controllers/approvalController.js";
+import { authorizeAgentActionController } from "../apps/api/src/controllers/agentGatewayController.js";
 import { ApprovalStatus, PrismaClient } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 
@@ -31,6 +34,7 @@ const authorizationInput: AgentAuthorizationRequest = {
   resource: "synthetic/workspace",
   correlationId: `gateway-correlation-${suffix}`,
   idempotencyKey: `gateway-approval-${suffix}`,
+  evidence: { command: "echo synthetic", directory: "workspace" },
 };
 
 function eventInput(overrides: Partial<AgentEventInput> = {}): AgentEventInput {
@@ -97,6 +101,20 @@ async function main(): Promise<void> {
     const approval = approvals.find((result) => result.kind === "CREATED")?.approval;
     assert(approval != null, "approval was not created");
     assert(approval.status === ApprovalStatus.PENDING, "approval was not pending");
+    const conflict = await ensureAgentApproval(
+      { ...authorizationInput, evidence: { command: "rm -rf workspace", directory: "workspace" } },
+      "synthetic-conflict",
+    );
+    assert(conflict.kind === "IDEMPOTENCY_CONFLICT", "changed action evidence reused approval");
+    const wrongActor = await ensureAgentApproval(
+      { ...authorizationInput, actor: `${actor}-other` },
+      "synthetic-owner",
+    );
+    assert(wrongActor.kind === "SESSION_NOT_FOUND", "another actor accessed approval session");
+    assert(
+      (await prisma.agentApproval.count({ where: { organizationId } })) === 1,
+      "rejected requests persisted approvals",
+    );
 
     const selfReview = await reviewAgentApproval(
       organizationId,
@@ -173,12 +191,26 @@ async function main(): Promise<void> {
       }),
     );
     assert(next.kind === "SEQUENCE_INVALID", "sequence gap was accepted");
+    const stripe = ["sk", "live", "a".repeat(30)].join("_");
+    const github = "ghp_" + "a_".repeat(20);
     const sequential = await ingestAgentEvent(
       eventInput({
         sequence: 2,
         idempotencyKey: `gateway-event-${suffix}-2`,
         summary: "Synthetic sequence two",
+        evidence: { command: `deploy ${stripe}`, output: github },
       }),
+    );
+    const persisted = await prisma.agentEvent.findFirstOrThrow({
+      where: { sessionId, sequence: 2 },
+    });
+    assert(
+      !JSON.stringify(persisted.evidence).includes(stripe),
+      "Stripe credential leaked into agent evidence",
+    );
+    assert(
+      !JSON.stringify(persisted.evidence).includes(github),
+      "GitHub credential leaked into agent evidence",
     );
     assert(sequential.kind === "CREATED", "next sequential event was not accepted");
     const previousEvent = await prisma.agentEvent.findFirst({
@@ -188,6 +220,138 @@ async function main(): Promise<void> {
       previousEvent != null && sequential.previousHash === previousEvent.eventHash,
       "event hash continuity failed",
     );
+
+    async function authorize(input: AgentAuthorizationRequest): Promise<number> {
+      let status = 200;
+      const response = {
+        locals: { actor: { id: actor, organizationId, role: "AGENT" } },
+        getHeader: () => "round5-gateway",
+        status(code: number) {
+          status = code;
+          return this;
+        },
+        json() {
+          return this;
+        },
+      } as unknown as Parameters<typeof authorizeAgentActionController>[1];
+      await authorizeAgentActionController(
+        { body: input } as Parameters<typeof authorizeAgentActionController>[0],
+        response,
+      );
+      return status;
+    }
+    for (const action of ["READ_FILE", "WRITE_FILE", "RUN_COMMAND"] as const) {
+      assert(
+        (await authorize({ ...authorizationInput, action, sessionId: "nonexistent" })) === 404,
+        "nonexistent session was authorized",
+      );
+      await prisma.agentSession.update({
+        where: { id: sessionId },
+        data: { actor: "another-actor" },
+      });
+      assert(
+        (await authorize({ ...authorizationInput, action })) === 404,
+        "foreign actor session was authorized",
+      );
+      for (const status of ["COMPLETED", "BLOCKED", "FAILED", "CANCELLED"] as const) {
+        await prisma.agentSession.update({ where: { id: sessionId }, data: { actor, status } });
+        assert(
+          (await authorize({ ...authorizationInput, action })) === 404,
+          "inactive session was authorized",
+        );
+      }
+      await prisma.agentSession.update({ where: { id: sessionId }, data: { status: "ACTIVE" } });
+    }
+    assert(
+      (await authorize({ ...authorizationInput, action: "READ_FILE" })) === 200,
+      "active owned session was rejected",
+    );
+
+    const secretAction = {
+      ...authorizationInput,
+      idempotencyKey: `round7-action-${suffix}`,
+      evidence: { command: `deploy ${stripe}` },
+    };
+    const secretApproval = await ensureAgentApproval(secretAction, "round7-request");
+    assert(secretApproval.kind === "CREATED", "protected action was not created");
+    const changedSecret = await ensureAgentApproval(
+      {
+        ...secretAction,
+        evidence: { command: `deploy ${["sk", "live", "b".repeat(30)].join("_")}` },
+      },
+      "round7-replay",
+    );
+    assert(
+      changedSecret.kind === "IDEMPOTENCY_CONFLICT",
+      "changed secret reused a reviewed identity",
+    );
+    let dashboard: unknown;
+    let queue: unknown;
+    const scopedResponse = (capture: (value: unknown) => void) => ({
+      locals: { actor: { id: reviewer, organizationId } },
+      json: capture,
+    });
+    await getDashboardSummaryController(
+      {} as Parameters<typeof getDashboardSummaryController>[0],
+      scopedResponse((value) => {
+        dashboard = value;
+      }) as unknown as Parameters<typeof getDashboardSummaryController>[1],
+    );
+    assert(
+      (dashboard as { pendingApprovalsCount: number }).pendingApprovalsCount === 1,
+      "dashboard omitted pending agent action",
+    );
+    await listPendingApprovalsController(
+      { query: { limit: "1", page: "1" } } as unknown as Parameters<
+        typeof listPendingApprovalsController
+      >[0],
+      scopedResponse((value) => {
+        queue = value;
+      }) as unknown as Parameters<typeof listPendingApprovalsController>[1],
+    );
+    const queued = queue as {
+      agentApprovals: {
+        total: number;
+        data: Array<{ id: string; actionDigest: string; evidenceAvailable: boolean }>;
+      };
+    };
+    assert(
+      queued.agentApprovals.total === 1 &&
+        queued.agentApprovals.data[0]?.id === secretApproval.approval.id,
+      "review queue omitted pending action",
+    );
+    assert(
+      queued.agentApprovals.data[0]?.evidenceAvailable === true,
+      "review context was unavailable for a fresh request",
+    );
+    assert(!JSON.stringify(queue).includes(stripe), "review queue leaked raw action evidence");
+    const requestAudit = await prisma.auditEvent.findFirstOrThrow({
+      where: { organizationId, entityId: secretApproval.approval.id, action: "APPROVAL_REQUESTED" },
+    });
+    assert(
+      !JSON.stringify(requestAudit.metadata).includes(stripe),
+      "raw action identity was persisted in audit metadata",
+    );
+    const staleReview = await reviewAgentApproval(
+      organizationId,
+      secretApproval.approval.id,
+      "APPROVED",
+      reviewer,
+      "Reviewed",
+      "round7-review",
+      "f".repeat(64),
+    );
+    assert(staleReview.kind === "CONFLICT", "mismatched review digest was accepted");
+    const reviewResult = await reviewAgentApproval(
+      organizationId,
+      secretApproval.approval.id,
+      "APPROVED",
+      reviewer,
+      "Reviewed exact action",
+      "round7-review",
+      secretApproval.approval.actionDigest,
+    );
+    assert(reviewResult.kind === "UPDATED", "independent exact-action review failed");
 
     console.warn(
       "Agent Gateway database verification passed: approvals, reviewer rules, idempotency, concurrency, and chain continuity.",
