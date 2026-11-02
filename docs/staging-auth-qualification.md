@@ -194,3 +194,66 @@ in this thread (or correct its secure runtime binding), and provide read-only Au
 management authorization plus the approved non-secret test tenant identity. These
 unblock inspection and an exact proposed staging configuration without requesting
 the existing GitHub App PEM, creating users, changing privileges or incurring cost.
+
+## Recovery and worker verification, 2026-11-02
+
+Work package P3-A2 restores and verifies the existing development workflow after
+the environment publication interruption. The remote PR #18 head was inspected
+before work: `ee178c2ad6a625d15f086e3c018d251ffd81b0ba`, base unchanged
+`phase3/github-e2e`. The clean local checkout was fast-forwarded from `bf40ef1`
+to that already-published revision; no implementation was restarted or replaced.
+
+Scope is local development verification and this evidence record, excluding
+production, provider configuration, paid resources and dependent phases. Reuse
+the pinned pnpm 9.15.4 toolchain, existing PostgreSQL/Prisma migrations, API tests,
+worker and GitHub HTTP simulator. No new dependency or migration is introduced.
+Security invariants are a disposable loopback-only database, explicit test
+configuration, no customer seed or reset, and no live provider credential in the
+fixture. Acceptance requires actual command results and current published-head
+CI/review; this package cannot grant Phase 3 acceptance. Recovery preserves all
+application code and history; the isolated test database contains no customer
+records and can be recreated.
+
+- PASS: current runtime observations report running/connected with enforced
+  networking. Shell commands work again. Both provider secret bindings were
+  removed during troubleshooting; recovery does not establish that either secret
+  caused the earlier failure. No platform root cause or fresh-task restoration
+  guarantee is inferred.
+- PASS local on `ee178c2`: frozen installation, Prisma generation, all sixteen
+  migrations on a new disposable PostgreSQL 16 database, and the workspace build.
+  The task owns `agentshield-phase3-verify-20261102`, using temporary data storage
+  and only host loopback port 55433. Existing containers and local `.env` files
+  were preserved.
+- PASS local: 232 API unit cases and twenty real HTTP/PostgreSQL GitHub groups,
+  including signed admission, tenant isolation, actual queue/scanner/policy/receipt
+  execution, cancellation, publication fencing, reconciliation, audit rollback
+  and scoped read-only observation. The provider is a simulator, not GitHub.
+- PASS local process smoke: the built worker started and completed one empty-queue
+  batch with provider flags disabled. This separately verifies the worker entry
+  point; job processing evidence comes from the integration suite, not that empty
+  batch. No staging worker execution or scheduling is established.
+- PASS historical exact-head CI for `ee178c2`: push and PR quality workflows
+  `40215382824` / `40215386732` report success. The PR job's full log was inspected:
+  463 workspace unit cases, twenty GitHub groups, four populated predecessor
+  upgrade histories, ten authority groups, fifteen backend-security groups, worker
+  startup, six browser cases and container/source gates passed. These are published
+  synthetic/local-runner results, not live GitHub or Auth0 acceptance.
+- PASS supporting automated review: the current PR summary and receipt
+  `6400670224` cover `ee178c2` with no findings. Dedicated security-review fields
+  remain unset. No independent human or owner acceptance is inferred.
+- PARTIAL current staging observation: initial liveness/readiness requests timed
+  out; subsequent requests returned 200, and the protected repositories request
+  returned 401. These observations establish current reachability and database
+  connectivity after warmup. Without management access, the current deployed SHA,
+  migration history, worker state, plan and configuration are unverified.
+- BLOCKED management inspection: no configured Render, Vercel or Auth0 management
+  credential or callable provider connector is available in this task. The owner's
+  authorization remains in place; the missing runtime access is a separate
+  prerequisite. Do not request or regenerate the backend GitHub App PEM.
+
+Next permitted work is restoring secure Render management access for read-only
+inspection, then completing the existing Auth0/tenant prerequisites and controlled
+worker/provider qualification above. Prepare a concrete worker plan and cost before
+any paid provisioning. Do not merge or retarget a PR. Phase 3 remains PARTIAL;
+Phases 4 and 5 remain gated. CI and review for a later documentation-only head must
+be recorded separately from the preceding `ee178c2` evidence.
