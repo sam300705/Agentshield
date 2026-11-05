@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "scope": "LOCAL_COMPARATOR_EXCEPTION_RESUME_ONLY",
+  "python": "3.12.14",
+  "versions": {
+    "langgraph": "1.2.16",
+    "langgraph-checkpoint": "4.3.0",
+    "langchain-core": "1.6.13"
+  },
+  "cases": [
+    {
+      "mode": "sync",
+      "scenario": "completed_task_then_interrupt",
+      "httpRequests": 1,
+      "committedEffects": 1,
+      "status": "PASS"
+    },
+    {
+      "mode": "sync",
+      "scenario": "ambiguous_without_provider_key",
+      "httpRequests": 2,
+      "committedEffects": 2,
+      "status": "PASS"
+    },
+    {
+      "mode": "sync",
+      "scenario": "ambiguous_with_provider_key",
+      "httpRequests": 2,
+      "committedEffects": 1,
+      "status": "PASS"
+    },
+    {
+      "mode": "async",
+      "scenario": "completed_task_then_interrupt",
+      "httpRequests": 1,
+      "committedEffects": 1,
+      "status": "PASS"
+    },
+    {
+      "mode": "async",
+      "scenario": "ambiguous_without_provider_key",
+      "httpRequests": 2,
+      "committedEffects": 2,
+      "status": "PASS"
+    },
+    {
+      "mode": "async",
+      "scenario": "ambiguous_with_provider_key",
+      "httpRequests": 2,
+      "committedEffects": 1,
+      "status": "PASS"
+    },
+    {
+      "mode": "exit",
+      "scenario": "completed_task_then_interrupt",
+      "httpRequests": 1,
+      "committedEffects": 1,
+      "status": "PASS"
+    },
+    {
+      "mode": "exit",
+      "scenario": "ambiguous_without_provider_key",
+      "httpRequests": 2,
+      "committedEffects": 2,
+      "status": "PASS"
+    },
+    {
+      "mode": "exit",
+      "scenario": "ambiguous_with_provider_key",
+      "httpRequests": 2,
+      "committedEffects": 1,
+      "status": "PASS"
+    }
+  ]
+}
